@@ -1,0 +1,2 @@
+- [React Query v5 + Orval hooks](rq5-orval-query-options.md) — hooks require queryKey in UseQueryOptions; cast `{ query: { enabled } as any }` to avoid TS2741 errors.
+- [Object Storage setup](object-storage-setup.md) — presigned URL flow working; store objectPath from response and serve via `/api/storage${objectPath}`; suppress CORS by PUT-ing directly to GCS URL.

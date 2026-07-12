@@ -1,0 +1,1064 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: Karm Baba B2B Marketplace API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: products
+    description: Product operations
+  - name: suppliers
+    description: Supplier operations
+  - name: categories
+    description: Category operations
+  - name: rfq
+    description: Request for Quotation operations
+  - name: users
+    description: User operations
+  - name: reviews
+    description: Review operations
+  - name: dashboard
+    description: Dashboard and analytics
+  - name: Storage
+    description: Object storage upload and serving endpoints.
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /categories:
+    get:
+      operationId: listCategories
+      tags: [categories]
+      summary: List all categories with product counts
+      responses:
+        "200":
+          description: Categories list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+
+  /products:
+    get:
+      operationId: listProducts
+      tags: [products]
+      summary: List products with optional search and filter
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: categoryId
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: supplierId
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: minPrice
+          in: query
+          schema:
+            type: ["number", "null"]
+        - name: maxPrice
+          in: query
+          schema:
+            type: ["number", "null"]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Products list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductListResponse"
+    post:
+      operationId: createProduct
+      tags: [products]
+      summary: Create a new product listing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+
+  /products/featured:
+    get:
+      operationId: getFeaturedProducts
+      tags: [products]
+      summary: Get featured/trending products for homepage
+      responses:
+        "200":
+          description: Featured products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+
+  /products/{id}:
+    get:
+      operationId: getProduct
+      tags: [products]
+      summary: Get product by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Update a product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductUpdate"
+      responses:
+        "200":
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+    delete:
+      operationId: deleteProduct
+      tags: [products]
+      summary: Delete a product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /suppliers:
+    get:
+      operationId: listSuppliers
+      tags: [suppliers]
+      summary: List suppliers
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: verified
+          in: query
+          schema:
+            type: ["boolean", "null"]
+        - name: categoryId
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Suppliers list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierListResponse"
+    post:
+      operationId: createSupplier
+      tags: [suppliers]
+      summary: Create a supplier profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Supplier"
+
+  /suppliers/featured:
+    get:
+      operationId: getFeaturedSuppliers
+      tags: [suppliers]
+      summary: Get top/verified suppliers for homepage
+      responses:
+        "200":
+          description: Featured suppliers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Supplier"
+
+  /suppliers/{id}:
+    get:
+      operationId: getSupplier
+      tags: [suppliers]
+      summary: Get supplier by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Supplier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Supplier"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateSupplier
+      tags: [suppliers]
+      summary: Update a supplier
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierUpdate"
+      responses:
+        "200":
+          description: Updated supplier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Supplier"
+
+  /rfq:
+    get:
+      operationId: listRfqs
+      tags: [rfq]
+      summary: List RFQs
+      parameters:
+        - name: buyerId
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: supplierId
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: status
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: RFQ list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Rfq"
+    post:
+      operationId: createRfq
+      tags: [rfq]
+      summary: Submit a Request for Quotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RfqInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+
+  /rfq/{id}:
+    get:
+      operationId: getRfq
+      tags: [rfq]
+      summary: Get RFQ by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: RFQ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+    patch:
+      operationId: updateRfq
+      tags: [rfq]
+      summary: Update RFQ status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RfqUpdate"
+      responses:
+        "200":
+          description: Updated RFQ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+
+  /users:
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/login:
+    post:
+      operationId: loginUser
+      tags: [users]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Logged in user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Invalid credentials
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /reviews:
+    get:
+      operationId: listReviews
+      tags: [reviews]
+      summary: List reviews for a supplier or product
+      parameters:
+        - name: supplierId
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: productId
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: Reviews list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Review"
+    post:
+      operationId: createReview
+      tags: [reviews]
+      summary: Submit a review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Get platform stats for dashboard
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /dashboard/supplier/{id}:
+    get:
+      operationId: getSupplierDashboard
+      tags: [dashboard]
+      summary: Get supplier-specific dashboard data
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Supplier dashboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierDashboard"
+
+  /storage/uploads/request-url:
+    post:
+      tags: [Storage]
+      operationId: requestUploadUrl
+      summary: Request a presigned URL for file upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadUrlRequest'
+      responses:
+        '200':
+          description: Presigned upload URL generated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadUrlResponse'
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /storage/objects/{objectPath}:
+    get:
+      tags: [Storage]
+      operationId: getStorageObject
+      summary: Serve an uploaded object
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Object content streamed.
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Object not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    Category:
+      type: object
+      required: [id, name, slug, productCount]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        icon:
+          type: ["string", "null"]
+        imageUrl:
+          type: ["string", "null"]
+        productCount:
+          type: integer
+        description:
+          type: ["string", "null"]
+
+    Product:
+      type: object
+      required: [id, name, supplierId, categoryId, minPrice, maxPrice, unit, minOrder, imageUrl, inStock, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        supplierId:
+          type: integer
+        supplierName:
+          type: ["string", "null"]
+        supplierVerified:
+          type: ["boolean", "null"]
+        categoryId:
+          type: integer
+        categoryName:
+          type: ["string", "null"]
+        minPrice:
+          type: number
+        maxPrice:
+          type: number
+        unit:
+          type: string
+        minOrder:
+          type: integer
+        imageUrl:
+          type: string
+        images:
+          type: array
+          items:
+            type: string
+        inStock:
+          type: boolean
+        featured:
+          type: boolean
+        rating:
+          type: ["number", "null"]
+        reviewCount:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+
+    ProductInput:
+      type: object
+      required: [name, supplierId, categoryId, minPrice, maxPrice, unit, minOrder, imageUrl]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        supplierId:
+          type: integer
+        categoryId:
+          type: integer
+        minPrice:
+          type: number
+        maxPrice:
+          type: number
+        unit:
+          type: string
+        minOrder:
+          type: integer
+        imageUrl:
+          type: string
+        images:
+          type: array
+          items:
+            type: string
+        inStock:
+          type: boolean
+        featured:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+
+    ProductUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        minPrice:
+          type: number
+        maxPrice:
+          type: number
+        unit:
+          type: string
+        minOrder:
+          type: integer
+        imageUrl:
+          type: string
+        inStock:
+          type: boolean
+        featured:
+          type: boolean
+
+    ProductListResponse:
+      type: object
+      required: [items, total, page, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    Supplier:
+      type: object
+      required: [id, companyName, location, verified, rating, reviewCount, createdAt]
+      properties:
+        id:
+          type: integer
+        companyName:
+          type: string
+        description:
+          type: ["string", "null"]
+        location:
+          type: string
+        country:
+          type: ["string", "null"]
+        logoUrl:
+          type: ["string", "null"]
+        coverUrl:
+          type: ["string", "null"]
+        verified:
+          type: boolean
+        yearsInBusiness:
+          type: ["integer", "null"]
+        employeeCount:
+          type: ["string", "null"]
+        mainProducts:
+          type: array
+          items:
+            type: string
+        certifications:
+          type: array
+          items:
+            type: string
+        rating:
+          type: number
+        reviewCount:
+          type: integer
+        productCount:
+          type: integer
+        responseRate:
+          type: ["number", "null"]
+        responseTime:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    SupplierInput:
+      type: object
+      required: [companyName, location]
+      properties:
+        companyName:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        country:
+          type: string
+        logoUrl:
+          type: string
+        coverUrl:
+          type: string
+        yearsInBusiness:
+          type: integer
+        employeeCount:
+          type: string
+        mainProducts:
+          type: array
+          items:
+            type: string
+        certifications:
+          type: array
+          items:
+            type: string
+
+    SupplierUpdate:
+      type: object
+      properties:
+        companyName:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        logoUrl:
+          type: string
+        coverUrl:
+          type: string
+        verified:
+          type: boolean
+
+    SupplierListResponse:
+      type: object
+      required: [items, total, page, limit]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Supplier"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    Rfq:
+      type: object
+      required: [id, productName, quantity, unit, buyerName, buyerEmail, status, createdAt]
+      properties:
+        id:
+          type: integer
+        productId:
+          type: ["integer", "null"]
+        productName:
+          type: string
+        supplierId:
+          type: ["integer", "null"]
+        supplierName:
+          type: ["string", "null"]
+        buyerId:
+          type: ["integer", "null"]
+        buyerName:
+          type: string
+        buyerEmail:
+          type: string
+        quantity:
+          type: integer
+        unit:
+          type: string
+        targetPrice:
+          type: ["number", "null"]
+        description:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [pending, responded, accepted, rejected]
+        createdAt:
+          type: string
+
+    RfqInput:
+      type: object
+      required: [productName, quantity, unit, buyerName, buyerEmail]
+      properties:
+        productId:
+          type: integer
+        productName:
+          type: string
+        supplierId:
+          type: integer
+        buyerId:
+          type: integer
+        buyerName:
+          type: string
+        buyerEmail:
+          type: string
+        quantity:
+          type: integer
+        unit:
+          type: string
+        targetPrice:
+          type: number
+        description:
+          type: string
+
+    RfqUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, responded, accepted, rejected]
+
+    User:
+      type: object
+      required: [id, name, email, role, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [buyer, seller, admin]
+        company:
+          type: ["string", "null"]
+        avatarUrl:
+          type: ["string", "null"]
+        supplierId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+
+    UserInput:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [buyer, seller]
+        company:
+          type: string
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    Review:
+      type: object
+      required: [id, rating, comment, reviewerName, createdAt]
+      properties:
+        id:
+          type: integer
+        supplierId:
+          type: ["integer", "null"]
+        productId:
+          type: ["integer", "null"]
+        reviewerId:
+          type: ["integer", "null"]
+        reviewerName:
+          type: string
+        rating:
+          type: integer
+        comment:
+          type: string
+        createdAt:
+          type: string
+
+    ReviewInput:
+      type: object
+      required: [rating, comment, reviewerName]
+      properties:
+        supplierId:
+          type: integer
+        productId:
+          type: integer
+        reviewerId:
+          type: integer
+        reviewerName:
+          type: string
+        rating:
+          type: integer
+        comment:
+          type: string
+
+    DashboardStats:
+      type: object
+      required: [totalProducts, totalSuppliers, totalRfqs, totalUsers, categoryBreakdown, recentRfqs]
+      properties:
+        totalProducts:
+          type: integer
+        totalSuppliers:
+          type: integer
+        totalRfqs:
+          type: integer
+        totalUsers:
+          type: integer
+        categoryBreakdown:
+          type: array
+          items:
+            type: object
+            required: [categoryName, count]
+            properties:
+              categoryName:
+                type: string
+              count:
+                type: integer
+        recentRfqs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Rfq"
+
+    SupplierDashboard:
+      type: object
+      required: [supplier, productCount, rfqCount, pendingRfqs, recentRfqs, totalViews]
+      properties:
+        supplier:
+          $ref: "#/components/schemas/Supplier"
+        productCount:
+          type: integer
+        rfqCount:
+          type: integer
+        pendingRfqs:
+          type: integer
+        recentRfqs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Rfq"
+        totalViews:
+          type: integer
+
+    UploadUrlRequest:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Original file name.
+        size:
+          type: integer
+          minimum: 1
+          description: File size in bytes.
+        contentType:
+          type: string
+          minLength: 1
+          description: MIME type of the file (e.g. `image/jpeg`).
+    UploadUrlResponse:
+      type: object
+      required: [uploadURL, objectPath]
+      properties:
+        uploadURL:
+          type: string
+          format: uri
+          description: Presigned GCS URL for PUT upload.
+        objectPath:
+          type: string
+          description: Normalized object path (e.g. `/objects/uploads/uuid`). Store this in your database.
+        metadata:
+          $ref: '#/components/schemas/UploadUrlRequest'
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
