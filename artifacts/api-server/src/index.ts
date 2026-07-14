@@ -1,6 +1,8 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 
+// Local / container: listen on PORT.
+// Vercel uses the prebundled api/index.js handler (see build.mjs).
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {

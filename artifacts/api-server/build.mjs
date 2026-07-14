@@ -12,21 +12,14 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
+  const apiDir = path.resolve(artifactDir, "api");
   await rm(distDir, { recursive: true, force: true });
+  await rm(apiDir, { recursive: true, force: true });
 
-  await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+  const shared = {
     platform: "node",
     bundle: true,
-    format: "esm",
-    outdir: distDir,
-    outExtension: { ".js": ".mjs" },
     logLevel: "info",
-    // Some packages may not be bundleable, so we externalize them, we can add more here as needed.
-    // Some of the packages below may not be imported or installed, but we're adding them in case they are in the future.
-    // Examples of unbundleable packages:
-    // - uses native modules and loads them dynamically (e.g. sharp)
-    // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
     external: [
       "*.node",
       "sharp",
@@ -103,10 +96,8 @@ async function buildAll() {
     ],
     sourcemap: "linked",
     plugins: [
-      // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
-      esbuildPluginPino({ transports: ["pino-pretty"] })
+      esbuildPluginPino({ transports: ["pino-pretty"] }),
     ],
-    // Make sure packages that are cjs only (e.g. express) but are bundled continue to work in our esm output file
     banner: {
       js: `import { createRequire as __bannerCrReq } from 'node:module';
 import __bannerPath from 'node:path';
@@ -116,6 +107,39 @@ globalThis.require = __bannerCrReq(import.meta.url);
 globalThis.__filename = __bannerUrl.fileURLToPath(import.meta.url);
 globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
+    },
+  };
+
+  // Local / long-running server entry
+  await esbuild({
+    ...shared,
+    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    format: "esm",
+    outdir: distDir,
+    outExtension: { ".js": ".mjs" },
+  });
+
+  // Vercel serverless entry — single CJS file with pino left external so
+  // esbuild-plugin-pino doesn't collide, and @vercel/node never recompiles
+  // workspace TypeScript (avoids "Emit skipped").
+  await esbuild({
+    platform: "node",
+    bundle: true,
+    logLevel: "info",
+    entryPoints: [path.resolve(artifactDir, "src/vercel.ts")],
+    format: "cjs",
+    outfile: path.resolve(apiDir, "index.js"),
+    sourcemap: false,
+    external: [
+      ...shared.external,
+      "pino",
+      "pino-http",
+      "pino-pretty",
+      "thread-stream",
+    ],
+    footer: {
+      // Ensure Express default export is the CJS module.exports Vercel expects
+      js: "module.exports = module.exports.default ?? module.exports;",
     },
   });
 }

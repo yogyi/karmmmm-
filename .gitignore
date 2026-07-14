@@ -8,6 +8,9 @@ out-tsc
 .expo
 .expo-shared
 
+# Generated Vercel serverless handler (from api-server build.mjs)
+artifacts/api-server/api/
+
 # dependencies
 node_modules
 
