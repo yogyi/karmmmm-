@@ -145,12 +145,10 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     },
   });
 
-  // Vercel static outputDirectory requirement (API-only app).
+  // Keep an empty public/ so dashboard "Output Directory = public" still passes,
+  // but do NOT write index.html (it would shadow API routes).
   await mkdir(publicDir, { recursive: true });
-  await writeFile(
-    path.join(publicDir, "index.html"),
-    "<!doctype html><title>Karm Baba API</title><p>API is running. Use <code>/api/*</code> routes.</p>\n",
-  );
+  await writeFile(path.join(publicDir, ".keep"), "");
 }
 
 buildAll().catch((err) => {

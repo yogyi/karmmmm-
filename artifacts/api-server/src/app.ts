@@ -46,4 +46,12 @@ if (clerkEnabled) {
 
 app.use("/api", router);
 
+app.get("/", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "karm-baba-api",
+    health: "/api/healthz",
+  });
+});
+
 export default app;
