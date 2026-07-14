@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -13,8 +13,10 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   const apiDir = path.resolve(artifactDir, "api");
+  const publicDir = path.resolve(artifactDir, "public");
   await rm(distDir, { recursive: true, force: true });
   await rm(apiDir, { recursive: true, force: true });
+  await rm(publicDir, { recursive: true, force: true });
 
   const shared = {
     platform: "node",
@@ -142,6 +144,13 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
       js: "module.exports = module.exports.default ?? module.exports;",
     },
   });
+
+  // Vercel static outputDirectory requirement (API-only app).
+  await mkdir(publicDir, { recursive: true });
+  await writeFile(
+    path.join(publicDir, "index.html"),
+    "<!doctype html><title>Karm Baba API</title><p>API is running. Use <code>/api/*</code> routes.</p>\n",
+  );
 }
 
 buildAll().catch((err) => {

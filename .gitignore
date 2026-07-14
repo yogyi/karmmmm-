@@ -10,6 +10,7 @@ out-tsc
 
 # Generated Vercel serverless handler (from api-server build.mjs)
 artifacts/api-server/api/
+artifacts/api-server/public/
 
 # dependencies
 node_modules
