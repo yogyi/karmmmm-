@@ -104,10 +104,16 @@ router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
 
   const updates: Record<string, unknown> = {};
   if (parsed.data.status != null) updates.status = parsed.data.status;
-  if (parsed.data.supplierName != null) updates.supplierName = parsed.data.supplierName;
-  if (parsed.data.sellerMessage != null) updates.sellerMessage = parsed.data.sellerMessage;
-  if (parsed.data.quotedPrice != null) {
-    updates.quotedPrice = String(parsed.data.quotedPrice);
+  const body = parsed.data as {
+    status?: string;
+    supplierName?: string;
+    sellerMessage?: string;
+    quotedPrice?: number;
+  };
+  if (body.supplierName != null) updates.supplierName = body.supplierName;
+  if (body.sellerMessage != null) updates.sellerMessage = body.sellerMessage;
+  if (body.quotedPrice != null) {
+    updates.quotedPrice = String(body.quotedPrice);
     updates.quotedAt = new Date();
     if (parsed.data.status == null) updates.status = "responded";
   }

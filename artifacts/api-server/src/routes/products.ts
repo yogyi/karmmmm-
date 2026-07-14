@@ -151,7 +151,10 @@ router.post("/products", requireClerkAuth, async (req, res): Promise<void> => {
     ...parsed.data,
     minPrice: String(parsed.data.minPrice),
     maxPrice: String(parsed.data.maxPrice),
-    rating: parsed.data.rating != null ? String(parsed.data.rating) : null,
+    rating:
+      "rating" in parsed.data && parsed.data.rating != null
+        ? String((parsed.data as { rating?: number }).rating)
+        : null,
   }).returning();
 
   const enriched = await enrichProduct(product);
@@ -175,7 +178,8 @@ router.patch("/products/:id", requireClerkAuth, async (req, res): Promise<void> 
   const data: Record<string, unknown> = { ...parsed.data };
   if (parsed.data.minPrice != null) data.minPrice = String(parsed.data.minPrice);
   if (parsed.data.maxPrice != null) data.maxPrice = String(parsed.data.maxPrice);
-  if (parsed.data.rating != null) data.rating = String(parsed.data.rating);
+  const rating = (parsed.data as { rating?: number }).rating;
+  if (rating != null) data.rating = String(rating);
 
   const [product] = await db
     .update(productsTable)
