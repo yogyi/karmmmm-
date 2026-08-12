@@ -1,42 +1,105 @@
 import { Router, type IRouter } from "express";
-import { eq, sql } from "drizzle-orm";
-import { db, productsTable, suppliersTable, rfqTable, usersTable, categoriesTable } from "@workspace/db";
-import { GetDashboardStatsResponse, GetSupplierDashboardParams, GetSupplierDashboardResponse } from "@workspace/api-zod";
+import { prisma, toNumber, type Prisma } from "@workspace/db";
+import {
+  GetDashboardStatsResponse,
+  GetSupplierDashboardParams,
+  GetSupplierDashboardResponse,
+} from "@workspace/api-zod";
+import { requireClerkAuth } from "../lib/auth";
+import {
+  canAccessSupplier,
+  getAuthenticatedDbUser,
+  isAdmin,
+  parseLinkedSupplierId,
+} from "../lib/authorize";
+import { redactRfqForViewer } from "../lib/redact";
 
 const router: IRouter = Router();
 
-router.get("/dashboard/stats", async (_req, res): Promise<void> => {
-  const [{ totalProducts }] = await db.select({ totalProducts: sql<number>`count(*)::int` }).from(productsTable);
-  const [{ totalSuppliers }] = await db.select({ totalSuppliers: sql<number>`count(*)::int` }).from(suppliersTable);
-  const [{ totalRfqs }] = await db.select({ totalRfqs: sql<number>`count(*)::int` }).from(rfqTable);
-  const [{ totalUsers }] = await db.select({ totalUsers: sql<number>`count(*)::int` }).from(usersTable);
+function mapRfqRow(r: {
+  id: number;
+  productId: number | null;
+  productName: string;
+  supplierId: number | null;
+  supplierName: string | null;
+  buyerId: number | null;
+  buyerName: string;
+  buyerEmail: string;
+  quantity: number;
+  unit: string;
+  targetPrice: { toString(): string } | string | number | null;
+  description: string | null;
+  status: string;
+  createdAt: Date;
+}) {
+  return {
+    ...r,
+    targetPrice: toNumber(r.targetPrice),
+    createdAt: r.createdAt.toISOString(),
+  };
+}
 
-  const categories = await db.select({ name: categoriesTable.name, count: categoriesTable.productCount }).from(categoriesTable).orderBy(categoriesTable.productCount);
-  const categoryBreakdown = categories.map(c => ({ categoryName: c.name, count: c.count }));
+/**
+ * Platform stats.
+ * - Anonymous: aggregates only (no recent RFQs / PII).
+ * - Authenticated: recent RFQs scoped to the viewer; emails redacted unless party/admin.
+ */
+router.get("/dashboard/stats", async (req, res): Promise<void> => {
+  const dbUser = await getAuthenticatedDbUser(req);
 
-  const recentRfqs = await db
-    .select()
-    .from(rfqTable)
-    .orderBy(rfqTable.createdAt)
-    .limit(5);
+  const [totalProducts, totalSuppliers, totalRfqs, totalUsers, categories] =
+    await Promise.all([
+      prisma.product.count(),
+      prisma.supplier.count(),
+      prisma.rfq.count(),
+      prisma.user.count(),
+      prisma.category.findMany({
+        select: { name: true, productCount: true },
+        orderBy: { productCount: "asc" },
+      }),
+    ]);
+
+  let recentRfqs: ReturnType<typeof mapRfqRow>[] = [];
+
+  if (dbUser) {
+    const where: Prisma.RfqWhereInput = isAdmin(dbUser)
+      ? {}
+      : {
+          OR: [
+            { buyerId: dbUser.id },
+            ...(parseLinkedSupplierId(dbUser) != null
+              ? [{ supplierId: parseLinkedSupplierId(dbUser)! }]
+              : []),
+          ],
+        };
+
+    const rows = await prisma.rfq.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    });
+
+    recentRfqs = rows
+      .map(mapRfqRow)
+      .map((r) => redactRfqForViewer(r, dbUser));
+  }
 
   const stats = {
     totalProducts,
     totalSuppliers,
     totalRfqs,
     totalUsers,
-    categoryBreakdown,
-    recentRfqs: recentRfqs.map(r => ({
-      ...r,
-      targetPrice: r.targetPrice ? parseFloat(r.targetPrice) : null,
-      createdAt: r.createdAt.toISOString(),
+    categoryBreakdown: categories.map((c) => ({
+      categoryName: c.name,
+      count: c.productCount,
     })),
+    recentRfqs,
   };
 
   res.json(GetDashboardStatsResponse.parse(stats));
 });
 
-router.get("/dashboard/supplier/:id", async (req, res): Promise<void> => {
+router.get("/dashboard/supplier/:id", requireClerkAuth, async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetSupplierDashboardParams.safeParse({ id: parseInt(rawId, 10) });
   if (!params.success) {
@@ -44,52 +107,56 @@ router.get("/dashboard/supplier/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const [supplier] = await db.select().from(suppliersTable).where(eq(suppliersTable.id, params.data.id));
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (!canAccessSupplier(dbUser, params.data.id)) {
+    res.status(403).json({
+      error: "Forbidden — this supplier dashboard is not linked to your account",
+    });
+    return;
+  }
+
+  const supplier = await prisma.supplier.findUnique({ where: { id: params.data.id } });
   if (!supplier) {
     res.status(404).json({ error: "Supplier not found" });
     return;
   }
 
-  const [{ productCount }] = await db
-    .select({ productCount: sql<number>`count(*)::int` })
-    .from(productsTable)
-    .where(eq(productsTable.supplierId, params.data.id));
+  const [productCount, rfqCount, pendingRfqs, recentRfqs] = await Promise.all([
+    prisma.product.count({ where: { supplierId: params.data.id } }),
+    prisma.rfq.count({ where: { supplierId: params.data.id } }),
+    prisma.rfq.count({
+      where: { supplierId: params.data.id, status: "pending" },
+    }),
+    prisma.rfq.findMany({
+      where: { supplierId: params.data.id },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+  ]);
 
-  const [{ rfqCount }] = await db
-    .select({ rfqCount: sql<number>`count(*)::int` })
-    .from(rfqTable)
-    .where(eq(rfqTable.supplierId, params.data.id));
-
-  const [{ pendingRfqs }] = await db
-    .select({ pendingRfqs: sql<number>`count(*)::int` })
-    .from(rfqTable)
-    .where(eq(rfqTable.supplierId, params.data.id));
-
-  const recentRfqs = await db
-    .select()
-    .from(rfqTable)
-    .where(eq(rfqTable.supplierId, params.data.id))
-    .orderBy(rfqTable.createdAt)
-    .limit(5);
-
-  res.json(GetSupplierDashboardResponse.parse({
-    supplier: {
-      ...supplier,
-      rating: parseFloat(supplier.rating ?? "0"),
-      responseRate: supplier.responseRate ? parseFloat(supplier.responseRate) : null,
-      mainProducts: supplier.mainProducts ?? [],
-      certifications: supplier.certifications ?? [],
-    },
-    productCount,
-    rfqCount,
-    pendingRfqs,
-    recentRfqs: recentRfqs.map(r => ({
-      ...r,
-      targetPrice: r.targetPrice ? parseFloat(r.targetPrice) : null,
-      createdAt: r.createdAt.toISOString(),
-    })),
-    totalViews: Math.floor(Math.random() * 5000) + 500,
-  }));
+  res.json(
+    GetSupplierDashboardResponse.parse({
+      supplier: {
+        ...supplier,
+        rating: toNumber(supplier.rating) ?? 0,
+        responseRate: toNumber(supplier.responseRate),
+        mainProducts: supplier.mainProducts ?? [],
+        certifications: supplier.certifications ?? [],
+      },
+      productCount,
+      rfqCount,
+      pendingRfqs,
+      recentRfqs: recentRfqs
+        .map(mapRfqRow)
+        .map((r) => redactRfqForViewer(r, dbUser)),
+      // No view analytics yet — keep schema field as 0 rather than inventing numbers.
+      totalViews: 0,
+    }),
+  );
 });
 
 export default router;

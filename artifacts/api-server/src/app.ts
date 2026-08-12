@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { clerkMiddleware } from "@clerk/express";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { buildCorsOptions, listAllowedCorsOrigins } from "./lib/cors";
 
 const app: Express = express();
 
@@ -31,7 +32,8 @@ app.use(
     },
   }),
 );
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors(buildCorsOptions()));
+logger.info({ origins: listAllowedCorsOrigins() }, "CORS allowlist configured");
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -40,18 +42,10 @@ if (clerkEnabled) {
   logger.info("Clerk auth middleware enabled");
 } else {
   logger.warn(
-    "Clerk keys missing — auth middleware disabled. Set CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY in .env",
+    "Clerk keys missing — protected routes will return 503 until CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY are set",
   );
 }
 
 app.use("/api", router);
-
-app.get("/", (_req, res) => {
-  res.json({
-    ok: true,
-    service: "karm-baba-api",
-    health: "/api/healthz",
-  });
-});
 
 export default app;

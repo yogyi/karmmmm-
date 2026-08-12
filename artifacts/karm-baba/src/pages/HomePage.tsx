@@ -4,6 +4,7 @@ import { Search, Shield, TrendingUp, Headphones, ArrowRight, CheckCircle, Packag
 import { motion } from "framer-motion";
 import { useGetFeaturedProducts, useGetFeaturedSuppliers, useListCategories, useGetDashboardStats, useListProducts, useListSuppliers } from "@workspace/api-client-react";
 import { StarRating } from "@/components/StarRating";
+import { ProductImage } from "@/components/ProductImage";
 
 const categoryIcons: Record<string, React.ReactNode> = {
   Cpu: <Cpu size={24} />,
@@ -254,10 +255,14 @@ export function HomePage() {
                   className="bg-white rounded-2xl border border-border overflow-hidden hover:border-primary/30 transition-all text-left group shadow-sm card-hover"
                 >
                   <div className="relative h-40 overflow-hidden bg-muted">
-                    <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                    <ProductImage
+                      src={product.imageUrl}
+                      alt={product.name}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    />
                     {i < 2 && (
                       <div className="absolute top-2 left-2 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <Star size={9} className="fill-white" /> HOT
+                        <Star size={9} className="fill-white" /> Featured
                       </div>
                     )}
                     {(product as { supplierVerified?: boolean }).supplierVerified && (

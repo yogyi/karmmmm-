@@ -8,6 +8,8 @@ import usersRouter from "./users";
 import reviewsRouter from "./reviews";
 import dashboardRouter from "./dashboard";
 import storageRouter from "./storage";
+import leadsRouter from "./leads";
+import shopRouter from "./shop";
 
 const router: IRouter = Router();
 
@@ -20,5 +22,7 @@ router.use(usersRouter);
 router.use(reviewsRouter);
 router.use(dashboardRouter);
 router.use(storageRouter);
+router.use(leadsRouter);
+router.use(shopRouter);
 
 export default router;

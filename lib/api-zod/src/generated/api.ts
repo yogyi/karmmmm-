@@ -496,6 +496,7 @@ export const LoginUserResponse = zod.object({
   "company": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
   "supplierId": zod.number().nullish(),
+  "onboardingCompleted": zod.boolean(),
   "createdAt": zod.string()
 })
 
@@ -515,7 +516,13 @@ export const GetUserResponse = zod.object({
   "company": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
   "supplierId": zod.number().nullish(),
+  "onboardingCompleted": zod.boolean(),
   "createdAt": zod.string()
+})
+
+export const CompleteUserOnboardingBody = zod.object({
+  "role": zod.enum(['buyer', 'seller']),
+  "company": zod.string().optional(),
 })
 
 

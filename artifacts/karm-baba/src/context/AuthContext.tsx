@@ -21,6 +21,7 @@ export interface AuthUser {
   company?: string | null;
   avatarUrl?: string | null;
   supplierId?: number | null;
+  onboardingCompleted?: boolean;
   clerkId?: string | null;
 }
 
@@ -30,6 +31,8 @@ interface AuthContextType {
   logout: () => void;
   isLoggedIn: boolean;
   isLoaded: boolean;
+  /** True once Clerk is loaded and (if signed in) profile sync finished. */
+  profileReady: boolean;
   refreshProfile: () => Promise<void>;
 }
 
@@ -60,14 +63,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { user: clerkUser } = useUser();
   const { signOut } = useClerk();
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [profileReady, setProfileReady] = useState(false);
 
   const refreshProfile = useCallback(async () => {
     if (!isSignedIn) {
       setUser(null);
+      setProfileReady(true);
       return;
     }
     const profile = await syncProfile(getToken);
     setUser(profile);
+    setProfileReady(true);
   }, [isSignedIn, getToken]);
 
   useEffect(() => {
@@ -82,8 +88,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isLoaded) return;
     if (!isSignedIn || !userId) {
       setUser(null);
+      setProfileReady(true);
       return;
     }
+    setProfileReady(false);
     void refreshProfile();
   }, [isLoaded, isSignedIn, userId, clerkUser?.id, refreshProfile]);
 
@@ -96,32 +104,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void signOut({ redirectUrl: "/" });
   }, [signOut]);
 
-  const fallbackUser: AuthUser | null =
-    isSignedIn && clerkUser
-      ? {
-          id: user?.id ?? 0,
-          name:
-            user?.name ??
-            ([clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
-              clerkUser.primaryEmailAddress?.emailAddress ||
-              "User"),
-          email: user?.email ?? clerkUser.primaryEmailAddress?.emailAddress ?? "",
-          role: user?.role ?? "buyer",
-          company: user?.company ?? null,
-          avatarUrl: user?.avatarUrl ?? clerkUser.imageUrl ?? null,
-          supplierId: user?.supplierId ?? null,
-          clerkId: userId,
-        }
-      : user;
+  // Only use the synced API profile. Do not invent role/onboarding defaults from Clerk
+  // when sync fails — that forced buyers into wrong portals and onboarding loops.
+  const displayUser: AuthUser | null = user
+    ? {
+        ...user,
+        name:
+          user.name ||
+          ([clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ").trim() ||
+            clerkUser?.primaryEmailAddress?.emailAddress ||
+            user.email ||
+            "User"),
+        email: user.email || clerkUser?.primaryEmailAddress?.emailAddress || "",
+        avatarUrl: user.avatarUrl || clerkUser?.imageUrl || null,
+        clerkId: user.clerkId ?? userId,
+      }
+    : null;
 
   return (
     <AuthContext.Provider
       value={{
-        user: fallbackUser,
+        user: displayUser,
         login,
         logout,
         isLoggedIn: !!isSignedIn,
         isLoaded,
+        profileReady,
         refreshProfile,
       }}
     >

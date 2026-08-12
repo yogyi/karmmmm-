@@ -66,6 +66,7 @@ export function useUpload(options: UseUploadOptions = {}) {
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify({
           name: file.name,
           size: file.size,
@@ -80,7 +81,7 @@ export function useUpload(options: UseUploadOptions = {}) {
 
       return response.json();
     },
-    []
+    [basePath]
   );
 
   const uploadToPresignedUrl = useCallback(
@@ -113,6 +114,25 @@ export function useUpload(options: UseUploadOptions = {}) {
         setProgress(30);
         await uploadToPresignedUrl(file, uploadResponse.uploadURL);
 
+        // Attach ACL (owner + visibility) so /storage/objects/* can enforce access.
+        setProgress(80);
+        const finalizeRes = await fetch(`${basePath}/uploads/finalize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            objectPath: uploadResponse.objectPath,
+            // Marketplace product images need to be publicly readable in the catalog.
+            visibility: "public",
+          }),
+        });
+        if (!finalizeRes.ok) {
+          const errorData = await finalizeRes.json().catch(() => ({}));
+          throw new Error(
+            (errorData as { error?: string }).error || "Failed to finalize upload",
+          );
+        }
+
         setProgress(100);
         options.onSuccess?.(uploadResponse);
         return uploadResponse;
@@ -141,6 +161,7 @@ export function useUpload(options: UseUploadOptions = {}) {
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify({
           name: file.name,
           size: file.size,
@@ -159,7 +180,7 @@ export function useUpload(options: UseUploadOptions = {}) {
         headers: { "Content-Type": file.type || "application/octet-stream" },
       };
     },
-    []
+    [basePath]
   );
 
   return {

@@ -3,6 +3,7 @@ import { CheckCircle, ChevronLeft, MapPin, Users, Clock, Star, Send, Award, Pack
 import { motion } from "framer-motion";
 import { useGetSupplier, useListProducts, useListReviews } from "@workspace/api-client-react";
 import { StarRating } from "@/components/StarRating";
+import { ProductImage } from "@/components/ProductImage";
 
 export function SupplierDetailPage({ params }: { params: { id: string } }) {
   const [, navigate] = useLocation();
@@ -133,7 +134,11 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
                       className="border border-border rounded-2xl overflow-hidden hover:border-primary/30 hover:shadow-md transition-all text-left group card-hover"
                     >
                       <div className="h-28 overflow-hidden bg-muted relative">
-                        <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                        <ProductImage
+                          src={product.imageUrl}
+                          alt={product.name}
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                       <div className="p-2.5">

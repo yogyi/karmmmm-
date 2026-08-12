@@ -16,42 +16,42 @@ INSERT INTO categories (name, slug, icon, description, product_count) VALUES
 INSERT INTO suppliers (
   company_name, description, location, country, verified,
   years_in_business, employee_count, main_products, certifications,
-  rating, review_count, product_count, response_rate, response_time
+  rating, review_count, product_count, response_rate, response_time, slug
 ) VALUES
   (
     'Gujarat Textile Mills',
     'Leading cotton and fabric manufacturer supplying bulk orders across India.',
     'Surat, Gujarat', 'India', true, 18, '201-500',
     ARRAY['Cotton Fabric','Polyester','Yarn'], ARRAY['ISO 9001','GOTS'],
-    4.70, 128, 0, 96.00, '< 2h'
+    4.70, 128, 0, 96.00, '< 2h', 'gujarat-textile-mills'
   ),
   (
     'BrightLite Electronics',
     'OEM LED lighting and electronic components manufacturer.',
     'Noida, Uttar Pradesh', 'India', true, 12, '51-200',
     ARRAY['LED Bulbs','Drivers','PCBs'], ARRAY['BIS','CE','RoHS'],
-    4.60, 89, 0, 94.00, '< 4h'
+    4.60, 89, 0, 94.00, '< 4h', 'brightlite-electronics'
   ),
   (
     'Punjab Agro Exports',
     'Premium basmati rice and agri commodity wholesaler.',
     'Amritsar, Punjab', 'India', true, 25, '101-250',
     ARRAY['Basmati Rice','Wheat','Pulses'], ARRAY['FSSAI','APEDA'],
-    4.80, 210, 0, 98.00, '< 1h'
+    4.80, 210, 0, 98.00, '< 1h', 'punjab-agro-exports'
   ),
   (
     'Precision CNC Works',
     'Industrial CNC machines and spare parts for manufacturing units.',
     'Pune, Maharashtra', 'India', true, 15, '51-200',
     ARRAY['CNC Machines','Lathes','Tools'], ARRAY['ISO 9001','CE'],
-    4.50, 64, 0, 91.00, '< 6h'
+    4.50, 64, 0, 91.00, '< 6h', 'precision-cnc-works'
   ),
   (
     'MediSafe Supplies',
     'Medical gloves, PPE and hospital consumables at wholesale rates.',
     'Ahmedabad, Gujarat', 'India', true, 9, '51-200',
     ARRAY['Surgical Gloves','Masks','PPE Kits'], ARRAY['ISO 13485','CDSCO'],
-    4.65, 142, 0, 97.00, '< 3h'
+    4.65, 142, 0, 97.00, '< 3h', 'medisafe-supplies'
   );
 
 INSERT INTO products (
@@ -71,8 +71,8 @@ INSERT INTO products (
     '9W LED Bulb Pack (50 pcs)',
     'Energy-efficient LED bulbs with warm white output.',
     2, 5, 45.00, 65.00, 'piece', 100,
-    'https://images.unsplash.com/photo-1565814329452-7811bc438dfb?w=600&q=80',
-    ARRAY['https://images.unsplash.com/photo-1565814329452-7811bc438dfb?w=600&q=80'],
+    'https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?auto=format&fit=crop&w=600&q=80',
+    ARRAY['https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?auto=format&fit=crop&w=600&q=80'],
     true, true, 4.50, 18, ARRAY['led','lighting']
   ),
   (
@@ -119,8 +119,8 @@ INSERT INTO products (
     'Disposable Face Masks (50 pcs)',
     '3-ply disposable masks for clinics and factories.',
     5, 8, 60.00, 95.00, 'pack', 100,
-    'https://images.unsplash.com/photo-1584634731339-252c581abfc3?w=600&q=80',
-    ARRAY['https://images.unsplash.com/photo-1584634731339-252c581abfc3?w=600&q=80'],
+    'https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=600&q=80',
+    ARRAY['https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=600&q=80'],
     true, false, 4.55, 27, ARRAY['mask','ppe']
   );
 
@@ -134,10 +134,11 @@ SET product_count = (
   SELECT COUNT(*)::int FROM products p WHERE p.supplier_id = s.id
 );
 
-INSERT INTO users (name, email, password, role, company, supplier_id) VALUES
-  ('Demo Buyer', 'buyer@demo.com', 'demo123', 'buyer', 'Acme Traders', NULL),
-  ('Demo Seller', 'seller@demo.com', 'demo123', 'seller', 'Gujarat Textile Mills', '1'),
-  ('Admin User', 'admin@karmbaba.com', 'admin123', 'admin', 'Karm Baba', NULL);
+-- Passwords are scrypt hashes (never store plain text). Demo logins remain demo123 / admin123.
+INSERT INTO users (name, email, password, role, company, supplier_id, onboarding_completed) VALUES
+  ('Demo Buyer', 'buyer@demo.com', 'scrypt$56d84ad7dbb44bca81cf22e90754d8a8$cd05a62af97c134625a5534220e851204f70061dc1905baec70050878914d661c374d892d423683773c7a61c4dead39c925e414faa41c5980aca1a07374d4fe4', 'buyer', 'Acme Traders', NULL, true),
+  ('Demo Seller', 'seller@demo.com', 'scrypt$56d84ad7dbb44bca81cf22e90754d8a8$cd05a62af97c134625a5534220e851204f70061dc1905baec70050878914d661c374d892d423683773c7a61c4dead39c925e414faa41c5980aca1a07374d4fe4', 'seller', 'Gujarat Textile Mills', 1, true),
+  ('Admin User', 'admin@karmbaba.com', 'scrypt$a5abf3f99f212e9fc57e809a334b7e97$6ac22357e1063129201c3efc242ee35693f793b409560fbada89f44709a506349d75b9cfdc20e2cccc909729ed9ea8a00df3beade8d9ca44f969b78824767722', 'admin', 'Karm Baba', NULL, true);
 
 INSERT INTO reviews (supplier_id, product_id, reviewer_id, reviewer_name, rating, comment) VALUES
   (1, 1, 1, 'Demo Buyer', 5, 'Excellent fabric quality and on-time delivery.'),

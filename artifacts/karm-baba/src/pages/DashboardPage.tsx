@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
-import { Package, FileText, Clock, Eye, TrendingUp, Plus, CheckCircle, XCircle, MessageSquare, Pencil, Trash2, AlertTriangle, ImageIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useLocation, useSearch } from "wouter";
+import { Package, FileText, Clock, Eye, TrendingUp, Plus, CheckCircle, XCircle, MessageSquare, Pencil, Trash2, AlertTriangle, ImageIcon, BadgeCheck, Loader2, Share2, Copy, ExternalLink } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   useGetDashboardStats,
@@ -12,8 +12,10 @@ import {
   useDeleteProduct,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth as useClerkAuth } from "@clerk/react";
 import { useAuth } from "@/context/AuthContext";
 import { ProductFormModal } from "@/components/ProductFormModal";
+import { ProductImage } from "@/components/ProductImage";
 
 const statusConfig = {
   pending: { label: "Pending", color: "bg-yellow-100 text-yellow-700", icon: <Clock size={12} /> },
@@ -90,19 +92,107 @@ function DeleteConfirm({ productName, onConfirm, onCancel, loading }: DeleteConf
 
 export function DashboardPage() {
   const [, navigate] = useLocation();
-  const { user } = useAuth();
+  const searchString = useSearch();
+  const { user, isLoaded } = useAuth();
+  const { getToken } = useClerkAuth();
   const queryClient = useQueryClient();
 
   const isSupplier = user?.role === "seller" || user?.role === "admin";
-  const supplierId = user?.supplierId ?? 1;
+  // Never default to another shop — missing link must not become supplier #1 (IDOR).
+  const supplierId =
+    typeof user?.supplierId === "number" && user.supplierId > 0
+      ? user.supplierId
+      : null;
+  const hasLinkedShop = supplierId != null;
+
+  const [shopVerified, setShopVerified] = useState<boolean | null>(
+    user?.role === "admin" ? true : null,
+  );
+
+  const [needsVerify, setNeedsVerify] = useState(false);
+  const [shopLoadError, setShopLoadError] = useState<string | null>(null);
+  const [shareSlug, setShareSlug] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  useEffect(() => {
+    if (!isLoaded || !user || user.role === "buyer" || user.role === "admin") return;
+    let cancelled = false;
+    void (async () => {
+      setShopLoadError(null);
+      const token = await getToken();
+      if (!token) {
+        if (!cancelled) setShopLoadError("Session expired. Sign in again.");
+        return;
+      }
+      try {
+        const res = await fetch("/api/suppliers/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (cancelled) return;
+        if (res.status === 404) {
+          setNeedsVerify(true);
+          setShopVerified(false);
+          return;
+        }
+        if (!res.ok) {
+          setShopLoadError(`Could not load your shop (${res.status}).`);
+          setShopVerified(false);
+          return;
+        }
+        const s = (await res.json()) as {
+          verified?: boolean;
+          slug?: string | null;
+          shareUrl?: string | null;
+        };
+        if (!s.verified) {
+          setNeedsVerify(true);
+          setShopVerified(false);
+          return;
+        }
+        setNeedsVerify(false);
+        setShopVerified(true);
+        setShareSlug(s.slug ?? null);
+      } catch {
+        if (!cancelled) {
+          setShopLoadError("Could not load your shop. Check your connection.");
+          setShopVerified(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, user?.id, user?.role, getToken]);
+
+  async function ensureShareLink() {
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetch("/api/suppliers/me/share-link", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as { slug?: string };
+    if (data.slug) setShareSlug(data.slug);
+  }
+
+  async function copyShareLink() {
+    if (!shareSlug) return;
+    const url = `${window.location.origin}/s/${shareSlug}`;
+    await navigator.clipboard.writeText(url);
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
+  }
 
   const { data: platformStats } = useGetDashboardStats();
-  const { data: supplierDash } = useGetSupplierDashboard(supplierId, { query: { enabled: isSupplier } as any });
-  const { data: allRfqs } = useListRfqs({}, { query: { enabled: true } as any });
+  const { data: supplierDash } = useGetSupplierDashboard(supplierId ?? 0, {
+    query: { enabled: isSupplier && hasLinkedShop && shopVerified === true } as any,
+  });
+  const { data: allRfqs } = useListRfqs({}, { query: { enabled: !!user } as any });
 
   const { data: supplierProductsData, refetch: refetchProducts } = useListProducts(
-    { supplierId },
-    { query: { enabled: isSupplier } as any }
+    { supplierId: supplierId ?? undefined },
+    { query: { enabled: isSupplier && hasLinkedShop && shopVerified === true } as any }
   );
   const supplierProducts = supplierProductsData?.items ?? [];
 
@@ -110,16 +200,39 @@ export function DashboardPage() {
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
 
+  const tabFromUrl =
+    new URLSearchParams(
+      searchString.startsWith("?") ? searchString.slice(1) : searchString,
+    ).get("tab") === "products"
+      ? "products"
+      : "overview";
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<ProductRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProductRow | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "products">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "products">(tabFromUrl);
+
+  useEffect(() => {
+    setActiveTab(tabFromUrl);
+  }, [tabFromUrl]);
+
+  function switchTab(tab: "overview" | "products") {
+    setActiveTab(tab);
+    navigate(tab === "products" ? "/seller?tab=products" : "/seller");
+  }
+
+  if (isLoaded && user?.role === "buyer") {
+    navigate("/buyer");
+    return null;
+  }
 
   async function handleCreate(data: {
     name: string; description: string; categoryId: number;
     minPrice: number; maxPrice: number; unit: string; minOrder: number;
     imageUrl: string; images: string[]; inStock: boolean; tags: string[];
   }) {
+    if (supplierId == null) {
+      throw new Error("No supplier shop is linked to this account");
+    }
     await createProduct.mutateAsync({
       data: { ...data, supplierId },
     });
@@ -156,53 +269,157 @@ export function DashboardPage() {
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
         <h2 className="text-xl font-bold mb-2">Please Sign In</h2>
         <p className="text-muted-foreground text-sm mb-4">You need to be logged in to view the dashboard.</p>
-        <button onClick={() => navigate("/login")} className="bg-primary text-white px-6 py-2.5 rounded-xl font-medium hover:bg-primary/90 transition-colors">
+        <button onClick={() => navigate("/login?mode=seller")} className="bg-primary text-white px-6 py-2.5 rounded-xl font-medium hover:bg-primary/90 transition-colors">
           Sign In
         </button>
       </div>
     );
   }
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            {isSupplier ? "Supplier Dashboard" : "Platform Dashboard"}
-          </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Welcome back, {user.name}</p>
-        </div>
-        <div className="flex gap-2">
-          {isSupplier && (
+  if (isSupplier && user.role !== "admin" && shopVerified !== true) {
+    if (shopLoadError) {
+      return (
+        <div className="max-w-lg mx-auto px-4 py-16 text-center">
+          <h2 className="text-xl font-bold mb-2">Seller Central unavailable</h2>
+          <p className="text-sm text-muted-foreground mb-6">{shopLoadError}</p>
+          <div className="flex flex-wrap gap-3 justify-center">
             <button
-              onClick={() => setAddModalOpen(true)}
-              className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-primary/90 transition-colors"
+              type="button"
+              onClick={() => window.location.reload()}
+              className="bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90"
             >
-              <Plus size={16} /> Add Product
+              Retry
             </button>
+            <button
+              type="button"
+              onClick={() => navigate("/products")}
+              className="border border-border px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-muted"
+            >
+              Browse marketplace
+            </button>
+          </div>
+        </div>
+      );
+    }
+    if (needsVerify) {
+      return (
+        <div className="max-w-lg mx-auto px-4 py-16 text-center">
+          <BadgeCheck className="mx-auto text-primary mb-4" size={40} />
+          <h2 className="text-xl font-bold mb-2">Complete seller verification</h2>
+          <p className="text-sm text-muted-foreground mb-6">
+            Verify your GST and company details to unlock Seller Central, product listing, and
+            RFQ quotes.
+          </p>
+          <div className="flex flex-wrap gap-3 justify-center">
+            <button
+              type="button"
+              onClick={() => navigate("/seller/verify")}
+              className="bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90"
+            >
+              Continue verification
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/products")}
+              className="border border-border px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-muted"
+            >
+              Browse marketplace
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="min-h-[50vh] flex flex-col items-center justify-center gap-3">
+        <Loader2 className="animate-spin text-primary" size={28} />
+        <p className="text-sm text-muted-foreground">Checking seller verification…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+      {/* Header */}
+      <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground text-balance">
+              {isSupplier ? "Seller Central" : "Platform Dashboard"}
+            </h1>
+            {isSupplier && shopVerified && (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                <BadgeCheck size={12} /> Verified
+              </span>
+            )}
+          </div>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            {isSupplier
+              ? "Manage your shop, products, and RFQ quotes"
+              : `Welcome back, ${user.name}`}
+          </p>
+        </div>
+
+        <div
+          className={`grid gap-2.5 w-full sm:w-auto ${
+            isSupplier ? "grid-cols-1 sm:flex sm:flex-wrap sm:justify-end" : "grid-cols-1 sm:flex"
+          }`}
+        >
+          {isSupplier && (
+            <>
+              <button
+                type="button"
+                onClick={() => navigate("/seller/leads")}
+                className="hidden sm:inline-flex items-center justify-center gap-2 border border-border px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-muted transition-colors"
+              >
+                <MessageSquare size={16} /> Leads
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("/seller/plans")}
+                className="hidden sm:inline-flex items-center justify-center gap-2 border border-border px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-muted transition-colors"
+              >
+                <TrendingUp size={16} /> Plans
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddModalOpen(true)}
+                className={`inline-flex items-center justify-center gap-2 bg-primary text-white min-h-11 px-4 py-3 sm:py-2.5 rounded-xl font-semibold text-sm hover:bg-primary/90 transition-colors shadow-sm ${
+                  activeTab === "products" && supplierProducts.length === 0
+                    ? "hidden sm:inline-flex"
+                    : ""
+                }`}
+              >
+                <Plus size={16} /> Add Product
+              </button>
+            </>
           )}
           <button
-            onClick={() => navigate("/rfq/new")}
-            className="flex items-center gap-2 border border-border px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-muted transition-colors"
+            type="button"
+            onClick={() => navigate(isSupplier ? "/rfq" : "/rfq/new")}
+            className="inline-flex items-center justify-center gap-2 border border-border bg-white min-h-11 px-4 py-3 sm:py-2.5 rounded-xl font-medium text-sm hover:bg-muted transition-colors"
           >
-            <FileText size={16} /> Post RFQ
+            <FileText size={16} /> {isSupplier ? "Incoming RFQs" : "Post RFQ"}
           </button>
         </div>
       </div>
 
       {/* Tabs for suppliers */}
       {isSupplier && (
-        <div className="flex gap-1 mb-6 bg-muted p-1 rounded-xl w-fit">
-          {(["overview", "products"] as const).map(tab => (
+        <div className="flex gap-1 mb-6 bg-muted p-1 rounded-xl w-full sm:w-fit">
+          {(["overview", "products"] as const).map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all capitalize ${
-                activeTab === tab ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+              type="button"
+              onClick={() => switchTab(tab)}
+              className={`flex-1 sm:flex-none px-4 py-2.5 sm:py-2 rounded-lg text-sm font-medium transition-all capitalize ${
+                activeTab === tab
+                  ? "bg-white shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {tab === "products" ? `My Products (${supplierProducts.length})` : "Overview"}
+              {tab === "products"
+                ? `Products (${supplierProducts.length})`
+                : "Overview"}
             </button>
           ))}
         </div>
@@ -225,7 +442,16 @@ export function DashboardPage() {
                     <StatCard icon={<Clock size={20} />} label="Pending RFQs" value={supplierDash.pendingRfqs} sub="Awaiting response" color="bg-yellow-100 text-yellow-600" />
                   </motion.div>
                   <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
-                    <StatCard icon={<Eye size={20} />} label="Profile Views" value={supplierDash.totalViews.toLocaleString()} color="bg-green-100 text-green-600" />
+                    <StatCard
+                      icon={<TrendingUp size={20} />}
+                      label="Response Rate"
+                      value={
+                        supplierDash.supplier.responseRate != null
+                          ? `${Math.round(Number(supplierDash.supplier.responseRate))}%`
+                          : "—"
+                      }
+                      color="bg-green-100 text-green-600"
+                    />
                   </motion.div>
                 </>
               ) : platformStats ? (
@@ -249,6 +475,67 @@ export function DashboardPage() {
                 ))
               )}
             </div>
+
+            {isSupplier && shopVerified && (
+              <div className="bg-white rounded-xl border border-border p-5 mb-8">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <h2 className="font-bold text-foreground flex items-center gap-2 mb-1">
+                      <Share2 size={18} className="text-primary" /> Shareable profile card
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      Share this link with buyers. Their inquiries appear in CRM Leads.
+                    </p>
+                    {shareSlug ? (
+                      <p className="mt-2 text-xs font-mono bg-muted px-3 py-2 rounded-lg break-all">
+                        {typeof window !== "undefined"
+                          ? `${window.location.origin}/s/${shareSlug}`
+                          : `/s/${shareSlug}`}
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        No share link yet — create one to get your public card.
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    {shareSlug ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void copyShareLink()}
+                          className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-xl border border-border hover:bg-muted"
+                        >
+                          <Copy size={14} /> {shareCopied ? "Copied" : "Copy link"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/s/${shareSlug}`)}
+                          className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-xl bg-primary text-white hover:bg-primary/90"
+                        >
+                          <ExternalLink size={14} /> Preview card
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void ensureShareLink()}
+                        className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-xl bg-primary text-white hover:bg-primary/90"
+                      >
+                        <Share2 size={14} /> Create shareable card
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => navigate("/seller/plans")}
+                      className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-xl border border-border hover:bg-muted"
+                    >
+                      Plans
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid lg:grid-cols-3 gap-6">
               {/* RFQ table */}
@@ -323,9 +610,17 @@ export function DashboardPage() {
                     {[
                       { label: "Browse Products", path: "/products", icon: <Package size={14} /> },
                       { label: "Find Suppliers", path: "/suppliers", icon: <TrendingUp size={14} /> },
-                      { label: "Post RFQ", path: "/rfq/new", icon: <FileText size={14} /> },
-                      { label: "My RFQs", path: "/rfq", icon: <Clock size={14} /> },
-                    ].map(action => (
+                      ...(isSupplier
+                        ? [
+                            { label: "Incoming RFQs", path: "/rfq", icon: <Clock size={14} /> },
+                            { label: "CRM Leads", path: "/seller/leads", icon: <MessageSquare size={14} /> },
+                            { label: "Share profile card", path: "/seller/plans", icon: <Share2 size={14} /> },
+                          ]
+                        : [
+                            { label: "Post RFQ", path: "/rfq/new", icon: <FileText size={14} /> },
+                            { label: "My RFQs", path: "/rfq", icon: <Clock size={14} /> },
+                          ]),
+                    ].map((action) => (
                       <button
                         key={action.path}
                         onClick={() => navigate(action.path)}
@@ -344,29 +639,40 @@ export function DashboardPage() {
           <motion.div key="products" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             {/* Products management tab */}
             <div className="bg-white rounded-xl border border-border overflow-hidden">
-              <div className="flex items-center justify-between p-5 border-b border-border">
-                <div>
+              <div className="flex items-center justify-between gap-3 p-4 sm:p-5 border-b border-border">
+                <div className="min-w-0">
                   <h2 className="font-bold text-foreground">My Products</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">{supplierProducts.length} product{supplierProducts.length !== 1 ? "s" : ""} listed</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {supplierProducts.length} product
+                    {supplierProducts.length !== 1 ? "s" : ""} listed
+                  </p>
                 </div>
-                <button
-                  onClick={() => setAddModalOpen(true)}
-                  className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-primary/90 transition-colors"
-                >
-                  <Plus size={15} /> Add Product
-                </button>
+                {supplierProducts.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAddModalOpen(true)}
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 bg-primary text-white px-3 sm:px-4 py-2 rounded-xl font-medium text-sm hover:bg-primary/90 transition-colors"
+                  >
+                    <Plus size={15} />
+                    <span className="sm:hidden">Add</span>
+                    <span className="hidden sm:inline">Add Product</span>
+                  </button>
+                )}
               </div>
 
               {supplierProducts.length === 0 ? (
-                <div className="py-16 text-center">
+                <div className="py-12 sm:py-16 px-4 text-center">
                   <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <Package size={28} className="text-muted-foreground" />
                   </div>
                   <h3 className="font-bold text-foreground mb-1">No products yet</h3>
-                  <p className="text-sm text-muted-foreground mb-5">Add your first product to start receiving inquiries from buyers.</p>
+                  <p className="text-sm text-muted-foreground mb-5 max-w-sm mx-auto">
+                    Add your first product to start receiving inquiries from buyers.
+                  </p>
                   <button
+                    type="button"
                     onClick={() => setAddModalOpen(true)}
-                    className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl font-medium text-sm hover:bg-primary/90 transition-colors"
+                    className="inline-flex items-center justify-center gap-2 bg-primary text-white px-5 py-3 rounded-xl font-semibold text-sm hover:bg-primary/90 transition-colors w-full max-w-xs"
                   >
                     <Plus size={16} /> Add First Product
                   </button>
@@ -378,11 +684,11 @@ export function DashboardPage() {
                       key={product.id}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="flex items-center gap-4 p-4 hover:bg-muted/30 transition-colors group"
+                      className="flex items-start sm:items-center gap-3 sm:gap-4 p-3 sm:p-4 hover:bg-muted/30 transition-colors group"
                     >
-                      <div className="w-16 h-16 rounded-xl overflow-hidden bg-muted flex-shrink-0">
+                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden bg-muted flex-shrink-0">
                         {product.imageUrl ? (
-                          <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                          <ProductImage src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
                             <ImageIcon size={20} className="text-muted-foreground" />
@@ -394,9 +700,9 @@ export function DashboardPage() {
                         <div className="flex items-center gap-2">
                           <h3 className="font-medium text-foreground text-sm truncate">{product.name}</h3>
                           {product.inStock ? (
-                            <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full flex-shrink-0">In Stock</span>
+                            <span className="text-[10px] sm:text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full flex-shrink-0">In Stock</span>
                           ) : (
-                            <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full flex-shrink-0">Out of Stock</span>
+                            <span className="text-[10px] sm:text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full flex-shrink-0">Out of Stock</span>
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">
@@ -409,24 +715,30 @@ export function DashboardPage() {
                         )}
                       </div>
 
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <div className="flex gap-0.5 sm:gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
                         <button
+                          type="button"
                           onClick={() => navigate(`/products/${product.id}`)}
-                          className="p-2 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+                          className="p-2.5 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+                          aria-label="View product"
                           title="View product"
                         >
                           <Eye size={15} />
                         </button>
                         <button
+                          type="button"
                           onClick={() => setEditProduct(product as ProductRow)}
-                          className="p-2 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+                          className="p-2.5 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+                          aria-label="Edit product"
                           title="Edit product"
                         >
                           <Pencil size={15} />
                         </button>
                         <button
+                          type="button"
                           onClick={() => setDeleteTarget(product as ProductRow)}
-                          className="p-2 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
+                          className="p-2.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
+                          aria-label="Delete product"
                           title="Delete product"
                         >
                           <Trash2 size={15} />

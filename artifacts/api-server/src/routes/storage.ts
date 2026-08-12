@@ -5,11 +5,26 @@ import {
   RequestUploadUrlResponse,
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
-import { ObjectPermission } from "../lib/objectAcl";
-import { requireClerkAuth } from "../lib/auth";
+import { ObjectPermission, getObjectAclPolicy } from "../lib/objectAcl";
+import { getClerkUserId, requireClerkAuth } from "../lib/auth";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
+
+function parseFinalizeBody(body: unknown): {
+  objectPath: string;
+  visibility: "public" | "private";
+} | null {
+  if (!body || typeof body !== "object") return null;
+  const objectPath = (body as { objectPath?: unknown }).objectPath;
+  const visibilityRaw = (body as { visibility?: unknown }).visibility;
+  if (typeof objectPath !== "string" || objectPath.length === 0) return null;
+  const visibility =
+    visibilityRaw === "public" || visibilityRaw === "private"
+      ? visibilityRaw
+      : "private";
+  return { objectPath, visibility };
+}
 
 /**
  * POST /storage/uploads/request-url
@@ -28,8 +43,8 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
   try {
     const { name, size, contentType } = parsed.data;
 
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-    const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+    const { uploadURL, objectPath } =
+      await objectStorageService.getObjectEntityUploadURL();
 
     res.json(
       RequestUploadUrlResponse.parse({
@@ -39,8 +54,52 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
       }),
     );
   } catch (error) {
-    req.log.error({ err: error }, "Error generating upload URL");
-    res.status(500).json({ error: "Failed to generate upload URL" });
+    req.log.error(
+      { err: error, driver: objectStorageService.getDriver() },
+      "Error generating upload URL",
+    );
+    res.status(500).json({
+      error:
+        "Failed to generate upload URL. Check OBJECT_STORAGE_DRIVER and cloud credentials.",
+    });
+  }
+});
+
+/**
+ * POST /storage/uploads/finalize
+ *
+ * After a successful PUT to the presigned URL, set ACL so only the uploader
+ * (and public-read if requested) can download via /storage/objects/*.
+ */
+router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, res: Response) => {
+  const parsed = parseFinalizeBody(req.body);
+  if (!parsed) {
+    res.status(400).json({ error: "Missing or invalid objectPath" });
+    return;
+  }
+
+  const userId = await getClerkUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  try {
+    const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
+      parsed.objectPath,
+      {
+        owner: userId,
+        visibility: parsed.visibility,
+      },
+    );
+    res.json({ objectPath, visibility: parsed.visibility });
+  } catch (error) {
+    if (error instanceof ObjectNotFoundError) {
+      res.status(404).json({ error: "Object not found — upload may not have completed" });
+      return;
+    }
+    req.log.error({ err: error }, "Error finalizing upload ACL");
+    res.status(500).json({ error: "Failed to finalize upload" });
   }
 });
 
@@ -81,9 +140,9 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
 /**
  * GET /storage/objects/*
  *
- * Serve object entities from PRIVATE_OBJECT_DIR.
- * These are served from a separate path from /public-objects and can optionally
- * be protected with authentication or ACL checks based on the use case.
+ * Private object entities — ACL enforced.
+ * - visibility=public → readable without auth
+ * - visibility=private / missing ACL → authenticated owner (or ACL rule) only
  */
 router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   try {
@@ -92,20 +151,30 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     const objectPath = `/objects/${wildcardPath}`;
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
 
-    // --- Protected route example (uncomment when using replit-auth) ---
-    // if (!req.isAuthenticated()) {
-    //   res.status(401).json({ error: "Unauthorized" });
-    //   return;
-    // }
-    // const canAccess = await objectStorageService.canAccessObjectEntity({
-    //   userId: req.user.id,
-    //   objectFile,
-    //   requestedPermission: ObjectPermission.READ,
-    // });
-    // if (!canAccess) {
-    //   res.status(403).json({ error: "Forbidden" });
-    //   return;
-    // }
+    const aclPolicy = await getObjectAclPolicy(objectFile);
+    const userId = (await getClerkUserId(req)) ?? undefined;
+
+    if (!aclPolicy) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    if (aclPolicy.visibility !== "public") {
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+    }
+
+    const canAccess = await objectStorageService.canAccessObjectEntity({
+      userId,
+      objectFile,
+      requestedPermission: ObjectPermission.READ,
+    });
+    if (!canAccess) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
 
     const response = await objectStorageService.downloadObject(objectFile);
 

@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, ilike, and, sql, gte, lte, desc, asc, inArray } from "drizzle-orm";
-import { db, productsTable, suppliersTable, categoriesTable } from "@workspace/db";
+import { prisma, toNumber, type Prisma } from "@workspace/db";
 import {
   CreateProductBody,
   UpdateProductBody,
@@ -13,28 +12,29 @@ import {
   DeleteProductParams,
 } from "@workspace/api-zod";
 import { requireClerkAuth } from "../lib/auth";
+import { canAccessSupplier, getAuthenticatedDbUser, isAdmin, isSellerOrAdmin } from "../lib/authorize";
 
 const router: IRouter = Router();
 
-async function enrichProduct(product: typeof productsTable.$inferSelect) {
-  const [supplier] = await db
-    .select({
-      companyName: suppliersTable.companyName,
-      verified: suppliersTable.verified,
-      location: suppliersTable.location,
-    })
-    .from(suppliersTable)
-    .where(eq(suppliersTable.id, product.supplierId));
-  const [category] = await db
-    .select({ name: categoriesTable.name })
-    .from(categoriesTable)
-    .where(eq(categoriesTable.id, product.categoryId));
+type ProductRow = Prisma.ProductGetPayload<object>;
+
+async function enrichProduct(product: ProductRow) {
+  const [supplier, category] = await Promise.all([
+    prisma.supplier.findUnique({
+      where: { id: product.supplierId },
+      select: { companyName: true, verified: true, location: true },
+    }),
+    prisma.category.findUnique({
+      where: { id: product.categoryId },
+      select: { name: true },
+    }),
+  ]);
 
   return {
     ...product,
-    minPrice: parseFloat(product.minPrice),
-    maxPrice: parseFloat(product.maxPrice),
-    rating: product.rating ? parseFloat(product.rating) : null,
+    minPrice: toNumber(product.minPrice) ?? 0,
+    maxPrice: toNumber(product.maxPrice) ?? 0,
+    rating: toNumber(product.rating),
     supplierName: supplier?.companyName ?? null,
     supplierVerified: supplier?.verified ?? null,
     supplierLocation: supplier?.location ?? null,
@@ -53,70 +53,65 @@ router.get("/products", async (req, res): Promise<void> => {
   }
   const { search, categoryId, supplierId, minPrice, maxPrice, page = 1, limit = 20 } = parsed.data;
 
-  // Extra IndiaMART/Alibaba-style filters (not in OpenAPI yet)
   const inStock = req.query.inStock === "true" ? true : req.query.inStock === "false" ? false : null;
   const verifiedOnly = req.query.verifiedOnly === "true";
   const minRating = req.query.minRating != null ? Number(req.query.minRating) : null;
   const maxMoq = req.query.maxMoq != null ? Number(req.query.maxMoq) : null;
   const sort = typeof req.query.sort === "string" ? req.query.sort : "newest";
 
-  const conditions = [];
-  if (search) conditions.push(ilike(productsTable.name, `%${search}%`));
-  if (categoryId != null) conditions.push(eq(productsTable.categoryId, categoryId));
-  if (supplierId != null) conditions.push(eq(productsTable.supplierId, supplierId));
-  if (minPrice != null) conditions.push(gte(productsTable.minPrice, String(minPrice)));
-  if (maxPrice != null) conditions.push(lte(productsTable.maxPrice, String(maxPrice)));
-  if (inStock != null) conditions.push(eq(productsTable.inStock, inStock));
-  if (maxMoq != null && !Number.isNaN(maxMoq)) conditions.push(lte(productsTable.minOrder, maxMoq));
-  if (minRating != null && !Number.isNaN(minRating)) {
-    conditions.push(gte(productsTable.rating, String(minRating)));
+  const where: Prisma.ProductWhereInput = {};
+
+  if (search) where.name = { contains: search, mode: "insensitive" };
+  if (categoryId != null) where.categoryId = categoryId;
+  if (supplierId != null) where.supplierId = supplierId;
+  if (minPrice != null || maxPrice != null) {
+    where.minPrice = {
+      ...(minPrice != null ? { gte: minPrice } : {}),
+      ...(maxPrice != null ? { lte: maxPrice } : {}),
+    };
   }
+  if (inStock != null) where.inStock = inStock;
+  if (maxMoq != null && !Number.isNaN(maxMoq)) where.minOrder = { lte: maxMoq };
+  if (minRating != null && !Number.isNaN(minRating)) where.rating = { gte: minRating };
 
   if (verifiedOnly) {
-    const verified = await db
-      .select({ id: suppliersTable.id })
-      .from(suppliersTable)
-      .where(eq(suppliersTable.verified, true));
+    const verified = await prisma.supplier.findMany({
+      where: { verified: true },
+      select: { id: true },
+    });
     const ids = verified.map((s) => s.id);
     if (ids.length === 0) {
       res.json({ items: [], total: 0, page, limit });
       return;
     }
-    conditions.push(inArray(productsTable.supplierId, ids));
+    where.supplierId = { in: ids };
   }
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  let orderBy: Prisma.ProductOrderByWithRelationInput = { createdAt: "desc" };
+  if (sort === "price_asc") orderBy = { minPrice: "asc" };
+  else if (sort === "price_desc") orderBy = { minPrice: "desc" };
+  else if (sort === "rating") orderBy = { rating: "desc" };
+  else if (sort === "moq") orderBy = { minOrder: "asc" };
 
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(productsTable)
-    .where(whereClause);
-
-  let orderBy = desc(productsTable.createdAt);
-  if (sort === "price_asc") orderBy = asc(productsTable.minPrice);
-  else if (sort === "price_desc") orderBy = desc(productsTable.minPrice);
-  else if (sort === "rating") orderBy = desc(productsTable.rating);
-  else if (sort === "moq") orderBy = asc(productsTable.minOrder);
-
-  const items = await db
-    .select()
-    .from(productsTable)
-    .where(whereClause)
-    .orderBy(orderBy)
-    .limit(limit)
-    .offset((page - 1) * limit);
+  const [total, items] = await Promise.all([
+    prisma.product.count({ where }),
+    prisma.product.findMany({
+      where,
+      orderBy,
+      take: limit,
+      skip: (page - 1) * limit,
+    }),
+  ]);
 
   const enriched = await Promise.all(items.map(enrichProduct));
-
-  res.json({ items: enriched, total: count, page, limit });
+  res.json({ items: enriched, total, page, limit });
 });
 
 router.get("/products/featured", async (_req, res): Promise<void> => {
-  const items = await db
-    .select()
-    .from(productsTable)
-    .where(eq(productsTable.featured, true))
-    .limit(12);
+  const items = await prisma.product.findMany({
+    where: { featured: true },
+    take: 12,
+  });
 
   const enriched = await Promise.all(items.map(enrichProduct));
   res.json(GetFeaturedProductsResponse.parse(enriched));
@@ -130,7 +125,7 @@ router.get("/products/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const [product] = await db.select().from(productsTable).where(eq(productsTable.id, params.data.id));
+  const product = await prisma.product.findUnique({ where: { id: params.data.id } });
   if (!product) {
     res.status(404).json({ error: "Product not found" });
     return;
@@ -147,15 +142,56 @@ router.post("/products", requireClerkAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const [product] = await db.insert(productsTable).values({
-    ...parsed.data,
-    minPrice: String(parsed.data.minPrice),
-    maxPrice: String(parsed.data.maxPrice),
-    rating:
-      "rating" in parsed.data && parsed.data.rating != null
-        ? String((parsed.data as { rating?: number }).rating)
-        : null,
-  }).returning();
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (!isSellerOrAdmin(dbUser)) {
+    res.status(403).json({ error: "Forbidden — only sellers can manage products" });
+    return;
+  }
+  if (!canAccessSupplier(dbUser, parsed.data.supplierId)) {
+    res.status(403).json({
+      error: "Forbidden — you can only create products for your linked supplier",
+    });
+    return;
+  }
+
+  const { getSupplierEntitlements } = await import("../lib/shop");
+  const entitlements = await getSupplierEntitlements(parsed.data.supplierId);
+  const productCount = await prisma.product.count({
+    where: { supplierId: parsed.data.supplierId },
+  });
+  if (productCount >= entitlements.maxProducts) {
+    res.status(402).json({
+      error: `Your ${entitlements.planCode} plan allows ${entitlements.maxProducts} products. Upgrade your shop plan to list more.`,
+      planCode: entitlements.planCode,
+      maxProducts: entitlements.maxProducts,
+      productCount,
+    });
+    return;
+  }
+
+  // Only admins may feature products
+  const createData = { ...parsed.data };
+  if (createData.featured && !isAdmin(dbUser)) {
+    delete createData.featured;
+  }
+
+  const rating =
+    "rating" in parsed.data && parsed.data.rating != null
+      ? (parsed.data as { rating?: number }).rating
+      : null;
+
+  const product = await prisma.product.create({
+    data: {
+      ...createData,
+      images: parsed.data.images ?? [],
+      tags: parsed.data.tags ?? [],
+      rating: rating ?? undefined,
+    },
+  });
 
   const enriched = await enrichProduct(product);
   res.status(201).json(GetProductResponse.parse(enriched));
@@ -175,23 +211,37 @@ router.patch("/products/:id", requireClerkAuth, async (req, res): Promise<void> 
     return;
   }
 
-  const data: Record<string, unknown> = { ...parsed.data };
-  if (parsed.data.minPrice != null) data.minPrice = String(parsed.data.minPrice);
-  if (parsed.data.maxPrice != null) data.maxPrice = String(parsed.data.maxPrice);
-  const rating = (parsed.data as { rating?: number }).rating;
-  if (rating != null) data.rating = String(rating);
-
-  const [product] = await db
-    .update(productsTable)
-    .set(data)
-    .where(eq(productsTable.id, params.data.id))
-    .returning();
-
-  if (!product) {
-    res.status(404).json({ error: "Product not found" });
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
     return;
   }
 
+  const existing = await prisma.product.findUnique({ where: { id: params.data.id } });
+  if (!existing) {
+    res.status(404).json({ error: "Product not found" });
+    return;
+  }
+  if (!canAccessSupplier(dbUser, existing.supplierId)) {
+    res.status(403).json({ error: "Forbidden — you cannot edit this product" });
+    return;
+  }
+  if (!isSellerOrAdmin(dbUser)) {
+    res.status(403).json({ error: "Forbidden — only sellers can manage products" });
+    return;
+  }
+
+  const data: Prisma.ProductUpdateInput = { ...parsed.data };
+  if ("featured" in data && data.featured != null && !isAdmin(dbUser)) {
+    delete data.featured;
+  }
+  const rating = (parsed.data as { rating?: number }).rating;
+  if (rating != null) data.rating = rating;
+
+  const product = await prisma.product.update({
+    where: { id: params.data.id },
+    data,
+  });
   const enriched = await enrichProduct(product);
   res.json(UpdateProductResponse.parse(enriched));
 });
@@ -204,16 +254,27 @@ router.delete("/products/:id", requireClerkAuth, async (req, res): Promise<void>
     return;
   }
 
-  const [product] = await db
-    .delete(productsTable)
-    .where(eq(productsTable.id, params.data.id))
-    .returning();
-
-  if (!product) {
-    res.status(404).json({ error: "Product not found" });
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (!isSellerOrAdmin(dbUser)) {
+    res.status(403).json({ error: "Forbidden — only sellers can manage products" });
     return;
   }
 
+  const existing = await prisma.product.findUnique({ where: { id: params.data.id } });
+  if (!existing) {
+    res.status(404).json({ error: "Product not found" });
+    return;
+  }
+  if (!canAccessSupplier(dbUser, existing.supplierId)) {
+    res.status(403).json({ error: "Forbidden — you cannot delete this product" });
+    return;
+  }
+
+  await prisma.product.delete({ where: { id: params.data.id } });
   res.status(204).send();
 });
 

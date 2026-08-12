@@ -1,8 +1,4 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
-import * as schema from "./schema";
-
-const { Pool } = pg;
+import { PrismaClient, type Prisma } from "@prisma/client";
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -10,7 +6,28 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-export const db = drizzle(pool, { schema });
+const globalForPrisma = globalThis as unknown as {
+  prisma?: PrismaClient;
+};
 
-export * from "./schema";
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+  });
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+}
+
+/** @deprecated Prefer `prisma` — kept as `db` alias during the Drizzle → Prisma migration. */
+export const db = prisma;
+
+export type { Prisma };
+export { PrismaClient };
+
+/** Convert Prisma Decimal / string numerics to JS number (API responses use floats). */
+export function toNumber(value: { toString(): string } | string | number | null | undefined): number | null {
+  if (value == null) return null;
+  return typeof value === "number" ? value : parseFloat(value.toString());
+}

@@ -9,4 +9,8 @@ import type { RfqUpdateStatus } from './rfqUpdateStatus';
 
 export interface RfqUpdate {
   status?: RfqUpdateStatus;
+  /** @nullable */
+  quotedPrice?: number | null;
+  /** @nullable */
+  sellerMessage?: string | null;
 }

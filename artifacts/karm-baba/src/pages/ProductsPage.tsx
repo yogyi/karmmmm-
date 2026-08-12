@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect, useCallback } from "react";
+import { useLocation, useSearch } from "wouter";
 import { SlidersHorizontal, Search, ChevronLeft, ChevronRight, CheckCircle, Star, X, Package } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useListProducts, useListCategories } from "@workspace/api-client-react";
 import { StarRating } from "@/components/StarRating";
+import { ProductImage } from "@/components/ProductImage";
 
 function SkeletonCard() {
   return (
@@ -66,7 +67,7 @@ function FilterPanel({
         <h3 className="font-semibold text-sm mb-3 text-foreground">Sort by</h3>
         <select
           value={sort}
-          onChange={e => { setSort(e.target.value); setPage(1); }}
+          onChange={e => setSort(e.target.value)}
           className="w-full border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary bg-white"
         >
           <option value="newest">Newest</option>
@@ -81,7 +82,7 @@ function FilterPanel({
         <h3 className="font-semibold text-sm mb-3 text-foreground">Category</h3>
         <div className="space-y-0.5">
           <button
-            onClick={() => { setCategoryId(null); setPage(1); }}
+            onClick={() => setCategoryId(null)}
             className={`block w-full text-left text-sm px-3 py-2 rounded-xl transition-colors ${categoryId === null ? "bg-primary text-white font-semibold" : "hover:bg-muted text-foreground"}`}
           >
             All Categories
@@ -89,7 +90,7 @@ function FilterPanel({
           {categories?.map(cat => (
             <button
               key={cat.id}
-              onClick={() => { setCategoryId(cat.id); setPage(1); }}
+              onClick={() => setCategoryId(cat.id)}
               className={`flex w-full text-left text-sm px-3 py-2 rounded-xl transition-colors items-center justify-between ${categoryId === cat.id ? "bg-primary text-white font-semibold" : "hover:bg-muted text-foreground"}`}
             >
               <span className="truncate">{cat.name}</span>
@@ -102,11 +103,11 @@ function FilterPanel({
       <div className="bg-white rounded-2xl border border-border p-4 shadow-sm space-y-3">
         <h3 className="font-semibold text-sm text-foreground">Supplier filters</h3>
         <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input type="checkbox" checked={verifiedOnly} onChange={e => { setVerifiedOnly(e.target.checked); setPage(1); }} className="rounded border-border" />
+          <input type="checkbox" checked={verifiedOnly} onChange={e => setVerifiedOnly(e.target.checked)} className="rounded border-border" />
           Verified suppliers only
         </label>
         <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input type="checkbox" checked={inStockOnly} onChange={e => { setInStockOnly(e.target.checked); setPage(1); }} className="rounded border-border" />
+          <input type="checkbox" checked={inStockOnly} onChange={e => setInStockOnly(e.target.checked)} className="rounded border-border" />
           In stock only
         </label>
       </div>
@@ -118,14 +119,16 @@ function FilterPanel({
             type="number"
             placeholder="Min"
             value={minPrice}
-            onChange={e => { setMinPrice(e.target.value); setPage(1); }}
+            onChange={e => setMinPrice(e.target.value)}
+            onBlur={() => setPage(1)}
             className="w-full border border-border rounded-xl px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
           />
           <input
             type="number"
             placeholder="Max"
             value={maxPrice}
-            onChange={e => { setMaxPrice(e.target.value); setPage(1); }}
+            onChange={e => setMaxPrice(e.target.value)}
+            onBlur={() => setPage(1)}
             className="w-full border border-border rounded-xl px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all"
           />
         </div>
@@ -135,27 +138,108 @@ function FilterPanel({
 }
 
 export function ProductsPage() {
-  const [location, navigate] = useLocation();
-  const searchParams = new URLSearchParams(location.includes("?") ? location.split("?")[1] : "");
+  const [, navigate] = useLocation();
+  const searchString = useSearch();
+  const searchParams = new URLSearchParams(
+    searchString.startsWith("?") ? searchString.slice(1) : searchString,
+  );
 
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const [inputSearch, setInputSearch] = useState(searchParams.get("search") ?? "");
-  const [categoryId, setCategoryId] = useState<number | null>(searchParams.get("categoryId") ? Number(searchParams.get("categoryId")) : null);
-  const [minPrice, setMinPrice] = useState<string>("");
-  const [maxPrice, setMaxPrice] = useState<string>("");
-  const [page, setPage] = useState(1);
+  const [categoryId, setCategoryId] = useState<number | null>(
+    searchParams.get("categoryId") ? Number(searchParams.get("categoryId")) : null,
+  );
+  const [minPrice, setMinPrice] = useState(searchParams.get("minPrice") ?? "");
+  const [maxPrice, setMaxPrice] = useState(searchParams.get("maxPrice") ?? "");
+  const [page, setPage] = useState(
+    Math.max(1, Number(searchParams.get("page") || "1") || 1),
+  );
   const [filterOpen, setFilterOpen] = useState(false);
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [inStockOnly, setInStockOnly] = useState(false);
-  const [sort, setSort] = useState("newest");
+  const [verifiedOnly, setVerifiedOnly] = useState(
+    searchParams.get("verified") === "true",
+  );
+  const [inStockOnly, setInStockOnly] = useState(searchParams.get("inStock") === "true");
+  const [sort, setSort] = useState(searchParams.get("sort") ?? "newest");
+  const [supplierId, setSupplierId] = useState<number | null>(
+    searchParams.get("supplierId") ? Number(searchParams.get("supplierId")) : null,
+  );
 
+  const writeQuery = useCallback(
+    (patch: {
+      search?: string;
+      categoryId?: number | null;
+      minPrice?: string;
+      maxPrice?: string;
+      page?: number;
+      sort?: string;
+      verifiedOnly?: boolean;
+      inStockOnly?: boolean;
+      supplierId?: number | null;
+    }) => {
+      const next = {
+        search: patch.search !== undefined ? patch.search : search,
+        categoryId: patch.categoryId !== undefined ? patch.categoryId : categoryId,
+        minPrice: patch.minPrice !== undefined ? patch.minPrice : minPrice,
+        maxPrice: patch.maxPrice !== undefined ? patch.maxPrice : maxPrice,
+        page: patch.page !== undefined ? patch.page : page,
+        sort: patch.sort !== undefined ? patch.sort : sort,
+        verifiedOnly:
+          patch.verifiedOnly !== undefined ? patch.verifiedOnly : verifiedOnly,
+        inStockOnly: patch.inStockOnly !== undefined ? patch.inStockOnly : inStockOnly,
+        supplierId: patch.supplierId !== undefined ? patch.supplierId : supplierId,
+      };
+      const params = new URLSearchParams();
+      if (next.search.trim()) params.set("search", next.search.trim());
+      if (next.categoryId != null) params.set("categoryId", String(next.categoryId));
+      if (next.supplierId != null) params.set("supplierId", String(next.supplierId));
+      if (next.minPrice) params.set("minPrice", next.minPrice);
+      if (next.maxPrice) params.set("maxPrice", next.maxPrice);
+      if (next.page > 1) params.set("page", String(next.page));
+      if (next.sort && next.sort !== "newest") params.set("sort", next.sort);
+      if (next.verifiedOnly) params.set("verified", "true");
+      if (next.inStockOnly) params.set("inStock", "true");
+      const qs = params.toString();
+      navigate(qs ? `/products?${qs}` : "/products");
+    },
+    [
+      navigate,
+      search,
+      categoryId,
+      minPrice,
+      maxPrice,
+      page,
+      sort,
+      verifiedOnly,
+      inStockOnly,
+      supplierId,
+    ],
+  );
+
+  // Keep filters in sync when header nav changes query (same /products path).
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(
+      searchString.startsWith("?") ? searchString.slice(1) : searchString,
+    );
     setSearch(params.get("search") ?? "");
     setInputSearch(params.get("search") ?? "");
     setCategoryId(params.get("categoryId") ? Number(params.get("categoryId")) : null);
-    setPage(1);
-  }, [location]);
+    setSupplierId(params.get("supplierId") ? Number(params.get("supplierId")) : null);
+    setMinPrice(params.get("minPrice") ?? "");
+    setMaxPrice(params.get("maxPrice") ?? "");
+    setPage(Math.max(1, Number(params.get("page") || "1") || 1));
+    setSort(params.get("sort") ?? "newest");
+    setVerifiedOnly(params.get("verified") === "true");
+    setInStockOnly(params.get("inStock") === "true");
+  }, [searchString]);
+
+  const applyCategory = useCallback(
+    (id: number | null) => {
+      setCategoryId(id);
+      setPage(1);
+      writeQuery({ categoryId: id, page: 1 });
+    },
+    [writeQuery],
+  );
 
   // Close filter drawer when switching to desktop
   useEffect(() => {
@@ -165,9 +249,16 @@ export function ProductsPage() {
   }, []);
 
   const { data: categories } = useListCategories();
-  const { data, isLoading } = useListProducts({
+  const {
+    data,
+    isLoading,
+    isError: productsError,
+    refetch: refetchProducts,
+    isFetching,
+  } = useListProducts({
     search: search || undefined,
     categoryId: categoryId ?? undefined,
+    supplierId: supplierId ?? undefined,
     minPrice: minPrice ? Number(minPrice) : undefined,
     maxPrice: maxPrice ? Number(maxPrice) : undefined,
     page,
@@ -181,25 +272,78 @@ export function ProductsPage() {
   });
 
   const totalPages = data ? Math.ceil(data.total / 20) : 1;
-  const hasFilters = search || categoryId || minPrice || maxPrice || verifiedOnly || inStockOnly || sort !== "newest";
+  const hasFilters =
+    search ||
+    categoryId ||
+    supplierId ||
+    minPrice ||
+    maxPrice ||
+    verifiedOnly ||
+    inStockOnly ||
+    sort !== "newest";
 
   function handleSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSearch(inputSearch);
     setPage(1);
+    writeQuery({ search: inputSearch, page: 1 });
   }
 
   function clearFilters() {
-    setSearch(""); setInputSearch(""); setCategoryId(null); setMinPrice(""); setMaxPrice("");
-    setVerifiedOnly(false); setInStockOnly(false); setSort("newest"); setPage(1);
+    setSearch("");
+    setInputSearch("");
+    setCategoryId(null);
+    setSupplierId(null);
+    setMinPrice("");
+    setMaxPrice("");
+    setVerifiedOnly(false);
+    setInStockOnly(false);
+    setSort("newest");
+    setPage(1);
+    navigate("/products");
   }
+
+  const goToPage = useCallback(
+    (p: number) => {
+      setPage(p);
+      writeQuery({ page: p });
+    },
+    [writeQuery],
+  );
 
   const selectedCategory = categories?.find(c => c.id === categoryId);
 
   const filterProps = {
-    categories, categoryId, setCategoryId, minPrice, setMinPrice, maxPrice, setMaxPrice,
-    inputSearch, setInputSearch, handleSearchSubmit, setPage,
-    verifiedOnly, setVerifiedOnly, inStockOnly, setInStockOnly, sort, setSort,
+    categories,
+    categoryId,
+    setCategoryId: applyCategory,
+    minPrice,
+    setMinPrice: (v: string) => setMinPrice(v),
+    maxPrice,
+    setMaxPrice: (v: string) => setMaxPrice(v),
+    inputSearch,
+    setInputSearch,
+    handleSearchSubmit,
+    setPage: (p: number) => {
+      // Price blur / apply: push current draft prices into the URL.
+      writeQuery({ minPrice, maxPrice, page: p });
+      setPage(p);
+    },
+    verifiedOnly,
+    setVerifiedOnly: (v: boolean) => {
+      setVerifiedOnly(v);
+      writeQuery({ verifiedOnly: v, page: 1 });
+    },
+    inStockOnly,
+    setInStockOnly: (v: boolean) => {
+      setInStockOnly(v);
+      writeQuery({ inStockOnly: v, page: 1 });
+    },
+    sort,
+    setSort: (v: string) => {
+      setSort(v);
+      writeQuery({ sort: v, page: 1 });
+    },
   };
 
   return (
@@ -232,7 +376,10 @@ export function ProductsPage() {
                 Clear All Filters
               </button>
               <button
-                onClick={() => setFilterOpen(false)}
+                onClick={() => {
+                  writeQuery({ minPrice, maxPrice, page: 1 });
+                  setFilterOpen(false);
+                }}
                 className="mt-2 w-full py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors"
               >
                 Apply Filters
@@ -246,10 +393,21 @@ export function ProductsPage() {
       <div className="flex items-center justify-between mb-6 gap-3">
         <div className="min-w-0">
           <h1 className="font-heading text-xl sm:text-2xl font-bold text-foreground truncate">
-            {selectedCategory ? selectedCategory.name : search ? `"${search}"` : "All Products"}
+            {selectedCategory
+              ? selectedCategory.name
+              : supplierId
+                ? "Supplier catalog"
+                : search
+                  ? `"${search}"`
+                  : "All Products"}
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">
-            {data ? `${data.total.toLocaleString()} products found` : "Loading..."}
+            {productsError
+              ? "Could not load products"
+              : data
+                ? `${data.total.toLocaleString()} products found`
+                : "Loading..."}
+            {supplierId != null && !productsError ? ` · supplier #${supplierId}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -278,7 +436,41 @@ export function ProductsPage() {
 
         {/* Product grid */}
         <div className="flex-1 min-w-0">
-          {isLoading ? (
+          {supplierId != null && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-white px-3 py-2 text-sm">
+              <span className="text-muted-foreground">
+                Showing products for this supplier only
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSupplierId(null);
+                  writeQuery({ supplierId: null, page: 1 });
+                }}
+                className="text-primary font-semibold hover:underline"
+              >
+                Clear supplier filter
+              </button>
+            </div>
+          )}
+          {productsError ? (
+            <div className="text-center py-20 bg-white rounded-2xl border border-border">
+              <h3 className="text-lg font-heading font-bold text-foreground mb-2">
+                Couldn’t load products
+              </h3>
+              <p className="text-muted-foreground text-sm mb-6">
+                Check your connection and try again.
+              </p>
+              <button
+                type="button"
+                onClick={() => void refetchProducts()}
+                disabled={isFetching}
+                className="bg-primary text-white px-6 py-2.5 rounded-xl font-semibold text-sm hover:bg-primary/90 disabled:opacity-60"
+              >
+                {isFetching ? "Retrying…" : "Retry"}
+              </button>
+            </div>
+          ) : isLoading ? (
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {Array.from({ length: 12 }).map((_, i) => <SkeletonCard key={i} />)}
             </div>
@@ -306,7 +498,7 @@ export function ProductsPage() {
                     className="bg-white rounded-2xl border border-border overflow-hidden hover:border-primary/30 transition-all text-left group shadow-sm card-hover"
                   >
                     <div className="relative h-36 sm:h-44 overflow-hidden bg-muted">
-                      <img
+                      <ProductImage
                         src={product.imageUrl}
                         alt={product.name}
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
@@ -316,9 +508,11 @@ export function ProductsPage() {
                           <span className="bg-white/90 text-foreground text-xs font-bold px-2 py-1 rounded-lg">Out of Stock</span>
                         </div>
                       )}
-                      {product.inStock !== false && i % 5 === 0 && (
+                      {product.inStock !== false &&
+                        product.rating != null &&
+                        product.rating >= 4.5 && (
                         <div className="absolute top-2 left-2 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 pointer-events-none">
-                          <Star size={9} className="fill-white" /> HOT
+                          <Star size={9} className="fill-white" /> Top rated
                         </div>
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
@@ -346,30 +540,78 @@ export function ProductsPage() {
               </div>
 
               {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-2 mt-10">
+                <div className="flex items-center justify-center gap-2 mt-10 flex-wrap">
                   <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    type="button"
+                    onClick={() => goToPage(Math.max(1, page - 1))}
                     disabled={page === 1}
                     className="flex items-center gap-1.5 px-3 sm:px-4 py-2 border border-border rounded-xl disabled:opacity-40 hover:bg-muted transition-colors text-sm font-medium"
                   >
                     <ChevronLeft size={15} /> <span className="hidden sm:inline">Prev</span>
                   </button>
-                  <div className="flex gap-1">
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      const p = i + 1;
+                  <div className="flex gap-1 flex-wrap justify-center">
+                    {(() => {
+                      const windowSize = 5;
+                      let start = Math.max(1, page - Math.floor(windowSize / 2));
+                      let end = Math.min(totalPages, start + windowSize - 1);
+                      start = Math.max(1, end - windowSize + 1);
+                      const pages: number[] = [];
+                      for (let p = start; p <= end; p++) pages.push(p);
                       return (
-                        <button
-                          key={p}
-                          onClick={() => setPage(p)}
-                          className={`w-9 h-9 rounded-xl text-sm font-semibold transition-colors ${page === p ? "bg-primary text-white" : "border border-border hover:bg-muted"}`}
-                        >
-                          {p}
-                        </button>
+                        <>
+                          {start > 1 && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => goToPage(1)}
+                                className="w-9 h-9 rounded-xl text-sm font-semibold border border-border hover:bg-muted"
+                              >
+                                1
+                              </button>
+                              {start > 2 && (
+                                <span className="w-9 h-9 flex items-center justify-center text-muted-foreground text-sm">
+                                  …
+                                </span>
+                              )}
+                            </>
+                          )}
+                          {pages.map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => goToPage(p)}
+                              className={`w-9 h-9 rounded-xl text-sm font-semibold transition-colors ${
+                                page === p
+                                  ? "bg-primary text-white"
+                                  : "border border-border hover:bg-muted"
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                          {end < totalPages && (
+                            <>
+                              {end < totalPages - 1 && (
+                                <span className="w-9 h-9 flex items-center justify-center text-muted-foreground text-sm">
+                                  …
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => goToPage(totalPages)}
+                                className="w-9 h-9 rounded-xl text-sm font-semibold border border-border hover:bg-muted"
+                              >
+                                {totalPages}
+                              </button>
+                            </>
+                          )}
+                        </>
                       );
-                    })}
+                    })()}
                   </div>
                   <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    type="button"
+                    onClick={() => goToPage(Math.min(totalPages, page + 1))}
                     disabled={page === totalPages}
                     className="flex items-center gap-1.5 px-3 sm:px-4 py-2 border border-border rounded-xl disabled:opacity-40 hover:bg-muted transition-colors text-sm font-medium"
                   >

@@ -1,4 +1,5 @@
 #!/bin/bash
 set -e
 pnpm install --frozen-lockfile
-pnpm --filter db push
+# Apply versioned Prisma migrations (not db push).
+pnpm --filter @workspace/db migrate:deploy

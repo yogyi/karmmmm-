@@ -95,6 +95,12 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      "vite",
+      "vite/*",
+      "esbuild",
+      "rollup",
+      "@prisma/client",
+      ".prisma/client",
     ],
     sourcemap: "linked",
     plugins: [

@@ -1,22 +1,40 @@
-import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { db, usersTable } from "@workspace/db";
+import { Router, type IRouter, type RequestHandler } from "express";
+import { prisma, type Prisma } from "@workspace/db";
 import {
   CreateUserBody,
   LoginUserBody,
   GetUserParams,
   GetUserResponse,
   LoginUserResponse,
+  CompleteUserOnboardingBody,
 } from "@workspace/api-zod";
 import { requireClerkAuth, clerkEnabled } from "../lib/auth";
+import { hashPassword, verifyPassword } from "../lib/password";
+import { rateLimit } from "../lib/rateLimit";
 
 const router: IRouter = Router();
 
-function safeUser(user: typeof usersTable.$inferSelect) {
+/** Legacy password auth is off by default — Clerk is the primary auth path. */
+const legacyPasswordAuthEnabled =
+  process.env.ALLOW_LEGACY_PASSWORD_AUTH === "true";
+
+const legacyAuthLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
+
+const requireLegacyPasswordAuth: RequestHandler = (req, res, next) => {
+  if (!legacyPasswordAuthEnabled) {
+    res.status(410).json({
+      error:
+        "Legacy password auth is disabled. Use Clerk sign-in, or set ALLOW_LEGACY_PASSWORD_AUTH=true.",
+    });
+    return;
+  }
+  next();
+};
+
+function safeUser(user: Prisma.UserGetPayload<object>) {
   const { password: _pw, clerkId: _clerkId, ...safe } = user;
   return {
     ...safe,
-    supplierId: safe.supplierId ? parseInt(safe.supplierId, 10) : null,
     createdAt: safe.createdAt.toISOString(),
   };
 }
@@ -24,6 +42,10 @@ function safeUser(user: typeof usersTable.$inferSelect) {
 /**
  * Sync the authenticated Clerk user into our Postgres `users` table.
  * Creates on first sign-in; updates profile fields on subsequent calls.
+ *
+ * Role is NOT taken from opaque Clerk publicMetadata for buyer/seller —
+ * users choose via POST /users/me/onboarding. Clerk metadata may only
+ * elevate to admin.
  */
 router.post("/users/sync", requireClerkAuth, async (req, res): Promise<void> => {
   if (!clerkEnabled) {
@@ -52,107 +74,232 @@ router.post("/users/sync", requireClerkAuth, async (req, res): Promise<void> => 
     [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
     email.split("@")[0];
   const avatarUrl = clerkUser.imageUrl ?? null;
-  const roleFromMeta = clerkUser.publicMetadata?.role;
-  const role =
-    roleFromMeta === "seller" || roleFromMeta === "admin" || roleFromMeta === "buyer"
-      ? roleFromMeta
-      : "buyer";
-  const company =
+  const metaRole = clerkUser.publicMetadata?.role;
+  const isClerkAdmin = metaRole === "admin";
+  const companyFromMeta =
     typeof clerkUser.publicMetadata?.company === "string"
       ? clerkUser.publicMetadata.company
       : null;
 
-  const [byClerk] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.clerkId, userId));
+  const byClerk = await prisma.user.findUnique({ where: { clerkId: userId } });
 
   if (byClerk) {
-    const [updated] = await db
-      .update(usersTable)
-      .set({ name, email, avatarUrl, role, company })
-      .where(eq(usersTable.id, byClerk.id))
-      .returning();
+    const data: Prisma.UserUpdateInput = { name, email, avatarUrl };
+    if (isClerkAdmin && byClerk.role !== "admin") {
+      data.role = "admin";
+      data.onboardingCompleted = true;
+    }
+    if (!byClerk.company && companyFromMeta) {
+      data.company = companyFromMeta;
+    }
+    const updated = await prisma.user.update({
+      where: { id: byClerk.id },
+      data,
+    });
     res.json(GetUserResponse.parse(safeUser(updated)));
     return;
   }
 
-  const [byEmail] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.email, email));
+  const byEmail = await prisma.user.findUnique({ where: { email } });
 
   if (byEmail) {
-    const [linked] = await db
-      .update(usersTable)
-      .set({
+    const linked = await prisma.user.update({
+      where: { id: byEmail.id },
+      data: {
         clerkId: userId,
         name,
         avatarUrl,
-        role: byEmail.role || role,
-        company: company ?? byEmail.company,
+        role: isClerkAdmin ? "admin" : byEmail.role,
+        onboardingCompleted: isClerkAdmin ? true : byEmail.onboardingCompleted,
+        company: byEmail.company ?? companyFromMeta,
         password: null,
-      })
-      .where(eq(usersTable.id, byEmail.id))
-      .returning();
+      },
+    });
     res.json(GetUserResponse.parse(safeUser(linked)));
     return;
   }
 
-  const [created] = await db
-    .insert(usersTable)
-    .values({
+  const created = await prisma.user.create({
+    data: {
       clerkId: userId,
       name,
       email,
       password: null,
-      role,
-      company,
+      role: isClerkAdmin ? "admin" : "buyer",
+      company: companyFromMeta,
       avatarUrl,
-    })
-    .returning();
+      onboardingCompleted: isClerkAdmin,
+    },
+  });
 
   res.status(201).json(GetUserResponse.parse(safeUser(created)));
 });
 
-/** Legacy password register — prefer Clerk SignUp in the UI. */
-router.post("/users", async (req, res): Promise<void> => {
-  const parsed = CreateUserBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
+/**
+ * Explicit buyer/seller choice from the onboarding UI.
+ * Does not allow self-assigning admin.
+ * If the Clerk user is authenticated but not yet in Postgres (race with sync),
+ * create/link the row first, then apply the role.
+ */
+router.post(
+  "/users/me/onboarding",
+  requireClerkAuth,
+  async (req, res): Promise<void> => {
+    if (!clerkEnabled) {
+      res.status(503).json({ error: "Clerk is not configured" });
+      return;
+    }
 
-  const existing = await db.select().from(usersTable).where(eq(usersTable.email, parsed.data.email));
-  if (existing.length > 0) {
-    res.status(400).json({ error: "Email already registered" });
-    return;
-  }
+    const parsed = CompleteUserOnboardingBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
 
-  const [user] = await db.insert(usersTable).values(parsed.data).returning();
-  res.status(201).json(GetUserResponse.parse(safeUser(user)));
-});
+    const { getAuth, clerkClient } = await import("@clerk/express");
+    const { userId } = getAuth(req);
+    if (!userId) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
 
-/** Legacy password login — prefer Clerk SignIn in the UI. */
-router.post("/users/login", async (req, res): Promise<void> => {
-  const parsed = LoginUserBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
+    let user = await prisma.user.findUnique({ where: { clerkId: userId } });
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.email, parsed.data.email));
+    // Race-safe: profile may not be synced yet when onboarding fires immediately.
+    if (!user) {
+      const clerkUser = await clerkClient.users.getUser(userId);
+      const email =
+        clerkUser.primaryEmailAddress?.emailAddress ??
+        clerkUser.emailAddresses[0]?.emailAddress;
+      if (!email) {
+        res.status(400).json({ error: "Clerk user has no email address" });
+        return;
+      }
+      const name =
+        [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
+        email.split("@")[0];
+      const avatarUrl = clerkUser.imageUrl ?? null;
+      const byEmail = await prisma.user.findUnique({ where: { email } });
+      if (byEmail) {
+        user = await prisma.user.update({
+          where: { id: byEmail.id },
+          data: {
+            clerkId: userId,
+            name,
+            avatarUrl,
+            password: null,
+          },
+        });
+      } else {
+        user = await prisma.user.create({
+          data: {
+            clerkId: userId,
+            name,
+            email,
+            password: null,
+            role: "buyer",
+            avatarUrl,
+            onboardingCompleted: false,
+          },
+        });
+      }
+    }
 
-  if (!user || !user.password || user.password !== parsed.data.password) {
-    res.status(401).json({ error: "Invalid email or password" });
-    return;
-  }
+    if (user.role === "admin") {
+      res.status(403).json({
+        error: "Admin accounts cannot change role via onboarding",
+      });
+      return;
+    }
 
-  res.json(LoginUserResponse.parse(safeUser(user)));
-});
+    const company =
+      typeof parsed.data.company === "string" && parsed.data.company.trim()
+        ? parsed.data.company.trim()
+        : user.company;
+
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        role: parsed.data.role,
+        company,
+        onboardingCompleted: true,
+      },
+    });
+
+    // Keep Clerk metadata in sync for dashboards — app role source of truth is Postgres.
+    try {
+      await clerkClient.users.updateUserMetadata(userId, {
+        publicMetadata: {
+          role: parsed.data.role,
+          ...(company ? { company } : {}),
+        },
+      });
+    } catch (err) {
+      console.warn("Failed to mirror role to Clerk publicMetadata", err);
+    }
+
+    res.json(GetUserResponse.parse(safeUser(updated)));
+  },
+);
+
+/** Legacy password register — disabled unless ALLOW_LEGACY_PASSWORD_AUTH=true. Prefer Clerk. */
+router.post(
+  "/users",
+  requireLegacyPasswordAuth,
+  legacyAuthLimiter,
+  async (req, res): Promise<void> => {
+    const parsed = CreateUserBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+    if (existing) {
+      res.status(400).json({ error: "Email already registered" });
+      return;
+    }
+
+    const passwordHash = await hashPassword(parsed.data.password);
+    const user = await prisma.user.create({
+      data: {
+        ...parsed.data,
+        password: passwordHash,
+        onboardingCompleted: true,
+      },
+    });
+    res.status(201).json(GetUserResponse.parse(safeUser(user)));
+  },
+);
+
+/** Legacy password login — disabled unless ALLOW_LEGACY_PASSWORD_AUTH=true. Prefer Clerk. */
+router.post(
+  "/users/login",
+  requireLegacyPasswordAuth,
+  legacyAuthLimiter,
+  async (req, res): Promise<void> => {
+    const parsed = LoginUserBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+
+    if (!user?.password) {
+      res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    const ok = await verifyPassword(parsed.data.password, user.password);
+    if (!ok) {
+      res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    res.json(LoginUserResponse.parse(safeUser(user)));
+  },
+);
 
 router.get("/users/me", requireClerkAuth, async (req, res): Promise<void> => {
   if (!clerkEnabled) {
@@ -167,7 +314,7 @@ router.get("/users/me", requireClerkAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId));
+  const user = await prisma.user.findUnique({ where: { clerkId: userId } });
   if (!user) {
     res.status(404).json({ error: "User profile not synced yet. Call POST /api/users/sync." });
     return;
@@ -184,7 +331,7 @@ router.get("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, params.data.id));
+  const user = await prisma.user.findUnique({ where: { id: params.data.id } });
   if (!user) {
     res.status(404).json({ error: "User not found" });
     return;

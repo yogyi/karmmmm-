@@ -1,18 +1,20 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { CheckCircle, ChevronLeft, Package, Send, Star, AlertCircle, Shield, Truck, Clock, Tag, Heart } from "lucide-react";
 import { motion } from "framer-motion";
-import { useGetProduct, useListReviews, useCreateRfq, useCreateReview, useListProducts } from "@workspace/api-client-react";
+import { useGetProduct, useListReviews, useCreateRfq, useCreateReview, useListProducts, getGetRfqQueryKey } from "@workspace/api-client-react";
 import { StarRating } from "@/components/StarRating";
 import { useAuth } from "@/context/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
-import { getListRfqsQueryKey, getListReviewsQueryKey } from "@workspace/api-client-react";
+import { getListReviewsQueryKey } from "@workspace/api-client-react";
 import { useShortlist } from "@/hooks/useShortlist";
+import { ProductImage, resolveProductImageUrl } from "@/components/ProductImage";
 
 export function ProductDetailPage({ params }: { params: { id: string } }) {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const qc = useQueryClient();
+  const rfqDialogRef = useRef<HTMLDivElement>(null);
 
   const productId = Number(params.id);
   const { data: product, isLoading } = useGetProduct(productId, { query: { enabled: !!productId } as any });
@@ -34,15 +36,55 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
   const createRfq = useCreateRfq();
   const createReview = useCreateReview();
 
+  useEffect(() => {
+    if (!rfqOpen) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const root = rfqDialogRef.current;
+    const focusables = root?.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    focusables?.[0]?.focus();
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setRfqOpen(false);
+        setRfqSuccess(false);
+        return;
+      }
+      if (e.key !== "Tab" || !root || !focusables?.length) return;
+      const list = Array.from(focusables);
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previouslyFocused?.focus?.();
+    };
+  }, [rfqOpen]);
+
   async function handleRfqSubmit(e: React.FormEvent) {
     e.preventDefault();
     setRfqError("");
+    if (!user || user.id <= 0) {
+      setRfqError("Please sign in to send an RFQ.");
+      return;
+    }
     if (!rfqForm.quantity || !rfqForm.buyerName || !rfqForm.buyerEmail) {
       setRfqError("Please fill all required fields.");
       return;
     }
     try {
-      await createRfq.mutateAsync({
+      const created = await createRfq.mutateAsync({
         data: {
           productId: product?.id,
           productName: product?.name ?? "",
@@ -53,12 +95,23 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
           unit: rfqForm.unit || product?.unit || "piece",
           targetPrice: rfqForm.targetPrice ? Number(rfqForm.targetPrice) : undefined,
           description: rfqForm.description || undefined,
-        }
+        },
       });
-      qc.invalidateQueries({ queryKey: getListRfqsQueryKey() });
+      await qc.invalidateQueries({ queryKey: ["/api/rfq"] });
+      if (created?.id) {
+        qc.setQueryData(getGetRfqQueryKey(created.id), created);
+      }
       setRfqSuccess(true);
-    } catch {
-      setRfqError("Failed to send RFQ. Please try again.");
+    } catch (err) {
+      const msg =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: string }).message)
+          : "";
+      setRfqError(
+        msg.includes("401") || msg.includes("Authentication")
+          ? "Please sign in to send an RFQ."
+          : msg.replace(/^HTTP \d+ [^:]+:\s*/, "") || "Failed to send RFQ. Please try again.",
+      );
     }
   }
 
@@ -91,7 +144,9 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
     );
   }
 
-  const allImages = product.images?.length ? product.images : [product.imageUrl];
+  const allImages = (product.images?.length ? product.images : [product.imageUrl])
+    .map((u) => resolveProductImageUrl(u) ?? u)
+    .filter(Boolean) as string[];
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -219,7 +274,15 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
           {/* RFQ + shortlist */}
           <div className="flex gap-2">
             <button
-              onClick={() => setRfqOpen(true)}
+              onClick={() => {
+                if (!user || user.id <= 0) {
+                  navigate(
+                    `/login?mode=buyer&redirect=${encodeURIComponent(`/products/${product.id}`)}`,
+                  );
+                  return;
+                }
+                setRfqOpen(true);
+              }}
               className="flex-1 bg-primary hover:bg-primary/90 text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all hover:shadow-xl hover:shadow-primary/25 hover:-translate-y-0.5"
             >
               <Send size={18} /> Get Best Price
@@ -339,7 +402,7 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
                   onClick={() => navigate(`/products/${p.id}`)}
                   className="bg-white border border-border rounded-2xl overflow-hidden text-left hover:border-primary/30 shadow-sm"
                 >
-                  <img src={p.imageUrl} alt={p.name} className="h-28 w-full object-cover" />
+                  <ProductImage src={p.imageUrl} alt={p.name} className="h-28 w-full object-cover" />
                   <div className="p-3">
                     <div className="text-xs font-semibold line-clamp-2 mb-1">{p.name}</div>
                     <div className="text-primary text-sm font-bold">₹{p.minPrice}–{p.maxPrice}</div>
@@ -352,8 +415,21 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
 
       {/* RFQ Modal */}
       {rfqOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setRfqOpen(false);
+              setRfqSuccess(false);
+            }
+          }}
+        >
           <motion.div
+            ref={rfqDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="rfq-dialog-title"
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto"
@@ -363,8 +439,10 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
                 <div className="w-16 h-16 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <CheckCircle size={36} className="text-green-500" />
                 </div>
-                <h3 className="font-heading text-xl font-bold mb-2">RFQ Sent Successfully!</h3>
-                <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">The supplier will respond to your inquiry within 24 hours.</p>
+                <h3 id="rfq-dialog-title" className="font-heading text-xl font-bold mb-2">RFQ Saved!</h3>
+                <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">
+                  Your request is stored in the database. You can track it under My RFQs; the supplier can reply with a quote.
+                </p>
                 <div className="flex gap-3">
                   <button onClick={() => { setRfqOpen(false); setRfqSuccess(false); }} className="flex-1 border border-border py-2.5 rounded-xl text-sm font-semibold hover:bg-muted transition-colors">Close</button>
                   <button onClick={() => navigate("/rfq")} className="flex-1 bg-primary text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">View My RFQs</button>
@@ -374,10 +452,17 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
               <>
                 <div className="flex items-center justify-between mb-5">
                   <div>
-                    <h3 className="font-heading text-lg font-bold">Request for Quotation</h3>
+                    <h3 id="rfq-dialog-title" className="font-heading text-lg font-bold">Request for Quotation</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">Supplier will respond within 24 hours</p>
                   </div>
-                  <button onClick={() => setRfqOpen(false)} className="w-8 h-8 rounded-xl hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-lg">✕</button>
+                  <button
+                    type="button"
+                    aria-label="Close RFQ dialog"
+                    onClick={() => setRfqOpen(false)}
+                    className="w-8 h-8 rounded-xl hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-lg"
+                  >
+                    ✕
+                  </button>
                 </div>
                 <div className="bg-accent rounded-xl p-3 mb-5 border border-accent-border">
                   <div className="text-xs text-muted-foreground mb-0.5">Product</div>

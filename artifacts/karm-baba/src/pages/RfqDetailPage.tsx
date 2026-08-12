@@ -26,14 +26,24 @@ const statusConfig = {
   rejected: { label: "Rejected", color: "bg-red-100 text-red-600 border-red-200", icon: <XCircle size={12} /> },
 };
 
+function httpStatus(err: unknown): number | null {
+  if (!err || typeof err !== "object") return null;
+  const e = err as { status?: number; response?: { status?: number } };
+  return e.status ?? e.response?.status ?? null;
+}
+
 export function RfqDetailPage({ params }: { params: { id: string } }) {
   const [, navigate] = useLocation();
   const { user, isLoggedIn } = useAuth();
   const qc = useQueryClient();
   const rfqId = Number(params.id);
 
-  const { data: rfq, isLoading } = useGetRfq(rfqId, {
-    query: { enabled: !!rfqId } as any,
+  const { data: rfq, isLoading, isError, error: loadError } = useGetRfq(rfqId, {
+    query: {
+      enabled: !!rfqId,
+      retry: (failureCount: number, err: unknown) =>
+        httpStatus(err) !== 401 && failureCount < 1,
+    } as any,
   });
   const updateRfq = useUpdateRfq();
 
@@ -42,10 +52,19 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const isSeller =
+  const linkedShop =
+    !!user && user.role === "seller" && typeof user.supplierId === "number";
+
+  // Assigned shop, open marketplace RFQ (claim on quote), or admin.
+  const canSendQuote =
     !!user &&
-    (user.role === "seller" || user.role === "admin") &&
-    (!!user.supplierId ? user.supplierId === rfq?.supplierId : true);
+    !!rfq &&
+    rfq.status === "pending" &&
+    (user.role === "admin" ||
+      (linkedShop &&
+        (rfq.supplierId == null || rfq.supplierId === user.supplierId)));
+
+  const isOpenRfq = !!rfq && rfq.supplierId == null;
   const isBuyer = !!user && user.id === rfq?.buyerId;
 
   async function submitQuote(e: React.FormEvent) {
@@ -63,7 +82,7 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
           status: "responded",
           quotedPrice: Number(quotePrice),
           sellerMessage: quoteMessage || undefined,
-        },
+        } as { status: "responded"; quotedPrice: number; sellerMessage?: string },
       });
       qc.invalidateQueries({ queryKey: getGetRfqQueryKey(rfqId) });
       qc.invalidateQueries({ queryKey: getListRfqsQueryKey() });
@@ -76,6 +95,12 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   }
 
   async function setStatus(status: "accepted" | "rejected") {
+    if (status === "rejected") {
+      const ok = window.confirm(
+        "Reject this quote? You can still post a new RFQ later if needed.",
+      );
+      if (!ok) return;
+    }
     setError("");
     try {
       await updateRfq.mutateAsync({ id: rfqId, data: { status } });
@@ -96,12 +121,37 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
     );
   }
 
+  if (isError && httpStatus(loadError) === 401) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-20 text-center">
+        <Package className="mx-auto mb-3 text-muted-foreground" />
+        <h2 className="font-heading font-bold text-xl mb-2">Sign in to view this RFQ</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          This request is private. Sign in with the buyer or seller account that owns it.
+        </p>
+        <button
+          type="button"
+          onClick={() =>
+            navigate(`/login?redirect=${encodeURIComponent(`/rfq/${rfqId}`)}`)
+          }
+          className="text-primary text-sm font-medium"
+        >
+          Sign in →
+        </button>
+      </div>
+    );
+  }
+
   if (!rfq) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-20 text-center">
         <Package className="mx-auto mb-3 text-muted-foreground" />
         <h2 className="font-heading font-bold text-xl mb-2">RFQ not found</h2>
-        <button onClick={() => navigate("/rfq")} className="text-primary text-sm font-medium">
+        <button
+          type="button"
+          onClick={() => navigate("/rfq")}
+          className="text-primary text-sm font-medium"
+        >
           ← Back to My RFQs
         </button>
       </div>
@@ -115,10 +165,11 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <button
-        onClick={() => navigate(isSeller ? "/dashboard" : "/rfq")}
+        type="button"
+        onClick={() => navigate("/rfq")}
         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary mb-6 font-medium"
       >
-        <ChevronLeft size={16} /> Back
+        <ChevronLeft size={16} /> Back to RFQs
       </button>
 
       <div className="bg-white rounded-2xl border border-border shadow-sm p-6 mb-6">
@@ -185,12 +236,16 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
       {error && <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{error}</div>}
       {success && <div className="mb-4 text-sm text-green-700 bg-green-50 border border-green-100 rounded-xl px-3 py-2">{success}</div>}
 
-      {/* Seller quote form */}
-      {isLoggedIn && isSeller && rfq.status === "pending" && (
+      {/* Seller quote form (assigned shop or claim open RFQ) */}
+      {isLoggedIn && canSendQuote && (
         <form onSubmit={submitQuote} className="bg-white rounded-2xl border border-border p-6 shadow-sm space-y-4">
-          <h2 className="font-heading font-bold text-lg">Send your best price</h2>
+          <h2 className="font-heading font-bold text-lg">
+            {isOpenRfq ? "Claim & send your best price" : "Send your best price"}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Inspired by IndiaMART “Get Best Price” — reply with a competitive wholesale quote.
+            {isOpenRfq
+              ? "This is an open marketplace inquiry. Sending a quote assigns it to your shop."
+              : "Reply with a competitive wholesale quote for this buyer."}
           </p>
           <div>
             <label className="text-xs font-semibold text-muted-foreground">Quoted price (₹ / {rfq.unit})</label>
@@ -233,14 +288,18 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
           </p>
           <div className="flex gap-3">
             <button
-              onClick={() => setStatus("accepted")}
-              className="flex-1 bg-green-600 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-green-700"
+              type="button"
+              disabled={updateRfq.isPending}
+              onClick={() => void setStatus("accepted")}
+              className="flex-1 bg-green-600 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-green-700 disabled:opacity-60"
             >
               Accept Quote
             </button>
             <button
-              onClick={() => setStatus("rejected")}
-              className="flex-1 border border-border py-2.5 rounded-xl font-semibold text-sm hover:bg-muted"
+              type="button"
+              disabled={updateRfq.isPending}
+              onClick={() => void setStatus("rejected")}
+              className="flex-1 border border-border py-2.5 rounded-xl font-semibold text-sm hover:bg-muted disabled:opacity-60"
             >
               Reject
             </button>

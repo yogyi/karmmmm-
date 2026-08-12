@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect, useCallback } from "react";
+import { useLocation, useSearch } from "wouter";
 import { Search, CheckCircle, ChevronLeft, ChevronRight, MapPin, Clock, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { useListSuppliers } from "@workspace/api-client-react";
@@ -32,12 +32,61 @@ const avatarGradients = [
 
 export function SuppliersPage() {
   const [, navigate] = useLocation();
-  const [search, setSearch] = useState("");
-  const [inputSearch, setInputSearch] = useState("");
-  const [verified, setVerified] = useState<boolean | null>(null);
-  const [page, setPage] = useState(1);
+  const searchString = useSearch();
+  const initialParams = new URLSearchParams(
+    searchString.startsWith("?") ? searchString.slice(1) : searchString,
+  );
 
-  const { data, isLoading } = useListSuppliers({
+  const [search, setSearch] = useState(() => initialParams.get("search") ?? "");
+  const [inputSearch, setInputSearch] = useState(() => initialParams.get("search") ?? "");
+  const [verified, setVerified] = useState<boolean | null>(() => {
+    const v = initialParams.get("verified");
+    if (v === "true") return true;
+    if (v === "false") return false;
+    return null;
+  });
+  const [page, setPage] = useState(() =>
+    Math.max(1, Number(initialParams.get("page") || "1") || 1),
+  );
+
+  // Header "Verified Suppliers" uses ?verified=true — sync when query changes.
+  useEffect(() => {
+    const params = new URLSearchParams(
+      searchString.startsWith("?") ? searchString.slice(1) : searchString,
+    );
+    const v = params.get("verified");
+    setVerified(v === "true" ? true : v === "false" ? false : null);
+    setSearch(params.get("search") ?? "");
+    setInputSearch(params.get("search") ?? "");
+    setPage(Math.max(1, Number(params.get("page") || "1") || 1));
+  }, [searchString]);
+
+  const writeSuppliersQuery = useCallback(
+    (patch: { search?: string; verified?: boolean | null; page?: number }) => {
+      const nextSearch = patch.search !== undefined ? patch.search : search;
+      const nextVerified = patch.verified !== undefined ? patch.verified : verified;
+      const nextPage = patch.page !== undefined ? patch.page : page;
+      const params = new URLSearchParams();
+      if (nextSearch.trim()) params.set("search", nextSearch.trim());
+      if (nextVerified === true) params.set("verified", "true");
+      if (nextVerified === false) params.set("verified", "false");
+      if (nextPage > 1) params.set("page", String(nextPage));
+      const qs = params.toString();
+      navigate(qs ? `/suppliers?${qs}` : "/suppliers");
+    },
+    [navigate, search, verified, page],
+  );
+
+  const applyVerified = useCallback(
+    (value: boolean | null) => {
+      setVerified(value);
+      setPage(1);
+      writeSuppliersQuery({ verified: value, page: 1 });
+    },
+    [writeSuppliersQuery],
+  );
+
+  const { data, isLoading, isError, refetch, isFetching } = useListSuppliers({
     search: search || undefined,
     verified: verified ?? undefined,
     page,
@@ -50,6 +99,7 @@ export function SuppliersPage() {
     e.preventDefault();
     setSearch(inputSearch);
     setPage(1);
+    writeSuppliersQuery({ search: inputSearch, page: 1 });
   }
 
   return (
@@ -58,7 +108,11 @@ export function SuppliersPage() {
       <div className="mb-6">
         <h1 className="font-heading text-2xl font-bold text-foreground">Supplier Directory</h1>
         <p className="text-muted-foreground text-sm mt-0.5">
-          {data ? `${data.total.toLocaleString()} verified suppliers across India` : "Loading..."}
+          {data
+            ? verified === true
+              ? `${data.total.toLocaleString()} verified suppliers across India`
+              : `${data.total.toLocaleString()} suppliers across India`
+            : "Loading..."}
         </p>
       </div>
 
@@ -80,13 +134,15 @@ export function SuppliersPage() {
         </form>
         <div className="flex gap-2 flex-shrink-0">
           <button
-            onClick={() => { setVerified(null); setPage(1); }}
+            type="button"
+            onClick={() => applyVerified(null)}
             className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${verified === null ? "bg-primary text-white shadow-sm" : "border border-border hover:bg-muted bg-white"}`}
           >
             All
           </button>
           <button
-            onClick={() => { setVerified(true); setPage(1); }}
+            type="button"
+            onClick={() => applyVerified(true)}
             className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${verified === true ? "bg-green-600 text-white shadow-sm" : "border border-border hover:bg-muted bg-white"}`}
           >
             <CheckCircle size={14} /> <span className="hidden sm:inline">Verified Only</span><span className="sm:hidden">Verified</span>
@@ -95,7 +151,20 @@ export function SuppliersPage() {
       </div>
 
       {/* Supplier grid */}
-      {isLoading ? (
+      {isError ? (
+        <div className="text-center py-20 bg-white rounded-2xl border border-border">
+          <h3 className="text-lg font-heading font-bold mb-2">Couldn’t load suppliers</h3>
+          <p className="text-muted-foreground text-sm mb-6">Check your connection and try again.</p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="bg-primary text-white px-6 py-2.5 rounded-xl font-semibold text-sm hover:bg-primary/90 disabled:opacity-60"
+          >
+            {isFetching ? "Retrying…" : "Retry"}
+          </button>
+        </div>
+      ) : isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 9 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
@@ -107,7 +176,12 @@ export function SuppliersPage() {
           <h3 className="text-lg font-heading font-bold mb-2">No suppliers found</h3>
           <p className="text-muted-foreground text-sm mb-6">Try adjusting your search or filters</p>
           <button
-            onClick={() => { setSearch(""); setInputSearch(""); setVerified(null); }}
+            type="button"
+            onClick={() => {
+              setSearch("");
+              setInputSearch("");
+              applyVerified(null);
+            }}
             className="bg-primary text-white px-6 py-2.5 rounded-xl font-semibold text-sm hover:bg-primary/90 transition-colors"
           >
             Clear Filters
@@ -198,7 +272,8 @@ export function SuppliersPage() {
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 mt-10">
               <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
+                type="button"
+                onClick={() => writeSuppliersQuery({ page: Math.max(1, page - 1) })}
                 disabled={page === 1}
                 className="flex items-center gap-1.5 px-3 sm:px-4 py-2 border border-border rounded-xl disabled:opacity-40 hover:bg-muted transition-colors text-sm font-medium"
               >
@@ -206,7 +281,8 @@ export function SuppliersPage() {
               </button>
               <span className="text-sm font-semibold px-4 text-muted-foreground">Page {page} of {totalPages}</span>
               <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                type="button"
+                onClick={() => writeSuppliersQuery({ page: Math.min(totalPages, page + 1) })}
                 disabled={page === totalPages}
                 className="flex items-center gap-1.5 px-3 sm:px-4 py-2 border border-border rounded-xl disabled:opacity-40 hover:bg-muted transition-colors text-sm font-medium"
               >

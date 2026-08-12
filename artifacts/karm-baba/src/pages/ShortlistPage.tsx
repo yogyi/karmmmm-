@@ -1,15 +1,31 @@
+import { useQueries } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Heart, Package } from "lucide-react";
-import { useListProducts } from "@workspace/api-client-react";
+import { Heart, Package, AlertCircle } from "lucide-react";
+import { getProduct, getGetProductQueryKey } from "@workspace/api-client-react";
 import { useShortlist } from "@/hooks/useShortlist";
 import { StarRating } from "@/components/StarRating";
+import { ProductImage } from "@/components/ProductImage";
 
 export function ShortlistPage() {
   const [, navigate] = useLocation();
   const { ids, toggle, clear, count } = useShortlist();
-  const { data, isLoading } = useListProducts({ limit: 100, page: 1 });
 
-  const items = (data?.items ?? []).filter((p) => ids.includes(p.id));
+  const queries = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: getGetProductQueryKey(id),
+      queryFn: ({ signal }: { signal?: AbortSignal }) => getProduct(id, { signal }),
+      staleTime: 60_000,
+      retry: 1,
+    })),
+  });
+
+  const isLoading = count > 0 && queries.some((q) => q.isLoading);
+  const items = queries
+    .map((q, i) => ({ product: q.data, id: ids[i], error: q.isError }))
+    .filter((row) => row.product != null)
+    .map((row) => row.product!);
+  const missing = count - items.length;
+  const hasFetchError = queries.some((q) => q.isError);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -23,7 +39,11 @@ export function ShortlistPage() {
           </p>
         </div>
         {count > 0 && (
-          <button onClick={clear} className="text-sm text-muted-foreground hover:text-destructive border border-border rounded-xl px-3 py-2">
+          <button
+            type="button"
+            onClick={clear}
+            className="text-sm text-muted-foreground hover:text-destructive border border-border rounded-xl px-3 py-2"
+          >
             Clear all
           </button>
         )}
@@ -31,7 +51,7 @@ export function ShortlistPage() {
 
       {isLoading ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
+          {Array.from({ length: Math.min(count, 8) || 4 }).map((_, i) => (
             <div key={i} className="h-56 bg-muted animate-pulse rounded-2xl" />
           ))}
         </div>
@@ -39,41 +59,70 @@ export function ShortlistPage() {
         <div className="text-center py-20 bg-white rounded-2xl border border-border">
           <Package className="mx-auto text-muted-foreground mb-3" />
           <h3 className="font-heading font-bold mb-2">No saved products yet</h3>
-          <button onClick={() => navigate("/products")} className="text-primary text-sm font-semibold">
+          <button
+            type="button"
+            onClick={() => navigate("/products")}
+            className="text-primary text-sm font-semibold"
+          >
             Browse products →
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {items.map((product) => (
-            <div key={product.id} className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm">
-              <button onClick={() => navigate(`/products/${product.id}`)} className="w-full text-left">
-                <img src={product.imageUrl} alt={product.name} className="h-36 w-full object-cover" />
-                <div className="p-3">
-                  <h3 className="text-sm font-semibold line-clamp-2 mb-1">{product.name}</h3>
-                  <div className="text-primary font-bold text-sm">
-                    ₹{product.minPrice}–{product.maxPrice}
-                  </div>
-                  {product.rating && <StarRating rating={product.rating} size={10} />}
-                </div>
-              </button>
-              <div className="px-3 pb-3 flex gap-2">
-                <button
-                  onClick={() => navigate(`/products/${product.id}`)}
-                  className="flex-1 bg-primary text-white text-xs font-semibold py-2 rounded-xl"
-                >
-                  Get Best Price
-                </button>
-                <button
-                  onClick={() => toggle(product.id)}
-                  className="px-3 border border-border rounded-xl text-xs font-semibold hover:bg-muted"
-                >
-                  Remove
-                </button>
-              </div>
+        <>
+          {(hasFetchError || missing > 0) && (
+            <div className="mb-4 flex items-start gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+              <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+              <span>
+                {missing > 0
+                  ? `${missing} saved item${missing === 1 ? "" : "s"} could not be loaded (removed or unavailable).`
+                  : "Some shortlisted products failed to load. Refresh and try again."}
+              </span>
             </div>
-          ))}
-        </div>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {items.map((product) => (
+              <div
+                key={product.id}
+                className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm"
+              >
+                <button
+                  type="button"
+                  onClick={() => navigate(`/products/${product.id}`)}
+                  className="w-full text-left"
+                >
+                  <ProductImage
+                    src={product.imageUrl}
+                    alt={product.name}
+                    className="h-36 w-full object-cover"
+                  />
+                  <div className="p-3">
+                    <h3 className="text-sm font-semibold line-clamp-2 mb-1">{product.name}</h3>
+                    <div className="text-primary font-bold text-sm">
+                      ₹{product.minPrice}–{product.maxPrice}
+                    </div>
+                    {product.rating != null && <StarRating rating={product.rating} size={10} />}
+                  </div>
+                </button>
+                <div className="px-3 pb-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/products/${product.id}`)}
+                    className="flex-1 bg-primary text-white text-xs font-semibold py-2 rounded-xl"
+                  >
+                    Get Best Price
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggle(product.id)}
+                    className="px-3 border border-border rounded-xl text-xs font-semibold hover:bg-muted"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

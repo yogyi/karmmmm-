@@ -6,15 +6,20 @@ const clerkEnabled = Boolean(
 
 export { clerkEnabled };
 
-/** Require a valid Clerk session for mutating / private routes. */
+/**
+ * Require a valid Clerk session for mutating / private routes.
+ * Never open these routes when Clerk is misconfigured — that would be an auth bypass.
+ */
 export const requireClerkAuth: RequestHandler = (req, res, next) => {
   if (!clerkEnabled) {
-    // Dev fallback when Clerk isn't configured yet — keep APIs usable with Neon.
-    next();
+    res.status(503).json({
+      error:
+        "Authentication is not configured. Set CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY.",
+    });
     return;
   }
 
-  // Lazy require so the API can boot without Clerk keys installed in env.
+  // Lazy require so the API can still boot for public GETs without Clerk wired in.
   import("@clerk/express")
     .then(({ getAuth }) => {
       const auth = getAuth(req);

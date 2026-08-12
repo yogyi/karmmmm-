@@ -1,0 +1,276 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  id           Int     @id @default(autoincrement())
+  name         String
+  slug         String  @unique
+  icon         String?
+  imageUrl     String? @map("image_url")
+  description  String?
+  productCount Int     @default(0) @map("product_count")
+
+  products Product[]
+
+  @@map("categories")
+}
+
+model User {
+  id                  Int      @id @default(autoincrement())
+  clerkId             String?  @unique @map("clerk_id")
+  name                String
+  email               String   @unique
+  password            String?
+  role                String   @default("buyer")
+  company             String?
+  avatarUrl           String?  @map("avatar_url")
+  supplierId          Int?     @map("supplier_id")
+  onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  rfqs     Rfq[]     @relation("RfqBuyer")
+  reviews  Review[]  @relation("ReviewAuthor")
+  leads    Lead[]    @relation("LeadBuyer")
+
+  @@map("users")
+}
+
+model Supplier {
+  id                 Int       @id @default(autoincrement())
+  companyName        String    @map("company_name")
+  legalName          String?   @map("legal_name")
+  slug               String?   @unique
+  description        String?
+  location           String
+  country            String?
+  businessAddress    String?   @map("business_address")
+  city               String?
+  state              String?
+  pincode            String?
+  logoUrl            String?   @map("logo_url")
+  coverUrl           String?   @map("cover_url")
+  videoUrl           String?   @map("video_url")
+  shareImageUrl      String?   @map("share_image_url")
+  verified           Boolean   @default(false)
+  verificationStatus String    @default("draft") @map("verification_status")
+  verificationStep   Int       @default(1) @map("verification_step")
+  verifiedAt         DateTime? @map("verified_at")
+  gstin              String?   @unique
+  pan                String?
+  gstVerified        Boolean   @default(false) @map("gst_verified")
+  contactPerson      String?   @map("contact_person")
+  contactPhone       String?   @map("contact_phone")
+  contactEmail       String?   @map("contact_email")
+  website            String?
+  bankAccountName    String?   @map("bank_account_name")
+  bankIfsc           String?   @map("bank_ifsc")
+  yearsInBusiness    Int?      @map("years_in_business")
+  employeeCount      String?   @map("employee_count")
+  mainProducts       String[]  @default([]) @map("main_products")
+  certifications     String[]  @default([])
+  rating             Decimal   @default(0) @db.Decimal(3, 2)
+  reviewCount        Int       @default(0) @map("review_count")
+  productCount       Int       @default(0) @map("product_count")
+  responseRate       Decimal?  @map("response_rate") @db.Decimal(5, 2)
+  responseTime       String?   @map("response_time")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  users        User[]
+  products     Product[]
+  rfqs         Rfq[]
+  reviews      Review[]
+  subscription ShopSubscription?
+  leads        Lead[]
+
+  @@map("suppliers")
+}
+
+model Product {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  supplierId  Int      @map("supplier_id")
+  categoryId  Int      @map("category_id")
+  minPrice    Decimal  @map("min_price") @db.Decimal(12, 2)
+  maxPrice    Decimal  @map("max_price") @db.Decimal(12, 2)
+  unit        String
+  minOrder    Int      @default(1) @map("min_order")
+  imageUrl    String   @map("image_url")
+  images      String[] @default([])
+  inStock     Boolean  @default(true) @map("in_stock")
+  featured    Boolean  @default(false)
+  rating      Decimal? @db.Decimal(3, 2)
+  reviewCount Int      @default(0) @map("review_count")
+  tags        String[] @default([])
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  rfqs     Rfq[]
+  reviews  Review[]
+
+  @@map("products")
+}
+
+model Rfq {
+  id            Int       @id @default(autoincrement())
+  productId     Int?      @map("product_id")
+  productName   String    @map("product_name")
+  supplierId    Int?      @map("supplier_id")
+  supplierName  String?   @map("supplier_name")
+  buyerId       Int?      @map("buyer_id")
+  buyerName     String    @map("buyer_name")
+  buyerEmail    String    @map("buyer_email")
+  quantity      Int
+  unit          String
+  targetPrice   Decimal?  @map("target_price") @db.Decimal(12, 2)
+  description   String?
+  status        String    @default("pending")
+  quotedPrice   Decimal?  @map("quoted_price") @db.Decimal(12, 2)
+  sellerMessage String?   @map("seller_message")
+  quotedAt      DateTime? @map("quoted_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  product  Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  buyer    User?     @relation("RfqBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  lead     Lead?
+
+  @@map("rfq")
+}
+
+model Review {
+  id           Int      @id @default(autoincrement())
+  supplierId   Int?     @map("supplier_id")
+  productId    Int?     @map("product_id")
+  reviewerId   Int?     @map("reviewer_id")
+  reviewerName String   @map("reviewer_name")
+  rating       Int
+  comment      String
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  product  Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  reviewer User?     @relation("ReviewAuthor", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@map("reviews")
+}
+
+/// Subscription plan catalog (Free → Enterprise).
+model Plan {
+  id               Int     @id @default(autoincrement())
+  code             String  @unique
+  name             String
+  description      String?
+  maxProducts      Int     @default(3) @map("max_products")
+  monthlyLeadQuota Int     @default(10) @map("monthly_lead_quota")
+  features         String[] @default([])
+  priceInrMonthly  Int?    @map("price_inr_monthly")
+  priceInrYearly   Int?    @map("price_inr_yearly")
+  priceUsdMonthly  Int?    @map("price_usd_monthly")
+  priceUsdYearly   Int?    @map("price_usd_yearly")
+  sortOrder        Int     @default(0) @map("sort_order")
+  active           Boolean @default(true)
+
+  subscriptions ShopSubscription[]
+
+  @@map("plans")
+}
+
+/// Per-shop subscription entitlement.
+model ShopSubscription {
+  id          Int       @id @default(autoincrement())
+  supplierId  Int       @unique @map("supplier_id")
+  planCode    String    @map("plan_code")
+  status      String    @default("active")
+  region      String    @default("inr")
+  periodStart DateTime  @default(now()) @map("period_start")
+  periodEnd   DateTime? @map("period_end")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  plan     Plan     @relation(fields: [planCode], references: [code], onDelete: Restrict)
+
+  @@map("shop_subscriptions")
+}
+
+/// CRM lead (KARM Leads Master).
+model Lead {
+  id                 Int       @id @default(autoincrement())
+  karmId             String    @unique @map("karm_id")
+  supplierId         Int?      @map("supplier_id")
+  buyerId            Int?      @map("buyer_id")
+  rfqId              Int?      @unique @map("rfq_id")
+  name               String
+  company            String?
+  country            String?
+  phone              String?
+  email              String?
+  productInterest    String?   @map("product_interest")
+  avgMonthlyQty      String?   @map("avg_monthly_qty")
+  leadSource         String?   @map("lead_source")
+  requirementStatus  String    @default("new") @map("requirement_status")
+  quotationSent      Boolean   @default(false) @map("quotation_sent")
+  dealStatus         String    @default("open") @map("deal_status")
+  followUpAt         DateTime? @map("follow_up_at")
+  assignedTo         String?   @map("assigned_to")
+  comments           String?
+  lostReason         String?   @map("lost_reason")
+  industry           String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  supplier    Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  buyer       User?          @relation("LeadBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  rfq         Rfq?           @relation(fields: [rfqId], references: [id], onDelete: SetNull)
+  activities  LeadActivity[]
+  quotations  Quotation[]
+
+  @@index([supplierId, requirementStatus])
+  @@map("leads")
+}
+
+model LeadActivity {
+  id         Int       @id @default(autoincrement())
+  leadId     Int       @map("lead_id")
+  mode       String    @default("note")
+  subject    String?
+  summary    String
+  nextAction String?   @map("next_action")
+  followUpAt DateTime? @map("follow_up_at")
+  handledBy  String?   @map("handled_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@map("lead_activities")
+}
+
+model Quotation {
+  id          Int       @id @default(autoincrement())
+  leadId      Int       @map("lead_id")
+  productName String    @map("product_name")
+  quantity    Int?
+  unitPrice   Decimal?  @map("unit_price") @db.Decimal(12, 2)
+  currency    String    @default("INR")
+  incoterms   String?
+  validTill   DateTime? @map("valid_till")
+  status      String    @default("draft")
+  sentVia     String?   @map("sent_via")
+  notes       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@map("quotations")
+}

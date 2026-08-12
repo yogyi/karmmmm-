@@ -4,6 +4,17 @@
   "license": "MIT",
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "dev": "pnpm --filter @workspace/api-server run dev",
+    "dev:web": "pnpm --filter @workspace/karm-baba dev",
+    "dev:api": "pnpm --filter @workspace/api-server run dev",
+    "db": "pnpm --filter @workspace/db run",
+    "db:generate": "pnpm --filter @workspace/db generate",
+    "db:migrate": "pnpm --filter @workspace/db migrate:deploy",
+    "db:migrate:dev": "pnpm --filter @workspace/db migrate:dev",
+    "db:migrate:status": "pnpm --filter @workspace/db migrate:status",
+    "db:push": "pnpm --filter @workspace/db push",
+    "db:studio": "pnpm --filter @workspace/db studio",
+    "test": "pnpm --filter @workspace/api-server test",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"

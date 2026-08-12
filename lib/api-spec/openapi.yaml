@@ -426,6 +426,32 @@ paths:
         "401":
           description: Invalid credentials
 
+  /users/me/onboarding:
+    post:
+      operationId: completeUserOnboarding
+      tags: [users]
+      summary: Choose buyer or seller role (explicit onboarding)
+      description: >
+        Sets the authenticated user's marketplace role. Role is stored in Postgres
+        and is not overwritten by opaque Clerk publicMetadata on sync (except admin elevation).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingInput"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Authentication required
+        "403":
+          description: Admins cannot change role via onboarding
+
   /users/{id}:
     get:
       operationId: getUser
@@ -895,10 +921,16 @@ components:
         status:
           type: string
           enum: [pending, responded, accepted, rejected]
+        quotedPrice:
+          type: number
+        sellerMessage:
+          type: string
+        supplierName:
+          type: string
 
     User:
       type: object
-      required: [id, name, email, role, createdAt]
+      required: [id, name, email, role, onboardingCompleted, createdAt]
       properties:
         id:
           type: integer
@@ -915,8 +947,22 @@ components:
           type: ["string", "null"]
         supplierId:
           type: ["integer", "null"]
+        onboardingCompleted:
+          type: boolean
         createdAt:
           type: string
+
+    OnboardingInput:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [buyer, seller]
+          description: Marketplace role chosen by the user in onboarding UI.
+        company:
+          type: string
+          description: Optional company / trading name.
 
     UserInput:
       type: object
@@ -1026,6 +1072,7 @@ components:
             $ref: "#/components/schemas/Rfq"
         totalViews:
           type: integer
+          description: Reserved for profile-view analytics; currently always 0 (not tracked).
 
     UploadUrlRequest:
       type: object

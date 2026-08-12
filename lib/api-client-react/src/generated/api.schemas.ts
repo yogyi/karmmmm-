@@ -232,6 +232,7 @@ export interface User {
   avatarUrl?: string | null;
   /** @nullable */
   supplierId?: number | null;
+  onboardingCompleted: boolean;
   createdAt: string;
 }
 
