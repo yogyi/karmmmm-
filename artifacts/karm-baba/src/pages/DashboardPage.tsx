@@ -63,24 +63,42 @@ interface DeleteConfirmProps {
 }
 
 function DeleteConfirm({ productName, onConfirm, onCancel, loading }: DeleteConfirmProps) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      onClick={onCancel}
+      role="presentation"
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-confirm-title"
+      >
         <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <AlertTriangle size={22} className="text-red-600" />
         </div>
-        <h3 className="font-bold text-foreground mb-1">Delete Product?</h3>
+        <h3 id="delete-confirm-title" className="font-bold text-foreground mb-1">Delete Product?</h3>
         <p className="text-sm text-muted-foreground mb-6">
           <span className="font-medium text-foreground">"{productName}"</span> will be permanently removed from the marketplace.
         </p>
         <div className="flex gap-3">
-          <button onClick={onCancel} className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors">
+          <button onClick={onCancel} className="flex-1 px-4 min-h-11 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors">
             Cancel
           </button>
           <button
             onClick={onConfirm}
             disabled={loading}
-            className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-60"
+            className="flex-1 px-4 min-h-11 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-60"
           >
             {loading ? "Deleting…" : "Delete"}
           </button>
@@ -215,14 +233,23 @@ export function DashboardPage() {
     setActiveTab(tabFromUrl);
   }, [tabFromUrl]);
 
+  useEffect(() => {
+    if (isLoaded && user?.role === "buyer") {
+      navigate("/buyer");
+    }
+  }, [isLoaded, user?.role, navigate]);
+
   function switchTab(tab: "overview" | "products") {
     setActiveTab(tab);
     navigate(tab === "products" ? "/seller?tab=products" : "/seller");
   }
 
   if (isLoaded && user?.role === "buyer") {
-    navigate("/buyer");
-    return null;
+    return (
+      <div className="min-h-[40vh] flex items-center justify-center text-sm text-muted-foreground">
+        Redirecting…
+      </div>
+    );
   }
 
   async function handleCreate(data: {
@@ -601,7 +628,7 @@ export function DashboardPage() {
                     {isSupplier && (
                       <button
                         onClick={() => setAddModalOpen(true)}
-                        className="w-full flex items-center gap-2 text-sm py-2 px-3 rounded-lg hover:bg-muted transition-colors text-foreground"
+                        className="w-full flex items-center gap-2 text-sm min-h-11 px-3 rounded-lg hover:bg-muted transition-colors text-foreground"
                       >
                         <span className="text-primary"><Plus size={14} /></span>
                         Add New Product
@@ -624,7 +651,7 @@ export function DashboardPage() {
                       <button
                         key={action.path}
                         onClick={() => navigate(action.path)}
-                        className="w-full flex items-center gap-2 text-sm py-2 px-3 rounded-lg hover:bg-muted transition-colors text-foreground"
+                        className="w-full flex items-center gap-2 text-sm min-h-11 px-3 rounded-lg hover:bg-muted transition-colors text-foreground"
                       >
                         <span className="text-primary">{action.icon}</span>
                         {action.label}

@@ -82,6 +82,15 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
     }
   }, [open, initialValues]);
 
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   function set<K extends keyof ProductFormData>(key: K, value: ProductFormData[K]) {
     setForm(prev => ({ ...prev, [key]: value }));
   }
@@ -131,11 +140,26 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
         <div className="flex items-center justify-between p-6 border-b border-border sticky top-0 bg-white z-10">
           <h2 className="text-lg font-bold text-foreground">{title}</h2>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="min-h-11 min-w-11 rounded-lg hover:bg-muted transition-colors inline-flex items-center justify-center"
+          >
             <X size={18} />
           </button>
         </div>

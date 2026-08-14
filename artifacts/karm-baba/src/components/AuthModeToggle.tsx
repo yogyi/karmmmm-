@@ -76,7 +76,7 @@ function ModeTab({
       aria-selected={active}
       tabIndex={active ? 0 : -1}
       onClick={onClick}
-      className={`flex flex-col items-center gap-0.5 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+      className={`flex flex-col items-center justify-center gap-0.5 rounded-lg px-3 py-2.5 min-h-11 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
         active
           ? "bg-white text-foreground shadow-sm ring-1 ring-border"
           : "text-muted-foreground hover:text-foreground"

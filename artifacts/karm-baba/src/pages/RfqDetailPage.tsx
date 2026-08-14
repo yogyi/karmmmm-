@@ -134,7 +134,7 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
           onClick={() =>
             navigate(`/login?redirect=${encodeURIComponent(`/rfq/${rfqId}`)}`)
           }
-          className="text-primary text-sm font-medium"
+          className="w-full max-w-xs mx-auto min-h-11 bg-primary hover:bg-primary/90 text-white rounded-xl text-sm font-semibold"
         >
           Sign in →
         </button>
@@ -272,7 +272,7 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
           <button
             type="submit"
             disabled={updateRfq.isPending}
-            className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60"
+            className="w-full inline-flex items-center justify-center gap-2 bg-primary text-white px-5 min-h-11 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60"
           >
             <Send size={14} /> Send Quote
           </button>

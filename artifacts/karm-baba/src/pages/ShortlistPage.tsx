@@ -62,7 +62,7 @@ export function ShortlistPage() {
           <button
             type="button"
             onClick={() => navigate("/products")}
-            className="text-primary text-sm font-semibold"
+            className="bg-primary hover:bg-primary/90 text-white text-sm font-semibold min-h-11 px-6 rounded-xl"
           >
             Browse products →
           </button>
@@ -107,14 +107,14 @@ export function ShortlistPage() {
                   <button
                     type="button"
                     onClick={() => navigate(`/products/${product.id}`)}
-                    className="flex-1 bg-primary text-white text-xs font-semibold py-2 rounded-xl"
+                    className="flex-1 bg-primary text-white text-sm font-semibold min-h-11 rounded-xl"
                   >
                     Get Best Price
                   </button>
                   <button
                     type="button"
                     onClick={() => toggle(product.id)}
-                    className="px-3 border border-border rounded-xl text-xs font-semibold hover:bg-muted"
+                    className="px-3 border border-border rounded-xl text-sm font-semibold hover:bg-muted min-h-11"
                   >
                     Remove
                   </button>

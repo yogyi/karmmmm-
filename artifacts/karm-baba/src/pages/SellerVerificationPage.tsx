@@ -452,7 +452,7 @@ export function SellerVerificationPage() {
                         ? s.title
                         : `Complete step ${maxUnlockedStep} first`
                     }
-                    className={`w-full rounded-xl px-2 py-2.5 text-left transition-colors ${
+                    className={`w-full rounded-xl px-2 py-2.5 min-h-11 text-left transition-colors ${
                       active
                         ? "bg-primary/10 ring-1 ring-primary/30"
                         : complete
@@ -590,7 +590,7 @@ export function SellerVerificationPage() {
               type="button"
               disabled={step === 1 || saving}
               onClick={() => goToStep(Math.max(1, step - 1) as Step)}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 px-4 min-h-11 rounded-xl border border-border text-sm font-medium hover:bg-muted disabled:opacity-40"
             >
               <ArrowLeft size={16} /> Back
             </button>
@@ -600,7 +600,7 @@ export function SellerVerificationPage() {
                 type="button"
                 disabled={saving || !stepValid}
                 onClick={() => void saveStep({ advance: true })}
-                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 px-5 min-h-11 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-60"
               >
                 {saving ? <Loader2 size={16} className="animate-spin" /> : null}
                 Save & continue <ArrowRight size={16} />
@@ -610,7 +610,7 @@ export function SellerVerificationPage() {
                 type="button"
                 disabled={saving || !declared || maxUnlockedStep < 5}
                 onClick={() => void saveStep({ submit: true })}
-                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 px-5 min-h-11 rounded-xl bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-60"
               >
                 {saving ? <Loader2 size={16} className="animate-spin" /> : <BadgeCheck size={16} />}
                 Submit & verify seller
@@ -671,8 +671,8 @@ function Field({
 
 function ReviewRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex gap-4 px-4 py-3">
-      <div className="w-28 shrink-0 text-muted-foreground">{label}</div>
+    <div className="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3">
+      <div className="sm:w-28 shrink-0 text-muted-foreground text-xs sm:text-sm">{label}</div>
       <div className="font-medium text-foreground break-all">{value || "—"}</div>
     </div>
   );

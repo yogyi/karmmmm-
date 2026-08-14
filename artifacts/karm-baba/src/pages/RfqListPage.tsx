@@ -239,14 +239,14 @@ export function RfqListPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0 sm:flex-col items-start">
+                  <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0 w-full sm:w-auto">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         navigate(`/rfq/${rfq.id}`);
                       }}
-                      className="text-xs sm:text-sm text-primary border border-primary/30 px-3 py-1.5 rounded-xl hover:bg-primary/5 hover:border-primary transition-colors font-semibold whitespace-nowrap"
+                      className="w-full sm:w-auto min-h-11 text-sm text-primary border border-primary/30 px-3 rounded-xl hover:bg-primary/5 hover:border-primary transition-colors font-semibold whitespace-nowrap"
                     >
                       Open RFQ
                     </button>
@@ -257,7 +257,7 @@ export function RfqListPage() {
                           e.stopPropagation();
                           navigate(`/products/${rfq.productId}`);
                         }}
-                        className="text-xs sm:text-sm text-muted-foreground border border-border px-3 py-1.5 rounded-xl hover:bg-muted transition-colors font-semibold whitespace-nowrap"
+                        className="w-full sm:w-auto min-h-11 text-sm text-muted-foreground border border-border px-3 rounded-xl hover:bg-muted transition-colors font-semibold whitespace-nowrap"
                       >
                         View Product
                       </button>

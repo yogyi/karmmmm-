@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   Search,
@@ -34,14 +35,23 @@ export function BuyerCentralPage() {
   );
   const { data: featured } = useGetFeaturedProducts();
 
-  if (isLoaded && !isLoggedIn) {
-    navigate("/login?mode=buyer");
-    return null;
-  }
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (!isLoggedIn) {
+      navigate("/login?mode=buyer&redirect=/buyer");
+      return;
+    }
+    if (user?.role === "seller") {
+      navigate("/seller");
+    }
+  }, [isLoaded, isLoggedIn, user?.role, navigate]);
 
-  if (isLoaded && user && user.role === "seller") {
-    navigate("/seller");
-    return null;
+  if (!isLoaded || !isLoggedIn || user?.role === "seller") {
+    return (
+      <div className="min-h-[40vh] flex items-center justify-center text-sm text-muted-foreground">
+        Loading…
+      </div>
+    );
   }
 
   const myRfqs = (rfqs ?? []).filter(

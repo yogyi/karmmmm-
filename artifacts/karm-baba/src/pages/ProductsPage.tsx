@@ -248,6 +248,16 @@ export function ProductsPage() {
     return () => window.removeEventListener("resize", handler);
   }, []);
 
+  // Close filter drawer on Escape
+  useEffect(() => {
+    if (!filterOpen) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setFilterOpen(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [filterOpen]);
+
   const { data: categories } = useListCategories();
   const {
     data,
@@ -364,7 +374,12 @@ export function ProductsPage() {
             >
               <div className="flex items-center justify-between mb-4">
                 <span className="font-heading font-bold text-base">Filters</span>
-                <button onClick={() => setFilterOpen(false)} className="w-8 h-8 rounded-xl hover:bg-muted flex items-center justify-center transition-colors">
+                <button
+                  type="button"
+                  aria-label="Close filters"
+                  onClick={() => setFilterOpen(false)}
+                  className="min-w-11 min-h-11 rounded-xl hover:bg-muted flex items-center justify-center transition-colors"
+                >
                   <X size={18} />
                 </button>
               </div>
@@ -515,8 +530,8 @@ export function ProductsPage() {
                           <Star size={9} className="fill-white" /> Top rated
                         </div>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-                      <div className="absolute bottom-2 left-2 right-2 opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0 pointer-events-none">
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 md:group-hover:opacity-100 transition-opacity pointer-events-none hidden md:block" />
+                      <div className="absolute bottom-2 left-2 right-2 opacity-0 md:group-hover:opacity-100 transition-all translate-y-2 md:group-hover:translate-y-0 pointer-events-none hidden md:block">
                         <span className="bg-white text-primary text-[10px] font-bold px-2 py-1 rounded-full shadow-lg w-full inline-block text-center">
                           Get Quote →
                         </span>
@@ -529,6 +544,9 @@ export function ProductsPage() {
                         <span className="text-xs text-muted-foreground hidden sm:inline">/{product.unit}</span>
                       </div>
                       <div className="text-xs text-muted-foreground mb-1 sm:mb-2 hidden sm:block">MOQ: {product.minOrder} {product.unit}</div>
+                      <span className="mt-1.5 mb-1 md:hidden inline-flex items-center justify-center w-full min-h-11 rounded-xl bg-primary/10 text-primary text-xs font-bold">
+                        Get Quote →
+                      </span>
                       {product.rating && <div className="hidden sm:block"><StarRating rating={product.rating} reviewCount={product.reviewCount} size={11} /></div>}
                       <div className="mt-1 sm:mt-2 flex items-center gap-1 text-xs text-muted-foreground">
                         {product.supplierVerified && <CheckCircle size={11} className="text-green-500 flex-shrink-0" />}
@@ -545,7 +563,7 @@ export function ProductsPage() {
                     type="button"
                     onClick={() => goToPage(Math.max(1, page - 1))}
                     disabled={page === 1}
-                    className="flex items-center gap-1.5 px-3 sm:px-4 py-2 border border-border rounded-xl disabled:opacity-40 hover:bg-muted transition-colors text-sm font-medium"
+                    className="flex items-center gap-1.5 px-3 sm:px-4 min-h-11 min-w-11 border border-border rounded-xl disabled:opacity-40 hover:bg-muted transition-colors text-sm font-medium"
                   >
                     <ChevronLeft size={15} /> <span className="hidden sm:inline">Prev</span>
                   </button>
@@ -564,12 +582,12 @@ export function ProductsPage() {
                               <button
                                 type="button"
                                 onClick={() => goToPage(1)}
-                                className="w-9 h-9 rounded-xl text-sm font-semibold border border-border hover:bg-muted"
+                                className="min-w-11 min-h-11 rounded-xl text-sm font-semibold border border-border hover:bg-muted"
                               >
                                 1
                               </button>
                               {start > 2 && (
-                                <span className="w-9 h-9 flex items-center justify-center text-muted-foreground text-sm">
+                                <span className="min-w-11 min-h-11 flex items-center justify-center text-muted-foreground text-sm">
                                   …
                                 </span>
                               )}
@@ -580,7 +598,7 @@ export function ProductsPage() {
                               key={p}
                               type="button"
                               onClick={() => goToPage(p)}
-                              className={`w-9 h-9 rounded-xl text-sm font-semibold transition-colors ${
+                              className={`min-w-11 min-h-11 rounded-xl text-sm font-semibold transition-colors ${
                                 page === p
                                   ? "bg-primary text-white"
                                   : "border border-border hover:bg-muted"
@@ -592,14 +610,14 @@ export function ProductsPage() {
                           {end < totalPages && (
                             <>
                               {end < totalPages - 1 && (
-                                <span className="w-9 h-9 flex items-center justify-center text-muted-foreground text-sm">
+                                <span className="min-w-11 min-h-11 flex items-center justify-center text-muted-foreground text-sm">
                                   …
                                 </span>
                               )}
                               <button
                                 type="button"
                                 onClick={() => goToPage(totalPages)}
-                                className="w-9 h-9 rounded-xl text-sm font-semibold border border-border hover:bg-muted"
+                                className="min-w-11 min-h-11 rounded-xl text-sm font-semibold border border-border hover:bg-muted"
                               >
                                 {totalPages}
                               </button>
@@ -613,7 +631,7 @@ export function ProductsPage() {
                     type="button"
                     onClick={() => goToPage(Math.min(totalPages, page + 1))}
                     disabled={page === totalPages}
-                    className="flex items-center gap-1.5 px-3 sm:px-4 py-2 border border-border rounded-xl disabled:opacity-40 hover:bg-muted transition-colors text-sm font-medium"
+                    className="flex items-center gap-1.5 px-3 sm:px-4 min-h-11 min-w-11 border border-border rounded-xl disabled:opacity-40 hover:bg-muted transition-colors text-sm font-medium"
                   >
                     <span className="hidden sm:inline">Next</span> <ChevronRight size={15} />
                   </button>

@@ -96,7 +96,7 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
             <div className="sm:mt-14 flex gap-2 flex-shrink-0">
               <button
                 onClick={() => navigate(`/rfq/new?supplierId=${supplier.id}&supplierName=${encodeURIComponent(supplier.companyName)}`)}
-                className="bg-primary hover:bg-primary/90 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-primary/25"
+                className="bg-primary hover:bg-primary/90 text-white px-5 min-h-11 rounded-xl font-semibold flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-primary/25"
               >
                 <Send size={15} /> Send Inquiry
               </button>
@@ -279,14 +279,14 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
               </div>
             )}
 
-            {/* CTA card */}
-            <div className="bg-gradient-to-br from-secondary to-secondary/80 rounded-2xl p-5 text-white text-center">
+            {/* CTA card — desktop only to avoid duplicate mobile inquiry CTA */}
+            <div className="hidden md:block bg-gradient-to-br from-secondary to-secondary/80 rounded-2xl p-5 text-white text-center">
               <div className="text-2xl mb-2">🤝</div>
               <div className="font-heading font-bold mb-1">Ready to Trade?</div>
               <p className="text-white/70 text-xs mb-3 leading-relaxed">Send an inquiry and get a response within 24 hours</p>
               <button
                 onClick={() => navigate(`/rfq/new?supplierId=${supplier.id}&supplierName=${encodeURIComponent(supplier.companyName)}`)}
-                className="w-full bg-primary hover:bg-primary/90 text-white py-2.5 rounded-xl text-sm font-bold transition-all"
+                className="w-full bg-primary hover:bg-primary/90 text-white min-h-11 rounded-xl text-sm font-bold transition-all"
               >
                 Send Inquiry →
               </button>

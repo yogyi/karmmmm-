@@ -335,8 +335,9 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
                 <button
                   key={n}
                   type="button"
+                  aria-label={`Rate ${n} stars`}
                   onClick={() => setReviewForm((f) => ({ ...f, rating: n }))}
-                  className="p-0.5"
+                  className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg hover:bg-muted"
                 >
                   <Star size={18} className={n <= reviewForm.rating ? "fill-amber-400 text-amber-400" : "text-gray-200"} />
                 </button>
@@ -459,7 +460,7 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
                     type="button"
                     aria-label="Close RFQ dialog"
                     onClick={() => setRfqOpen(false)}
-                    className="w-8 h-8 rounded-xl hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-lg"
+                    className="min-w-11 min-h-11 rounded-xl hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors text-lg"
                   >
                     ✕
                   </button>

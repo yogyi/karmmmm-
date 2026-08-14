@@ -112,18 +112,18 @@ export function HomePage() {
             onSubmit={handleSearch}
             className="max-w-2xl mx-auto"
           >
-            <div className="flex items-center bg-white rounded-2xl overflow-hidden shadow-2xl ring-4 ring-white/20">
+            <div className="flex items-center bg-white rounded-2xl overflow-hidden shadow-2xl ring-4 ring-white/20 min-w-0">
               <Search size={20} className="ml-5 text-muted-foreground flex-shrink-0" />
               <input
                 type="text"
                 placeholder="Search products, suppliers, categories..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="flex-1 px-4 py-4 text-foreground outline-none text-base placeholder:text-muted-foreground"
+                className="flex-1 min-w-0 px-4 py-4 text-foreground outline-none text-base placeholder:text-muted-foreground"
               />
               <button
                 type="submit"
-                className="bg-primary hover:bg-primary/90 text-white px-6 py-4 font-semibold text-base transition-all flex-shrink-0 flex items-center gap-2 rounded-r-2xl"
+                className="bg-primary hover:bg-primary/90 text-white px-6 py-4 font-semibold text-base transition-all flex-shrink-0 flex items-center gap-2 rounded-r-2xl min-h-11"
               >
                 <Search size={16} />
                 <span className="hidden sm:inline">Search</span>
@@ -142,7 +142,7 @@ export function HomePage() {
               <button
                 key={term}
                 onClick={() => navigate(`/products?search=${encodeURIComponent(term)}`)}
-                className="bg-white/10 hover:bg-white/20 text-white/90 px-3 py-1 rounded-full transition-colors border border-white/15 hover:border-white/30"
+                className="bg-white/10 hover:bg-white/20 text-white/90 px-3 py-1 rounded-full transition-colors border border-white/15 hover:border-white/30 min-h-11 inline-flex items-center"
               >
                 {term}
               </button>
@@ -270,8 +270,8 @@ export function HomePage() {
                         <CheckCircle size={9} /> Verified
                       </div>
                     )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                    <div className="absolute bottom-2 left-2 right-2 opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 md:group-hover:opacity-100 transition-opacity hidden md:block" />
+                    <div className="absolute bottom-2 left-2 right-2 opacity-0 md:group-hover:opacity-100 transition-all translate-y-2 md:group-hover:translate-y-0 hidden md:block">
                       <span className="bg-white text-primary text-[10px] font-bold px-2.5 py-1 rounded-full shadow-lg w-full inline-block text-center">
                         Get Best Price →
                       </span>
@@ -281,6 +281,9 @@ export function HomePage() {
                     <h3 className="text-xs font-semibold text-foreground line-clamp-2 leading-tight mb-1.5">{product.name}</h3>
                     <div className="text-primary font-bold text-sm">₹{product.minPrice}–{product.maxPrice}</div>
                     <div className="text-[11px] text-muted-foreground">per {product.unit} · MOQ {product.minOrder}</div>
+                    <span className="mt-2 md:hidden inline-flex items-center justify-center w-full min-h-11 rounded-xl bg-primary/10 text-primary text-xs font-bold">
+                      Get Quote →
+                    </span>
                     {product.rating && <div className="mt-1.5"><StarRating rating={product.rating} size={10} /></div>}
                     {product.supplierName && (
                       <div className="mt-1.5 text-[11px] text-muted-foreground truncate">{product.supplierName}</div>
@@ -495,14 +498,16 @@ export function HomePage() {
             <p className="text-white/75 mb-8 max-w-xl mx-auto text-lg">Join thousands of buyers and suppliers already trading on Karm Baba.</p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
-                onClick={() => navigate("/register")}
-                className="bg-primary hover:bg-primary/90 text-white px-8 py-3.5 rounded-xl font-semibold transition-all hover:shadow-lg hover:shadow-primary/30 flex items-center justify-center gap-2"
+                type="button"
+                onClick={() => navigate("/register?mode=buyer")}
+                className="bg-primary hover:bg-primary/90 text-white px-8 py-3.5 rounded-xl font-semibold transition-all hover:shadow-lg hover:shadow-primary/30 flex items-center justify-center gap-2 min-h-11"
               >
                 Start Buying Free <ArrowRight size={16} />
               </button>
               <button
-                onClick={() => navigate("/register")}
-                className="border border-white/30 hover:bg-white/10 text-white px-8 py-3.5 rounded-xl font-semibold transition-colors"
+                type="button"
+                onClick={() => navigate("/register?mode=seller")}
+                className="border border-white/30 hover:bg-white/10 text-white px-8 py-3.5 rounded-xl font-semibold transition-colors min-h-11"
               >
                 Become a Supplier
               </button>

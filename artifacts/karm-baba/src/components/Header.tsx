@@ -37,6 +37,18 @@ export function Header() {
     }
   }, [location, searchString]);
 
+  useEffect(() => {
+    if (!menuOpen && !userMenuOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        setUserMenuOpen(false);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [menuOpen, userMenuOpen]);
+
   const isSeller = user?.role === "seller" || user?.role === "admin";
   const isBuyer = user?.role === "buyer";
   const inSellerCentral =
@@ -108,7 +120,7 @@ export function Header() {
           isSeller && inSellerCentral ? "bg-[#1a3a4a] text-white" : "bg-secondary text-white"
         }
       >
-        <div className={`${shell} text-xs h-8 flex justify-between items-center gap-4`}>
+        <div className={`${shell} text-xs min-h-9 sm:h-8 flex justify-between items-center gap-4 py-1 sm:py-0`}>
           <span className="hidden sm:flex items-center gap-3 text-white/70 truncate min-w-0">
             {isSeller && inSellerCentral ? (
               <span>Seller Central · Manage products & RFQs</span>
@@ -124,43 +136,39 @@ export function Header() {
               </>
             )}
           </span>
-          <div className="flex gap-3 sm:gap-4 ml-auto items-center shrink-0">
+          <div className="flex gap-1 sm:gap-2 ml-auto items-center shrink-0 w-full sm:w-auto justify-end">
             {!isLoggedIn ? (
               <>
                 <button
                   type="button"
                   onClick={() => navigate("/login?mode=buyer")}
-                  className="hover:text-primary transition-colors font-medium"
+                  className="hidden sm:inline-flex items-center min-h-9 px-2.5 rounded-lg hover:bg-white/10 transition-colors font-medium"
                 >
                   Buyer sign in
                 </button>
-                <span className="text-white/30" aria-hidden>
-                  |
-                </span>
                 <button
                   type="button"
                   onClick={() => navigate("/login?mode=seller")}
-                  className="hover:text-primary transition-colors font-medium"
+                  className="hidden sm:inline-flex items-center min-h-9 px-2.5 rounded-lg hover:bg-white/10 transition-colors font-medium"
                 >
                   Seller sign in
                 </button>
-                <span className="text-white/30" aria-hidden>
-                  |
-                </span>
                 <button
                   type="button"
                   onClick={() => navigate("/register?mode=buyer")}
-                  className="hover:text-primary transition-colors font-medium text-white/90"
+                  className="inline-flex items-center min-h-9 px-3 rounded-lg bg-primary/90 hover:bg-primary text-white font-semibold transition-colors"
                 >
-                  Join Free →
+                  Join Free
                 </button>
               </>
             ) : (
-              <span className="text-white/75 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-                <span className="text-white font-semibold">{user?.name}</span>
+              <span className="text-white/75 flex items-center gap-1.5 truncate max-w-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block shrink-0" />
+                <span className="text-white font-semibold truncate">{user?.name}</span>
                 {user?.role && user.role !== "admin" && (
-                  <span className="text-white/50 capitalize">· {user.role}</span>
+                  <span className="text-white/50 capitalize shrink-0 hidden sm:inline">
+                    · {user.role}
+                  </span>
                 )}
               </span>
             )}
@@ -168,7 +176,8 @@ export function Header() {
         </div>
       </div>
 
-      <div className={`${shell} py-3 flex items-center gap-2 sm:gap-4`}>
+      <div className={`${shell} py-2.5 sm:py-3`}>
+        <div className="flex items-center gap-2 sm:gap-4">
         <button
           type="button"
           onClick={() =>
@@ -214,7 +223,7 @@ export function Header() {
                 <Link
                   key={item.path}
                   href={item.path}
-                  className={`px-3 py-2 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                  className={`px-3 py-2.5 min-h-11 inline-flex items-center rounded-lg font-medium whitespace-nowrap transition-colors ${
                     active
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -227,7 +236,7 @@ export function Header() {
             })}
           </nav>
         ) : (
-          <form onSubmit={handleSearch} className="flex-1 flex items-center min-w-0" role="search">
+          <form onSubmit={handleSearch} className="hidden md:flex flex-1 items-center min-w-0" role="search">
             <div className="flex w-full border border-border rounded-xl overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all shadow-sm">
               <input
                 type="search"
@@ -244,22 +253,22 @@ export function Header() {
               <button
                 type="submit"
                 aria-label="Search"
-                className="bg-primary hover:bg-primary/90 text-white px-4 sm:px-5 py-2.5 flex items-center gap-2 transition-colors font-semibold text-sm flex-shrink-0 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary"
+                className="bg-primary hover:bg-primary/90 text-white min-h-11 px-5 flex items-center gap-2 transition-colors font-semibold text-sm flex-shrink-0 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary"
               >
                 <Search size={16} />
-                <span className="hidden sm:inline">Search</span>
+                <span>Search</span>
               </button>
             </div>
           </form>
         )}
 
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0 ml-auto md:ml-0">
           {(!isSeller || !inSellerCentral) && (
             <>
               <button
                 type="button"
                 onClick={() => navigate("/shortlist")}
-                className="hidden sm:flex items-center justify-center size-10 text-sm font-semibold hover:bg-muted rounded-xl transition-colors"
+                className="inline-flex items-center justify-center min-h-11 min-w-11 text-sm font-semibold hover:bg-muted rounded-xl transition-colors"
                 title="Shortlist"
                 aria-label="Shortlist"
               >
@@ -268,23 +277,12 @@ export function Header() {
               <button
                 type="button"
                 onClick={() => navigate("/rfq/new")}
-                className="hidden md:inline-flex items-center gap-1.5 bg-primary text-white hover:bg-primary/90 border border-primary transition-all px-3.5 py-2 rounded-xl text-sm font-semibold shadow-sm"
+                className="hidden md:inline-flex items-center gap-1.5 bg-primary text-white hover:bg-primary/90 border border-primary transition-all px-3.5 min-h-11 rounded-xl text-sm font-semibold shadow-sm"
               >
                 <IndianRupee size={15} />
                 Get Best Price
               </button>
             </>
-          )}
-
-          {isSeller && inSellerCentral && (
-            <button
-              type="button"
-              onClick={() => navigate("/seller")}
-              className="hidden md:inline-flex items-center gap-1.5 bg-primary text-white hover:bg-primary/90 px-3.5 py-2 rounded-xl text-sm font-semibold"
-            >
-              <Package size={15} />
-              Manage shop
-            </button>
           )}
 
           {isLoggedIn ? (
@@ -294,7 +292,7 @@ export function Header() {
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
                 aria-expanded={userMenuOpen}
                 aria-label="Account menu"
-                className="flex items-center gap-2 text-sm font-medium hover:bg-muted rounded-xl px-1.5 sm:px-2 py-1.5 transition-colors"
+                className="flex items-center gap-2 text-sm font-medium hover:bg-muted rounded-xl px-1.5 sm:px-2 min-h-11 transition-colors"
               >
                 {user?.avatarUrl ? (
                   <img
@@ -348,7 +346,7 @@ export function Header() {
                           navigate("/buyer");
                           setUserMenuOpen(false);
                         }}
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
+                        className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
                       >
                         <LayoutDashboard size={15} className="text-muted-foreground" />{" "}
                         Buyer Central
@@ -361,7 +359,7 @@ export function Header() {
                           navigate("/seller");
                           setUserMenuOpen(false);
                         }}
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
+                        className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
                       >
                         <Building2 size={15} className="text-muted-foreground" /> Seller
                         Central
@@ -374,7 +372,7 @@ export function Header() {
                           navigate("/onboarding?change=1");
                           setUserMenuOpen(false);
                         }}
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
+                        className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
                       >
                         <Building2 size={15} className="text-muted-foreground" /> Sell on
                         Karm Baba
@@ -387,7 +385,7 @@ export function Header() {
                           navigate("/onboarding?change=1");
                           setUserMenuOpen(false);
                         }}
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
+                        className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
                       >
                         <User size={15} className="text-muted-foreground" /> Switch to
                         buyer
@@ -421,7 +419,7 @@ export function Header() {
                           logout();
                           setUserMenuOpen(false);
                         }}
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 flex items-center gap-2.5 text-red-600 transition-colors"
+                        className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-red-50 flex items-center gap-2.5 text-red-600 transition-colors"
                       >
                         <LogOut size={15} /> Sign Out
                       </button>
@@ -434,7 +432,7 @@ export function Header() {
             <button
               type="button"
               onClick={() => navigate("/login?mode=buyer")}
-              className="flex items-center gap-1.5 text-sm font-semibold hover:bg-muted px-3 py-2 rounded-xl transition-colors"
+              className="hidden sm:inline-flex items-center gap-1.5 text-sm font-semibold hover:bg-muted px-3 min-h-11 rounded-xl transition-colors"
             >
               <User size={18} />
               <span className="hidden md:inline">Account</span>
@@ -447,11 +445,34 @@ export function Header() {
             aria-expanded={menuOpen}
             aria-controls="mobile-nav"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
-            className="md:hidden p-2 rounded-xl hover:bg-muted transition-colors focus-visible:ring-2 focus-visible:ring-primary"
+            className="md:hidden inline-flex items-center justify-center min-h-11 min-w-11 rounded-xl hover:bg-muted transition-colors focus-visible:ring-2 focus-visible:ring-primary"
           >
             {menuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
+        </div>
+
+        {!(isSeller && inSellerCentral) && (
+          <form onSubmit={handleSearch} className="md:hidden mt-2.5" role="search">
+            <div className="flex w-full border border-border rounded-xl overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 shadow-sm">
+              <input
+                type="search"
+                aria-label="Search products"
+                placeholder="Search products…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 min-w-0 px-3 py-2.5 text-sm outline-none bg-white placeholder:text-muted-foreground"
+              />
+              <button
+                type="submit"
+                aria-label="Search"
+                className="bg-primary hover:bg-primary/90 text-white min-h-11 min-w-11 flex items-center justify-center flex-shrink-0"
+              >
+                <Search size={16} />
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       {/* Marketplace nav — hide on Seller Central (has its own ops nav) */}
@@ -516,6 +537,7 @@ export function Header() {
               ? [
                   { label: "Buyer Central", path: "/buyer" },
                   { label: "Products", path: "/products" },
+                  { label: "Suppliers", path: "/suppliers" },
                   { label: "My RFQs", path: "/rfq" },
                   { label: "Shortlist", path: "/shortlist" },
                 ]
@@ -533,6 +555,7 @@ export function Header() {
                     { label: "All Products", path: "/products" },
                     { label: "Suppliers", path: "/suppliers" },
                     { label: "Post RFQ", path: "/rfq/new" },
+                    { label: "Shortlist", path: "/shortlist" },
                   ]
             ).map((item) => (
               <button

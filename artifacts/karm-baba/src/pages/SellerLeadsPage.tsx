@@ -109,7 +109,11 @@ export function SellerLeadsPage() {
   }, [authHeaders, statusFilter]);
 
   useEffect(() => {
-    if (!isLoaded || !isLoggedIn) return;
+    if (!isLoaded) return;
+    if (!isLoggedIn) {
+      navigate("/login?mode=seller&redirect=/seller/leads");
+      return;
+    }
     if (user?.role !== "seller" && user?.role !== "admin") {
       navigate("/buyer");
       return;
@@ -187,8 +191,9 @@ export function SellerLeadsPage() {
 
   if (!isLoaded || !isLoggedIn) {
     return (
-      <div className="min-h-[40vh] flex items-center justify-center">
+      <div className="min-h-[40vh] flex flex-col items-center justify-center gap-3 px-4">
         <Loader2 className="animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Redirecting to sign in…</p>
       </div>
     );
   }
@@ -212,24 +217,46 @@ export function SellerLeadsPage() {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="flex flex-wrap gap-2 mb-4">
-          <FilterChip
-            active={!statusFilter}
-            label="All"
-            onClick={() => setStatusFilter("")}
-          />
-          {STATUSES.map((s) => (
+        <div className="mb-4">
+          <label className="sm:hidden block text-xs font-semibold text-muted-foreground mb-1.5">
+            Status filter
+          </label>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="sm:hidden w-full min-h-11 border border-border rounded-xl px-3 text-sm bg-white capitalize"
+            aria-label="Filter leads by status"
+          >
+            <option value="">All</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <div className="hidden sm:flex flex-wrap gap-2">
             <FilterChip
-              key={s}
-              active={statusFilter === s}
-              label={s}
-              onClick={() => setStatusFilter(s)}
+              active={!statusFilter}
+              label="All"
+              onClick={() => setStatusFilter("")}
             />
-          ))}
+            {STATUSES.map((s) => (
+              <FilterChip
+                key={s}
+                active={statusFilter === s}
+                label={s}
+                onClick={() => setStatusFilter(s)}
+              />
+            ))}
+          </div>
         </div>
 
         <div className="grid lg:grid-cols-5 gap-4">
-          <div className="lg:col-span-2 bg-white rounded-xl border border-border overflow-hidden">
+          <div
+            className={`lg:col-span-2 bg-white rounded-xl border border-border overflow-hidden ${
+              selectedId != null ? "hidden lg:block" : ""
+            }`}
+          >
             {loading ? (
               <div className="p-8 flex justify-center">
                 <Loader2 className="animate-spin text-primary" />
@@ -288,13 +315,24 @@ export function SellerLeadsPage() {
             )}
           </div>
 
-          <div className="lg:col-span-3 bg-white rounded-xl border border-border p-5 min-h-[320px]">
+          <div
+            className={`lg:col-span-3 bg-white rounded-xl border border-border p-5 min-h-[320px] ${
+              selectedId == null ? "hidden lg:block" : ""
+            }`}
+          >
             {!detail ? (
               <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
                 Select a lead to view details
               </div>
             ) : (
               <div className="space-y-5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(null)}
+                  className="lg:hidden inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground min-h-11"
+                >
+                  <ArrowLeft size={14} /> Back to leads
+                </button>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-xs text-muted-foreground font-mono">{detail.karmId}</p>
@@ -448,7 +486,7 @@ function FilterChip({
     <button
       type="button"
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize ${
+      className={`min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold capitalize ${
         active
           ? "bg-secondary text-white"
           : "bg-white border border-border text-muted-foreground hover:bg-muted"

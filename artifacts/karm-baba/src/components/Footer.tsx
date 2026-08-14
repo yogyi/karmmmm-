@@ -14,7 +14,7 @@ export function Footer() {
       setNewsletterMsg("Enter a valid email address.");
       return;
     }
-    setNewsletterMsg("Thanks — newsletter signup will go live soon. We’ll keep this address for launch.");
+    setNewsletterMsg("Got it — we’ll notify you at launch. Newsletter signup isn’t live yet.");
     setEmail("");
   }
 
@@ -23,8 +23,8 @@ export function Footer() {
       <div className="border-b border-white/10 bg-white/5">
         <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
-            <div className="font-heading font-bold text-base">Stay ahead of the market</div>
-            <div className="text-white/60 text-sm">Get weekly deals & supplier updates in your inbox</div>
+            <div className="font-heading font-bold text-base">Launch updates</div>
+            <div className="text-white/60 text-sm">Leave your email — we&apos;ll notify you when the newsletter goes live</div>
           </div>
           <form onSubmit={subscribe} className="flex flex-col gap-2 w-full sm:w-auto">
             <div className="flex gap-2 w-full sm:w-auto">
@@ -33,14 +33,14 @@ export function Footer() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
-                aria-label="Newsletter email"
-                className="flex-1 sm:w-64 bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/40 outline-none focus:border-primary transition-colors"
+                aria-label="Email for launch notification"
+                className="flex-1 sm:w-64 min-h-11 bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/40 outline-none focus:border-primary transition-colors"
               />
               <button
                 type="submit"
-                className="bg-primary hover:bg-primary/90 text-white px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-1.5 transition-colors flex-shrink-0"
+                className="bg-primary hover:bg-primary/90 text-white px-4 min-h-11 rounded-xl text-sm font-semibold flex items-center gap-1.5 transition-colors flex-shrink-0"
               >
-                Subscribe <ArrowRight size={14} />
+                Notify me at launch <ArrowRight size={14} />
               </button>
             </div>
             {newsletterMsg && (
@@ -110,7 +110,7 @@ export function Footer() {
                   key={link.path}
                   type="button"
                   onClick={() => navigate(link.path)}
-                  className="block hover:text-white transition-colors text-left"
+                  className="block hover:text-white transition-colors text-left min-h-11 inline-flex items-center"
                 >
                   {link.label}
                 </button>
@@ -131,7 +131,7 @@ export function Footer() {
                   key={link.path}
                   type="button"
                   onClick={() => navigate(link.path)}
-                  className="block hover:text-white transition-colors text-left"
+                  className="block hover:text-white transition-colors text-left min-h-11 inline-flex items-center"
                 >
                   {link.label}
                 </button>
@@ -156,13 +156,13 @@ export function Footer() {
               { label: "Privacy Policy", path: "/privacy" },
               { label: "Terms of Service", path: "/terms" },
               { label: "Refund Policy", path: "/refund" },
-              { label: "Sitemap", path: "/products" },
+              { label: "Home", path: "/" },
             ].map((link) => (
               <button
                 key={link.path + link.label}
                 type="button"
                 onClick={() => navigate(link.path)}
-                className="hover:text-white transition-colors"
+                className="hover:text-white transition-colors min-h-11 inline-flex items-center"
               >
                 {link.label}
               </button>

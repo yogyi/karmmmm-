@@ -83,7 +83,11 @@ export function SellerShopPlansPage() {
   }, [authHeaders]);
 
   useEffect(() => {
-    if (!isLoaded || !isLoggedIn) return;
+    if (!isLoaded) return;
+    if (!isLoggedIn) {
+      navigate("/login?mode=seller&redirect=/seller/plans");
+      return;
+    }
     if (user?.role !== "seller" && user?.role !== "admin") {
       navigate("/buyer");
       return;
@@ -165,7 +169,16 @@ export function SellerShopPlansPage() {
     }
   }
 
-  if (!isLoaded || loading) {
+  if (!isLoaded || !isLoggedIn) {
+    return (
+      <div className="min-h-[40vh] flex flex-col items-center justify-center gap-3 px-4">
+        <Loader2 className="animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Redirecting to sign in…</p>
+      </div>
+    );
+  }
+
+  if (loading) {
     return (
       <div className="min-h-[40vh] flex items-center justify-center">
         <Loader2 className="animate-spin text-primary" />
@@ -176,11 +189,11 @@ export function SellerShopPlansPage() {
   return (
     <div className="min-h-screen bg-[#f4f6f8]">
       <div className="bg-secondary text-white">
-        <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="max-w-6xl mx-auto px-4 py-5 sm:py-8">
           <button
             type="button"
             onClick={() => navigate("/seller")}
-            className="inline-flex items-center gap-1 text-white/70 text-sm mb-3 hover:text-white"
+            className="inline-flex items-center gap-1 text-white/70 text-sm mb-3 hover:text-white min-h-11"
           >
             <ArrowLeft size={14} /> Seller Central
           </button>
@@ -238,14 +251,14 @@ export function SellerShopPlansPage() {
                   <button
                     type="button"
                     onClick={() => void copyShare()}
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-lg border border-border hover:bg-muted"
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 min-h-11 rounded-lg border border-border hover:bg-muted"
                   >
                     <Copy size={14} /> {copied ? "Copied" : "Copy link"}
                   </button>
                   <button
                     type="button"
                     onClick={() => navigate(sharePath!)}
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-lg bg-primary text-white"
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 min-h-11 rounded-lg bg-primary text-white"
                   >
                     <ExternalLink size={14} /> Preview card
                   </button>
@@ -259,7 +272,7 @@ export function SellerShopPlansPage() {
                 <button
                   type="button"
                   onClick={() => void createShareLink()}
-                  className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-lg bg-primary text-white"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 min-h-11 rounded-lg bg-primary text-white"
                 >
                   <Share2 size={14} /> Create shareable card
                 </button>
@@ -274,7 +287,7 @@ export function SellerShopPlansPage() {
             <button
               type="button"
               onClick={() => setRegion("inr")}
-              className={`px-3 py-1.5 text-xs font-semibold ${
+              className={`min-h-11 px-4 text-sm font-semibold ${
                 region === "inr" ? "bg-secondary text-white" : "bg-white text-muted-foreground"
               }`}
             >
@@ -283,7 +296,7 @@ export function SellerShopPlansPage() {
             <button
               type="button"
               onClick={() => setRegion("usd")}
-              className={`px-3 py-1.5 text-xs font-semibold ${
+              className={`min-h-11 px-4 text-sm font-semibold ${
                 region === "usd" ? "bg-secondary text-white" : "bg-white text-muted-foreground"
               }`}
             >
