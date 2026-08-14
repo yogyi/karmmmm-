@@ -93,8 +93,8 @@ router.get("/suppliers", async (req, res): Promise<void> => {
   res.json({ items: items.map(mapSupplier), total, page, limit });
 });
 
-/** Shareable public profile by slug. */
-router.get("/suppliers/by-slug/:slug", async (req, res): Promise<void> => {
+/** Shareable seller profile by slug — signed-in Karm users only. */
+router.get("/suppliers/by-slug/:slug", requireClerkAuth, async (req, res): Promise<void> => {
   const slug = String(req.params.slug || "");
   const supplier = await prisma.supplier.findUnique({ where: { slug } });
   if (!supplier) {

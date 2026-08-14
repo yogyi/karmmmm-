@@ -11,6 +11,9 @@ import {
   Loader2,
 } from "lucide-react";
 import { ProductImage } from "@/components/ProductImage";
+import { useAuth as useClerkAuth } from "@clerk/react";
+import { useAuth } from "@/context/AuthContext";
+import { rememberAuthRedirect } from "@/lib/authRedirect";
 
 interface ShareProduct {
   id: number;
@@ -46,11 +49,13 @@ interface ShareSupplier {
 }
 
 /**
- * Public shareable seller profile card — /s/:slug
- * Collects buyer inquiries into CRM (leadSource: share_card).
+ * Seller profile card — /s/:slug
+ * Visible only to signed-in Karm users. Inquiries go to CRM (leadSource: share_card).
  */
 export function ShareProfilePage({ params }: { params: { slug: string } }) {
   const [, navigate] = useLocation();
+  const { isLoaded, isLoggedIn, user } = useAuth();
+  const { getToken } = useClerkAuth();
   const [loading, setLoading] = useState(true);
   const [supplier, setSupplier] = useState<ShareSupplier | null>(null);
   const [products, setProducts] = useState<ShareProduct[]>([]);
@@ -70,11 +75,40 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
   });
 
   useEffect(() => {
+    if (!isLoaded) return;
+    if (!isLoggedIn) {
+      const next = `/s/${params.slug}`;
+      rememberAuthRedirect(next);
+      navigate(`/login?mode=buyer&redirect=${encodeURIComponent(next)}`);
+    }
+  }, [isLoaded, isLoggedIn, navigate, params.slug]);
+
+  useEffect(() => {
+    if (!user) return;
+    setForm((f) => ({
+      ...f,
+      name: f.name || user.name || "",
+      email: f.email || user.email || "",
+      company: f.company || user.company || "",
+    }));
+  }, [user?.id, user?.name, user?.email, user?.company]);
+
+  useEffect(() => {
+    if (!isLoaded || !isLoggedIn) return;
     let cancelled = false;
     void (async () => {
       setLoading(true);
-      const res = await fetch(`/api/suppliers/by-slug/${encodeURIComponent(params.slug)}`);
+      const token = await getToken();
+      const res = await fetch(`/api/suppliers/by-slug/${encodeURIComponent(params.slug)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (cancelled) return;
+      if (res.status === 401) {
+        const next = `/s/${params.slug}`;
+        rememberAuthRedirect(next);
+        navigate(`/login?mode=buyer&redirect=${encodeURIComponent(next)}`);
+        return;
+      }
       if (!res.ok) {
         setSupplier(null);
         setLoading(false);
@@ -97,7 +131,7 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
     return () => {
       cancelled = true;
     };
-  }, [params.slug]);
+  }, [params.slug, isLoaded, isLoggedIn, getToken, navigate]);
 
   async function copyLink() {
     if (!shareUrl) return;
@@ -119,9 +153,13 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
     }
     setSending(true);
     try {
+      const token = await getToken();
       const res = await fetch("/api/leads/public", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           supplierSlug: params.slug,
           ...form,
@@ -136,6 +174,15 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
     } finally {
       setSending(false);
     }
+  }
+
+  if (!isLoaded || !isLoggedIn) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center bg-[#f4f6f8] px-4 text-center">
+        <Loader2 className="animate-spin text-primary mb-3" size={28} />
+        <p className="text-sm text-muted-foreground">Sign in to Karm Baba to view this seller.</p>
+      </div>
+    );
   }
 
   if (loading) {

@@ -94,8 +94,13 @@ function mapLead(l: {
   };
 }
 
-/** Public inquiry from shareable profile card — collects buyer data into CRM. */
-router.post("/leads/public", publicLeadLimiter, async (req, res): Promise<void> => {
+/** Share-card inquiry — signed-in Karm users only. */
+router.post("/leads/public", requireClerkAuth, publicLeadLimiter, async (req, res): Promise<void> => {
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
   const body = req.body as {
     supplierSlug?: string;
     supplierId?: number;
@@ -132,6 +137,7 @@ router.post("/leads/public", publicLeadLimiter, async (req, res): Promise<void> 
   try {
     const lead = await createLeadWithQuota({
       supplierId,
+      buyerId: dbUser.id,
       name: body.name.trim(),
       company: body.company?.trim() || null,
       email: body.email?.trim() || null,

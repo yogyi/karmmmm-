@@ -521,7 +521,7 @@ export function DashboardPage() {
                       </p>
                     ) : (
                       <p className="mt-2 text-sm text-muted-foreground">
-                        No share link yet — create one to get your public card.
+                        No share link yet — create one to get your profile card.
                       </p>
                     )}
                   </div>

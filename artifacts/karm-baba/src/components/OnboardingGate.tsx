@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/context/AuthContext";
+import { rememberAuthRedirect } from "@/lib/authRedirect";
 
 const AUTH_PAGES = ["/onboarding", "/login", "/register", "/seller/verify"];
 
@@ -19,9 +20,9 @@ export function OnboardingGate() {
     if (user.id <= 0) return;
     if (user.role === "admin") return;
     if (AUTH_PAGES.some((p) => location === p || location.startsWith(`${p}?`))) return;
-    if (location.startsWith("/s/")) return;
 
     if (!user.onboardingCompleted) {
+      rememberAuthRedirect(location);
       navigate("/onboarding");
     }
   }, [isLoaded, profileReady, isLoggedIn, user, location, navigate]);
