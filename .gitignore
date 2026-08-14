@@ -8,8 +8,7 @@ out-tsc
 .expo
 .expo-shared
 
-# Generated Vercel serverless handler (from api-server build.mjs)
-artifacts/api-server/api/
+# Generated frontend copy for Vercel (api/index.js is committed so the function exists)
 artifacts/api-server/public/
 
 # dependencies
