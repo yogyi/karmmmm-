@@ -15,6 +15,8 @@ const frontendDist = path.resolve(artifactDir, "../karm-baba/dist/public");
 const FALLBACK_HTML = `<!doctype html><meta charset="utf-8"><title>Karm Baba</title>
 <p>Frontend build missing. API: <a href="/api/healthz">/api/healthz</a></p>`;
 
+const VERCEL_ENGINE = "libquery_engine-rhel-openssl-3.0.x.so.node";
+
 async function copyIfExists(from, to) {
   if (!existsSync(from)) return false;
   await mkdir(path.dirname(to), { recursive: true });
@@ -32,29 +34,40 @@ async function stageStatic(staticDir) {
 }
 
 async function copyPrisma(funcDir) {
-  const clientPkg = require.resolve("@prisma/client/package.json");
-  const clientDir = path.dirname(clientPkg);
+  const clientDir = path.dirname(require.resolve("@prisma/client/package.json"));
   await copyIfExists(
     clientDir,
     path.join(funcDir, "node_modules/@prisma/client"),
   );
 
-  const generated = path.resolve(clientDir, "../.prisma");
-  await copyIfExists(generated, path.join(funcDir, "node_modules/.prisma"));
+  // @prisma/client lives at node_modules/@prisma/client
+  // generated client lives at node_modules/.prisma (two levels up, not ../.prisma)
+  const generatedCandidates = [
+    path.resolve(clientDir, "../../.prisma"),
+    path.resolve(clientDir, "../.prisma"),
+    path.join(repoRoot, "node_modules/.prisma"),
+  ];
 
-  for (const id of [
-    "@prisma/debug",
-    "@prisma/engines",
-    "@prisma/engines-version",
-    "@prisma/fetch-engine",
-    "@prisma/get-platform",
-  ]) {
-    try {
-      const pkg = path.dirname(require.resolve(`${id}/package.json`));
-      await copyIfExists(pkg, path.join(funcDir, "node_modules", id));
-    } catch {
-      // optional prisma internals differ by version
+  const destPrisma = path.join(funcDir, "node_modules/.prisma");
+  let copied = false;
+  for (const from of generatedCandidates) {
+    if (await copyIfExists(from, destPrisma)) {
+      copied = true;
+      break;
     }
+  }
+
+  if (!copied) {
+    throw new Error(
+      "Prisma generated client not found. Run: pnpm --filter @workspace/db run generate",
+    );
+  }
+
+  const engine = path.join(destPrisma, "client", VERCEL_ENGINE);
+  if (!existsSync(engine)) {
+    throw new Error(
+      `Missing ${VERCEL_ENGINE}. Add binaryTargets rhel-openssl-3.0.x and re-run prisma generate.`,
+    );
   }
 }
 
@@ -64,15 +77,11 @@ async function bundleHandler(outfile) {
     platform: "node",
     bundle: true,
     logLevel: "info",
-    entryPoints: [path.resolve(artifactDir, "src/app.ts")],
+    entryPoints: [path.resolve(artifactDir, "src/vercel-handler.ts")],
     format: "cjs",
     outfile,
     sourcemap: false,
-    external: [
-      "*.node",
-      "@prisma/client",
-      ".prisma/client",
-    ],
+    external: ["*.node", "@prisma/client", ".prisma/client"],
     footer: {
       js: "module.exports = module.exports.default ?? module.exports;",
     },
@@ -82,7 +91,7 @@ async function bundleHandler(outfile) {
 async function writeOutput(outputDir) {
   await rm(outputDir, { recursive: true, force: true });
   const staticDir = path.join(outputDir, "static");
-  const funcDir = path.join(outputDir, "functions/index.func");
+  const funcDir = path.join(outputDir, "functions/api.func");
 
   await stageStatic(staticDir);
   await mkdir(funcDir, { recursive: true });
@@ -108,8 +117,8 @@ async function writeOutput(outputDir) {
     JSON.stringify({
       version: 3,
       routes: [
-        { src: "^/api(?:/.*)?$", dest: "/index" },
         { handle: "filesystem" },
+        { src: "^/api(?:/.*)?$", dest: "/api" },
         { src: "/(.*)", dest: "/index.html" },
       ],
     }),
@@ -117,8 +126,6 @@ async function writeOutput(outputDir) {
 }
 
 async function mirrorStaticForDashboardOverrides() {
-  // If the Vercel dashboard still has Output Directory = dist or public,
-  // serve HTML rather than the Node bundle.
   for (const dir of [
     path.join(artifactDir, "public"),
     path.join(artifactDir, "dist"),
