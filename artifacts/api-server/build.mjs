@@ -151,10 +151,26 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     },
   });
 
-  // Keep an empty public/ so dashboard "Output Directory = public" still passes,
-  // but do NOT write index.html (it would shadow API routes).
+  // api-server package.json is "type": "module"; force CJS for the serverless file.
+  await mkdir(apiDir, { recursive: true });
+  await writeFile(
+    path.join(apiDir, "package.json"),
+    JSON.stringify({ type: "commonjs" }),
+  );
+
+  // Static frontend for Vercel CDN (Output Directory = public).
+  const frontendDist = path.resolve(artifactDir, "../karm-baba/dist/public");
   await mkdir(publicDir, { recursive: true });
-  await writeFile(path.join(publicDir, ".keep"), "");
+  try {
+    const { cp } = await import("node:fs/promises");
+    await cp(frontendDist, publicDir, { recursive: true });
+  } catch {
+    await writeFile(
+      path.join(publicDir, "index.html"),
+      `<!doctype html><meta charset="utf-8"><title>Karm Baba API</title>
+<p>Frontend build missing. API is at <a href="/api/healthz">/api/healthz</a>.</p>`,
+    );
+  }
 }
 
 buildAll().catch((err) => {
