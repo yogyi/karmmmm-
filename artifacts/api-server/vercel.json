@@ -1,12 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "express",
+  "framework": null,
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
-  "buildCommand": "cd ../.. && pnpm --filter @workspace/karm-baba build && pnpm --filter @workspace/api-server run vercel-build",
-  "rewrites": [
-    {
-      "source": "/((?!api/)(?!assets/).*)",
-      "destination": "/index.html"
-    }
-  ]
+  "buildCommand": "cd ../.. && pnpm --filter @workspace/karm-baba build && pnpm --filter @workspace/api-server run vercel-build"
 }

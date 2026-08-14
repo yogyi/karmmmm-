@@ -11,6 +11,11 @@ globalThis.require = createRequire(import.meta.url);
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
 async function buildAll() {
+  // On Vercel, never emit dist/*.mjs — that file was being served as the homepage.
+  if (process.env.VERCEL) {
+    await import("./prepare-vercel.mjs");
+    return;
+  }
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
