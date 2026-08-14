@@ -220,19 +220,23 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
       <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
         {/* Shareable card */}
         <article className="bg-white rounded-2xl overflow-hidden shadow-lg border border-border/60">
-          <div className="relative h-36 sm:h-44 bg-gradient-to-br from-secondary via-secondary/90 to-blue-900">
-            {supplier.coverUrl && (
-              <img
-                src={supplier.coverUrl}
-                alt=""
-                className="absolute inset-0 w-full h-full object-cover"
-              />
+          <div className="relative">
+            {supplier.coverUrl ? (
+              <div className="relative h-36 sm:h-44">
+                <img
+                  src={supplier.coverUrl}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+              </div>
+            ) : (
+              <div className="h-16 sm:h-20 bg-[#f4f1ea] border-b border-black/[0.04]" />
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
             <button
               type="button"
               onClick={() => void copyLink()}
-              className="absolute top-3 right-3 inline-flex items-center gap-1.5 bg-white/95 text-sm font-semibold px-3 py-1.5 rounded-lg shadow-sm"
+              className="absolute top-3 right-3 inline-flex items-center gap-1.5 bg-white text-sm font-semibold px-3 py-1.5 rounded-lg shadow-sm border border-black/[0.06] hover:bg-slate-50"
             >
               <Share2 size={14} />
               {copied ? "Copied" : "Share"}
@@ -240,7 +244,7 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
           </div>
 
           <div className="px-5 sm:px-8 pb-8">
-            <div className="flex items-end gap-4 -mt-10 mb-4">
+            <div className={`flex gap-4 mb-4 ${supplier.coverUrl ? "items-end -mt-10" : "items-start pt-5"}`}>
               <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white border-4 border-white shadow-md overflow-hidden flex-shrink-0">
                 {supplier.logoUrl ? (
                   <img
