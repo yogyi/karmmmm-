@@ -9,6 +9,7 @@ import {
   CompleteUserOnboardingBody,
 } from "@workspace/api-zod";
 import { requireClerkAuth, clerkEnabled } from "../lib/auth";
+import { getAuthenticatedDbUser, isAdmin } from "../lib/authorize";
 import { hashPassword, verifyPassword } from "../lib/password";
 import { rateLimit } from "../lib/rateLimit";
 
@@ -245,6 +246,7 @@ router.post(
 /** Legacy password register — disabled unless ALLOW_LEGACY_PASSWORD_AUTH=true. Prefer Clerk. */
 router.post(
   "/users",
+  requireClerkAuth,
   requireLegacyPasswordAuth,
   legacyAuthLimiter,
   async (req, res): Promise<void> => {
@@ -275,6 +277,7 @@ router.post(
 /** Legacy password login — disabled unless ALLOW_LEGACY_PASSWORD_AUTH=true. Prefer Clerk. */
 router.post(
   "/users/login",
+  requireClerkAuth,
   requireLegacyPasswordAuth,
   legacyAuthLimiter,
   async (req, res): Promise<void> => {
@@ -323,11 +326,21 @@ router.get("/users/me", requireClerkAuth, async (req, res): Promise<void> => {
   res.json(GetUserResponse.parse(safeUser(user)));
 });
 
-router.get("/users/:id", async (req, res): Promise<void> => {
+router.get("/users/:id", requireClerkAuth, async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetUserParams.safeParse({ id: parseInt(rawId, 10) });
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (!isAdmin(dbUser) && dbUser.id !== params.data.id) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 

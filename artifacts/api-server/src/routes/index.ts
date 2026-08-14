@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { requireClerkAuth } from "../lib/auth";
 import healthRouter from "./health";
 import categoriesRouter from "./categories";
 import productsRouter from "./products";
@@ -13,7 +14,9 @@ import shopRouter from "./shop";
 
 const router: IRouter = Router();
 
+// Uptime only — every other /api route requires a Clerk session.
 router.use(healthRouter);
+router.use(requireClerkAuth);
 router.use(categoriesRouter);
 router.use(productsRouter);
 router.use(suppliersRouter);

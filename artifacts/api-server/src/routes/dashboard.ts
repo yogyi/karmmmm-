@@ -40,11 +40,10 @@ function mapRfqRow(r: {
 }
 
 /**
- * Platform stats.
- * - Anonymous: aggregates only (no recent RFQs / PII).
- * - Authenticated: recent RFQs scoped to the viewer; emails redacted unless party/admin.
+ * Platform stats for signed-in users.
+ * Recent RFQs are scoped to the viewer; emails redacted unless party/admin.
  */
-router.get("/dashboard/stats", async (req, res): Promise<void> => {
+router.get("/dashboard/stats", requireClerkAuth, async (req, res): Promise<void> => {
   const dbUser = await getAuthenticatedDbUser(req);
 
   const [totalProducts, totalSuppliers, totalRfqs, totalUsers, categories] =

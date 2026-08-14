@@ -104,13 +104,10 @@ router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, 
 });
 
 /**
- * GET /storage/public-objects/*
- *
  * Serve public assets from PUBLIC_OBJECT_SEARCH_PATHS.
- * These are unconditionally public — no authentication or ACL checks.
- * IMPORTANT: Always provide this endpoint when object storage is set up.
+ * Requires a Karm Baba session (same-origin Clerk cookie is enough for <img>).
  */
-router.get("/storage/public-objects/*filePath", async (req: Request, res: Response) => {
+router.get("/storage/public-objects/*filePath", requireClerkAuth, async (req: Request, res: Response) => {
   try {
     const raw = req.params.filePath;
     const filePath = Array.isArray(raw) ? raw.join("/") : raw;
@@ -144,7 +141,7 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
  * - visibility=public → readable without auth
  * - visibility=private / missing ACL → authenticated owner (or ACL rule) only
  */
-router.get("/storage/objects/*path", async (req: Request, res: Response) => {
+router.get("/storage/objects/*path", requireClerkAuth, async (req: Request, res: Response) => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;

@@ -68,7 +68,7 @@ function mapPublicSupplier(s: Prisma.SupplierGetPayload<object>) {
   };
 }
 
-router.get("/suppliers", async (req, res): Promise<void> => {
+router.get("/suppliers", requireClerkAuth, async (req, res): Promise<void> => {
   const parsed = ListSuppliersQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -121,7 +121,7 @@ router.get("/suppliers/by-slug/:slug", requireClerkAuth, async (req, res): Promi
   });
 });
 
-router.get("/suppliers/featured", async (_req, res): Promise<void> => {
+router.get("/suppliers/featured", requireClerkAuth, async (_req, res): Promise<void> => {
   const items = await prisma.supplier.findMany({
     where: { verified: true },
     orderBy: { rating: "desc" },
@@ -510,7 +510,7 @@ router.post(
   },
 );
 
-router.get("/suppliers/:id", async (req, res): Promise<void> => {
+router.get("/suppliers/:id", requireClerkAuth, async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetSupplierParams.safeParse({ id: parseInt(rawId, 10) });
   if (!params.success) {
