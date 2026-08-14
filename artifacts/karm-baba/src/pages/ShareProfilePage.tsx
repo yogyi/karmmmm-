@@ -9,9 +9,6 @@ import {
   Star,
   CheckCircle,
   Loader2,
-  Clock,
-  Award,
-  Building2,
 } from "lucide-react";
 import { ProductImage } from "@/components/ProductImage";
 import { useAuth as useClerkAuth } from "@clerk/react";
@@ -216,196 +213,133 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
 
   const place = [supplier.city, supplier.state, supplier.country || supplier.location]
     .filter(Boolean)
-    .map(prettyLabel)
     .join(", ");
-  const companyName = prettyLabel(supplier.companyName);
-  const initial = companyName.charAt(0).toUpperCase();
-  const showRating = supplier.reviewCount > 0;
-  const showProductCount = supplier.productCount > 0;
-  const hasStats =
-    showRating ||
-    showProductCount ||
-    supplier.yearsInBusiness != null ||
-    Boolean(supplier.responseTime) ||
-    Boolean(supplier.employeeCount);
 
   return (
-    <div className="min-h-screen bg-[#f3f1ec]">
-      <div className="max-w-5xl mx-auto px-4 py-8 sm:py-12">
-        <article className="bg-white rounded-[1.25rem] overflow-hidden border border-black/[0.06] shadow-[0_18px_50px_-28px_rgba(15,23,42,0.45)]">
-          <div className="relative h-40 sm:h-52 bg-[#152238]">
-            {supplier.coverUrl ? (
+    <div className="min-h-screen bg-[#eef1f4]">
+      <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
+        {/* Shareable card */}
+        <article className="bg-white rounded-2xl overflow-hidden shadow-lg border border-border/60">
+          <div className="relative h-36 sm:h-44 bg-gradient-to-br from-secondary via-secondary/90 to-blue-900">
+            {supplier.coverUrl && (
               <img
                 src={supplier.coverUrl}
                 alt=""
                 className="absolute inset-0 w-full h-full object-cover"
               />
-            ) : (
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.12),transparent_45%),linear-gradient(135deg,#152238_0%,#1e3a5f_55%,#0f172a_100%)]">
-                <span className="absolute right-6 bottom-2 font-heading text-[7rem] font-black text-white/10 leading-none select-none">
-                  {initial}
-                </span>
-              </div>
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
             <button
               type="button"
               onClick={() => void copyLink()}
-              className="absolute top-4 right-4 inline-flex min-h-11 items-center gap-2 bg-white text-sm font-semibold px-3.5 py-2 rounded-lg shadow-sm hover:bg-white/95"
+              className="absolute top-3 right-3 inline-flex items-center gap-1.5 bg-white/95 text-sm font-semibold px-3 py-1.5 rounded-lg shadow-sm"
             >
-              <Share2 size={15} />
-              {copied ? "Link copied" : "Share profile"}
+              <Share2 size={14} />
+              {copied ? "Copied" : "Share"}
             </button>
           </div>
 
-          <div className="grid lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]">
-            <div className="px-5 sm:px-8 pb-8">
-              <div className="flex items-end gap-4 -mt-11 mb-6">
-                <div className="w-[5.5rem] h-[5.5rem] sm:w-24 sm:h-24 rounded-2xl bg-white ring-4 ring-white shadow-md overflow-hidden flex-shrink-0">
-                  {supplier.logoUrl ? (
-                    <img
-                      src={supplier.logoUrl}
-                      alt={companyName}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-[#f4ebe3] flex items-center justify-center font-heading text-3xl font-bold text-[#c45c12]">
-                      {initial}
-                    </div>
-                  )}
-                </div>
-                <div className="pb-1 min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="font-heading text-[1.35rem] sm:text-[1.7rem] font-semibold tracking-tight text-slate-900">
-                      {companyName}
-                    </h1>
-                    {supplier.verified && (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-800 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-md">
-                        <BadgeCheck size={13} /> Verified supplier
-                      </span>
-                    )}
+          <div className="px-5 sm:px-8 pb-8">
+            <div className="flex items-end gap-4 -mt-10 mb-4">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white border-4 border-white shadow-md overflow-hidden flex-shrink-0">
+                {supplier.logoUrl ? (
+                  <img
+                    src={supplier.logoUrl}
+                    alt={supplier.companyName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-primary/10 flex items-center justify-center text-3xl font-heading font-black text-primary">
+                    {supplier.companyName[0]}
                   </div>
-                  {place && (
-                    <p className="text-sm text-slate-500 flex items-center gap-1.5 mt-1">
-                      <MapPin size={14} className="shrink-0" /> {place}
-                    </p>
-                  )}
-                </div>
+                )}
               </div>
-
-              {supplier.description && (
-                <p className="text-[15px] text-slate-600 leading-relaxed mb-6 max-w-prose">
-                  {supplier.description}
-                </p>
-              )}
-
-              {hasStats ? (
-                <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
-                  {showRating && (
-                    <Stat
-                      icon={<Star size={15} className="text-amber-500" />}
-                      label="Rating"
-                      value={`${supplier.rating.toFixed(1)} · ${supplier.reviewCount}`}
-                    />
+              <div className="pb-1 min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="font-heading text-xl sm:text-2xl font-bold truncate">
+                    {supplier.companyName}
+                  </h1>
+                  {supplier.verified && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
+                      <BadgeCheck size={12} /> Verified
+                    </span>
                   )}
-                  {showProductCount && (
-                    <Stat
-                      icon={<Package size={15} />}
-                      label="Products"
-                      value={String(supplier.productCount)}
-                    />
-                  )}
-                  {supplier.yearsInBusiness != null && (
-                    <Stat
-                      icon={<Building2 size={15} />}
-                      label="Experience"
-                      value={`${supplier.yearsInBusiness}+ years`}
-                    />
-                  )}
-                  {supplier.responseTime && (
-                    <Stat
-                      icon={<Clock size={15} />}
-                      label="Response"
-                      value={supplier.responseTime}
-                    />
-                  )}
-                  {supplier.employeeCount && (
-                    <Stat label="Team" value={supplier.employeeCount} />
-                  )}
-                </dl>
-              ) : null}
-
-              {supplier.mainProducts?.length > 0 && (
-                <div className="mb-6">
-                  <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400 mb-2.5">
-                    Main products
-                  </h2>
-                  <div className="flex flex-wrap gap-2">
-                    {supplier.mainProducts.slice(0, 8).map((p) => (
-                      <span
-                        key={p}
-                        className="text-sm bg-slate-50 border border-slate-200/80 px-3 py-1.5 rounded-full text-slate-700"
-                      >
-                        {p}
-                      </span>
-                    ))}
-                  </div>
                 </div>
-              )}
-
-              {supplier.certifications?.length > 0 && (
-                <div className="mb-6">
-                  <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400 mb-2.5">
-                    Certifications
-                  </h2>
-                  <div className="flex flex-wrap gap-2">
-                    {supplier.certifications.slice(0, 6).map((c) => (
-                      <span
-                        key={c}
-                        className="inline-flex items-center gap-1.5 text-sm text-slate-700"
-                      >
-                        <Award size={14} className="text-amber-600" /> {c}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {products.length > 0 && (
-                <div>
-                  <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400 mb-3">
-                    Featured products
-                  </h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {products.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => navigate(`/products/${p.id}`)}
-                        className="text-left rounded-xl border border-slate-200 overflow-hidden hover:border-slate-400 hover:shadow-sm transition-all bg-white"
-                      >
-                        <div className="aspect-square bg-slate-100">
-                          <ProductImage src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
-                        </div>
-                        <div className="p-3">
-                          <div className="text-sm font-medium line-clamp-2 mb-1 text-slate-900">{p.name}</div>
-                          <div className="text-xs text-slate-500">
-                            {p.minPrice != null
-                              ? `₹${p.minPrice.toLocaleString("en-IN")}${p.maxPrice && p.maxPrice !== p.minPrice ? `–${p.maxPrice.toLocaleString("en-IN")}` : ""} / ${p.unit}`
-                              : p.unit}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+                {place && (
+                  <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
+                    <MapPin size={13} /> {place}
+                  </p>
+                )}
+              </div>
             </div>
 
-            <aside className="bg-[#f8f6f2] border-t lg:border-t-0 lg:border-l border-black/[0.06] p-5 sm:p-7">
-              <h2 className="font-heading text-xl font-semibold text-slate-900">Request a quote</h2>
-              <p className="text-sm text-slate-500 mt-1 mb-5 leading-relaxed">
-                Send your requirement. This supplier will reply from Karm Baba with pricing and availability.
+            {supplier.description && (
+              <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                {supplier.description}
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-3 text-xs sm:text-sm mb-5">
+              <Meta
+                icon={<Star size={14} className="text-amber-500" />}
+                label={`${supplier.rating.toFixed(1)} · ${supplier.reviewCount} reviews`}
+              />
+              <Meta
+                icon={<Package size={14} />}
+                label={`${supplier.productCount} products`}
+              />
+              {supplier.yearsInBusiness != null && (
+                <Meta label={`${supplier.yearsInBusiness}+ years`} />
+              )}
+              {supplier.responseTime && <Meta label={`Replies in ${supplier.responseTime}`} />}
+            </div>
+
+            {supplier.mainProducts?.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-6">
+                {supplier.mainProducts.slice(0, 8).map((p) => (
+                  <span
+                    key={p}
+                    className="text-xs bg-muted px-2.5 py-1 rounded-lg text-foreground/80"
+                  >
+                    {p}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {products.length > 0 && (
+              <div className="mb-8">
+                <h2 className="text-sm font-semibold mb-3">Featured products</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {products.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => navigate(`/products/${p.id}`)}
+                      className="text-left rounded-xl border border-border overflow-hidden hover:border-primary/40 transition-colors"
+                    >
+                      <div className="aspect-square bg-muted">
+                        <ProductImage src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="p-2.5">
+                        <div className="text-xs font-medium line-clamp-2 mb-1">{p.name}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {p.minPrice != null
+                            ? `₹${p.minPrice}${p.maxPrice && p.maxPrice !== p.minPrice ? `–${p.maxPrice}` : ""} / ${p.unit}`
+                            : p.unit}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Data collection form */}
+            <div className="border-t border-border pt-6">
+              <h2 className="font-heading text-lg font-bold mb-1">Request a quote</h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                Share your details — this seller will follow up from their Karm Baba CRM.
               </p>
 
               {sent ? (
@@ -414,18 +348,18 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
                   <div>
                     <p className="font-semibold text-emerald-900 text-sm">Inquiry sent</p>
                     <p className="text-sm text-emerald-800/80 mt-0.5">
-                      The seller has your details and will follow up shortly.
+                      Thanks — the seller has received your contact details.
                     </p>
                   </div>
                 </div>
               ) : (
-                <form onSubmit={(e) => void submitInquiry(e)} className="space-y-4">
-                  <div className="grid sm:grid-cols-2 gap-3.5">
+                <form onSubmit={(e) => void submitInquiry(e)} className="space-y-3">
+                  <div className="grid sm:grid-cols-2 gap-3">
                     <Field
-                      label="Your name"
-                      required
+                      label="Your name *"
                       value={form.name}
                       onChange={(v) => setForm((f) => ({ ...f, name: v }))}
+                      required
                     />
                     <Field
                       label="Company"
@@ -433,13 +367,13 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
                       onChange={(v) => setForm((f) => ({ ...f, company: v }))}
                     />
                     <Field
-                      label="Email"
+                      label="Email (email or phone required)"
                       type="email"
                       value={form.email}
                       onChange={(v) => setForm((f) => ({ ...f, email: v }))}
                     />
                     <Field
-                      label="Phone / WhatsApp"
+                      label="Phone / WhatsApp (email or phone required)"
                       value={form.phone}
                       onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
                     />
@@ -454,24 +388,23 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
                       onChange={(v) => setForm((f) => ({ ...f, productInterest: v }))}
                     />
                   </div>
-                  <p className="text-xs text-slate-500 -mt-1">Email or WhatsApp is required so they can reply.</p>
                   <div>
-                    <label className="block text-[13px] font-medium text-slate-700 mb-1.5">
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">
                       Message
                     </label>
                     <textarea
-                      rows={4}
+                      rows={3}
                       value={form.message}
                       onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
-                      className="w-full min-h-[6.5rem] rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-800 focus:ring-2 focus:ring-slate-800/10 placeholder:text-slate-400"
-                      placeholder="Quantity, specifications, and delivery timeline"
+                      className="w-full rounded-xl border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      placeholder="Quantity, specs, timeline…"
                     />
                   </div>
                   {error && <p className="text-sm text-red-600">{error}</p>}
                   <button
                     type="submit"
                     disabled={sending}
-                    className="w-full inline-flex min-h-11 items-center justify-center gap-2 bg-[#c45c12] hover:bg-[#a84c0e] text-white px-5 py-3 rounded-lg text-sm font-semibold disabled:opacity-60"
+                    className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60"
                   >
                     {sending ? (
                       <Loader2 size={16} className="animate-spin" />
@@ -482,13 +415,13 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
                   </button>
                 </form>
               )}
-            </aside>
+            </div>
           </div>
         </article>
 
-        <p className="text-center text-xs text-slate-400 mt-7">
+        <p className="text-center text-xs text-muted-foreground mt-6">
           Powered by{" "}
-          <button type="button" className="text-slate-700 font-medium hover:underline" onClick={() => navigate("/")}>
+          <button type="button" className="text-primary font-medium" onClick={() => navigate("/")}>
             Karm Baba
           </button>
         </p>
@@ -497,30 +430,12 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
   );
 }
 
-function prettyLabel(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return trimmed;
-  if (trimmed !== trimmed.toLowerCase()) return trimmed;
-  return trimmed.replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function Stat({
-  icon,
-  label,
-  value,
-}: {
-  icon?: React.ReactNode;
-  label: string;
-  value: string;
-}) {
+function Meta({ icon, label }: { icon?: React.ReactNode; label: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
-      <dt className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold flex items-center gap-1.5">
-        {icon}
-        {label}
-      </dt>
-      <dd className="text-sm font-medium text-slate-800 mt-0.5">{value}</dd>
-    </div>
+    <span className="inline-flex items-center gap-1.5 bg-muted/80 px-2.5 py-1 rounded-lg text-muted-foreground">
+      {icon}
+      {label}
+    </span>
   );
 }
 
@@ -539,16 +454,13 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-[13px] font-medium text-slate-700 mb-1.5">
-        {label}
-        {required ? <span className="text-[#c45c12]"> *</span> : null}
-      </label>
+      <label className="block text-xs font-medium text-muted-foreground mb-1">{label}</label>
       <input
         type={type}
         required={required}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-800 focus:ring-2 focus:ring-slate-800/10"
+        className="w-full rounded-xl border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
       />
     </div>
   );
