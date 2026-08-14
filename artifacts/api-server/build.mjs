@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -12,11 +12,7 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
-  const apiDir = path.resolve(artifactDir, "api");
-  const publicDir = path.resolve(artifactDir, "public");
   await rm(distDir, { recursive: true, force: true });
-  await rm(apiDir, { recursive: true, force: true });
-  await rm(publicDir, { recursive: true, force: true });
 
   const shared = {
     platform: "node",
@@ -118,59 +114,15 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     },
   };
 
-  // Local / long-running server entry
+  // Local / long-running server entry (must not be named index.mjs — Vercel
+  // was serving dist/index.mjs as a static file at /).
   await esbuild({
     ...shared,
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    entryPoints: [path.resolve(artifactDir, "src/listen.ts")],
     format: "esm",
     outdir: distDir,
     outExtension: { ".js": ".mjs" },
   });
-
-  // Vercel serverless entry — single CJS file with pino left external so
-  // esbuild-plugin-pino doesn't collide, and @vercel/node never recompiles
-  // workspace TypeScript (avoids "Emit skipped").
-  await esbuild({
-    platform: "node",
-    bundle: true,
-    logLevel: "info",
-    entryPoints: [path.resolve(artifactDir, "src/vercel.ts")],
-    format: "cjs",
-    outfile: path.resolve(apiDir, "index.js"),
-    sourcemap: false,
-    external: [
-      ...shared.external,
-      "pino",
-      "pino-http",
-      "pino-pretty",
-      "thread-stream",
-    ],
-    footer: {
-      // Ensure Express default export is the CJS module.exports Vercel expects
-      js: "module.exports = module.exports.default ?? module.exports;",
-    },
-  });
-
-  // api-server package.json is "type": "module"; force CJS for the serverless file.
-  await mkdir(apiDir, { recursive: true });
-  await writeFile(
-    path.join(apiDir, "package.json"),
-    JSON.stringify({ type: "commonjs" }),
-  );
-
-  // Static frontend for Vercel CDN (Output Directory = public).
-  const frontendDist = path.resolve(artifactDir, "../karm-baba/dist/public");
-  await mkdir(publicDir, { recursive: true });
-  try {
-    const { cp } = await import("node:fs/promises");
-    await cp(frontendDist, publicDir, { recursive: true });
-  } catch {
-    await writeFile(
-      path.join(publicDir, "index.html"),
-      `<!doctype html><meta charset="utf-8"><title>Karm Baba API</title>
-<p>Frontend build missing. API is at <a href="/api/healthz">/api/healthz</a>.</p>`,
-    );
-  }
 }
 
 buildAll().catch((err) => {
