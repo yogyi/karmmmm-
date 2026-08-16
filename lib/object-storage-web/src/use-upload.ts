@@ -13,7 +13,7 @@ interface UploadResponse {
   metadata: UploadMetadata;
 }
 
-interface UseUploadOptions {
+export interface UseUploadOptions {
   /** Base path where object storage routes are mounted (default: "/api/storage") */
   basePath?: string;
   getToken?: () => Promise<string | null> | string | null;

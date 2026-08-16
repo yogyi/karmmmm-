@@ -186,8 +186,8 @@ export function ProfilePage() {
     try {
       let nextUrl: string | null = null;
       if (clerkUser?.setProfileImage) {
-        const updated = await clerkUser.setProfileImage({ file });
-        nextUrl = updated.imageUrl || clerkUser.imageUrl || null;
+        await clerkUser.setProfileImage({ file });
+        nextUrl = clerkUser.imageUrl || null;
       }
       if (!nextUrl) {
         const uploaded = await uploadFile(file);

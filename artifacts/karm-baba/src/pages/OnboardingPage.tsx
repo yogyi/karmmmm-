@@ -134,7 +134,7 @@ export function OnboardingPage() {
   const switchingRole =
     Boolean(changing) &&
     Boolean(user?.onboardingCompleted) &&
-    user?.role !== "admin" &&
+    (user?.role as string | undefined) !== "admin" &&
     Boolean(choice) &&
     choice !== user?.role;
 
