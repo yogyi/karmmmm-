@@ -13,6 +13,7 @@ import {
 } from "@workspace/api-zod";
 import { requireClerkAuth } from "../lib/auth";
 import { canAccessSupplier, getAuthenticatedDbUser, isAdmin, isSellerOrAdmin } from "../lib/authorize";
+import { findOrCreateCategory, readCustomCategory } from "../lib/categories";
 
 const router: IRouter = Router();
 
@@ -136,7 +137,28 @@ router.get("/products/:id", requireClerkAuth, async (req, res): Promise<void> =>
 });
 
 router.post("/products", requireClerkAuth, async (req, res): Promise<void> => {
-  const parsed = CreateProductBody.safeParse(req.body);
+  const body = { ...(req.body as Record<string, unknown>) };
+  const customCategory = readCustomCategory(body);
+  delete body.customCategory;
+  if (customCategory) {
+    try {
+      const category = await findOrCreateCategory(customCategory);
+      body.categoryId = category.id;
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Invalid custom category",
+      });
+      return;
+    }
+  } else if (body.categoryId === -1) {
+    res.status(400).json({ error: "Please enter a custom category" });
+    return;
+  }
+  if (typeof body.imageUrl !== "string") {
+    body.imageUrl = "";
+  }
+
+  const parsed = CreateProductBody.safeParse(body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -193,6 +215,17 @@ router.post("/products", requireClerkAuth, async (req, res): Promise<void> => {
     },
   });
 
+  await Promise.all([
+    prisma.category.update({
+      where: { id: product.categoryId },
+      data: { productCount: { increment: 1 } },
+    }),
+    prisma.supplier.update({
+      where: { id: product.supplierId },
+      data: { productCount: { increment: 1 } },
+    }),
+  ]);
+
   const enriched = await enrichProduct(product);
   res.status(201).json(GetProductResponse.parse(enriched));
 });
@@ -205,7 +238,26 @@ router.patch("/products/:id", requireClerkAuth, async (req, res): Promise<void> 
     return;
   }
 
-  const parsed = UpdateProductBody.safeParse(req.body);
+  const updateBody = { ...(req.body as Record<string, unknown>) };
+  const customCategory = readCustomCategory(updateBody);
+  delete updateBody.customCategory;
+  let resolvedCategoryId: number | undefined;
+  if (customCategory) {
+    try {
+      const category = await findOrCreateCategory(customCategory);
+      resolvedCategoryId = category.id;
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Invalid custom category",
+      });
+      return;
+    }
+  } else if (typeof updateBody.categoryId === "number" && updateBody.categoryId > 0) {
+    resolvedCategoryId = updateBody.categoryId;
+  }
+  delete updateBody.categoryId;
+
+  const parsed = UpdateProductBody.safeParse(updateBody);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -232,6 +284,29 @@ router.patch("/products/:id", requireClerkAuth, async (req, res): Promise<void> 
   }
 
   const data: Prisma.ProductUpdateInput = { ...parsed.data };
+  if (resolvedCategoryId != null) {
+    data.category = { connect: { id: resolvedCategoryId } };
+  }
+  if (typeof updateBody.name === "string" && updateBody.name.trim()) {
+    data.name = updateBody.name.trim();
+  }
+  if (typeof updateBody.description === "string") {
+    data.description = updateBody.description.trim() || null;
+  }
+  if (typeof updateBody.minPrice === "number") data.minPrice = updateBody.minPrice;
+  if (typeof updateBody.maxPrice === "number") data.maxPrice = updateBody.maxPrice;
+  if (typeof updateBody.unit === "string" && updateBody.unit.trim()) {
+    data.unit = updateBody.unit.trim();
+  }
+  if (typeof updateBody.minOrder === "number") data.minOrder = updateBody.minOrder;
+  if (typeof updateBody.imageUrl === "string") data.imageUrl = updateBody.imageUrl;
+  if (Array.isArray(updateBody.images)) {
+    data.images = updateBody.images.filter((x): x is string => typeof x === "string");
+  }
+  if (Array.isArray(updateBody.tags)) {
+    data.tags = updateBody.tags.filter((x): x is string => typeof x === "string");
+  }
+  if (typeof updateBody.inStock === "boolean") data.inStock = updateBody.inStock;
   if ("featured" in data && data.featured != null && !isAdmin(dbUser)) {
     delete data.featured;
   }
@@ -275,6 +350,16 @@ router.delete("/products/:id", requireClerkAuth, async (req, res): Promise<void>
   }
 
   await prisma.product.delete({ where: { id: params.data.id } });
+  await Promise.all([
+    prisma.category.update({
+      where: { id: existing.categoryId },
+      data: { productCount: { decrement: 1 } },
+    }),
+    prisma.supplier.update({
+      where: { id: existing.supplierId },
+      data: { productCount: { decrement: 1 } },
+    }),
+  ]);
   res.status(204).send();
 });
 

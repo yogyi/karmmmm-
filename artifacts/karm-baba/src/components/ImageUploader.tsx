@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useUpload } from "@workspace/object-storage-web";
+import { useAuth as useClerkAuth } from "@clerk/react";
 import { Upload, X, ImageIcon, Loader2 } from "lucide-react";
 
 interface ImageUploaderProps {
@@ -11,8 +12,10 @@ interface ImageUploaderProps {
 export function ImageUploader({ images, onChange, maxImages = 5 }: ImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const { getToken } = useClerkAuth();
 
   const { uploadFile, isUploading, progress } = useUpload({
+    getToken,
     onSuccess: (response) => {
       const servingUrl = `/api/storage${response.objectPath}`;
       onChange([...images, servingUrl]);

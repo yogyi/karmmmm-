@@ -47,7 +47,7 @@ export function HomePage() {
 
   const { data: featuredProducts, isLoading: loadingProducts } = useGetFeaturedProducts();
   const { data: featuredSuppliers, isLoading: loadingSuppliers } = useGetFeaturedSuppliers();
-  const { data: catalog } = useListProducts({ limit: 8, page: 1, sort: "rating" } as any);
+  const { data: catalog } = useListProducts({ limit: 8, page: 1, sort: "newest" } as any);
   const { data: supplierCatalog } = useListSuppliers({ limit: 4, page: 1, verified: true } as any);
   const { data: categories } = useListCategories();
   const { data: stats } = useGetDashboardStats();

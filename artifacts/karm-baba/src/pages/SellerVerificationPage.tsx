@@ -256,7 +256,12 @@ export function SellerVerificationPage() {
       const incomplete = firstIncompleteStep(loaded);
       // Persisted data implies prior steps were saved on the server.
       setHighestSavedStep(incomplete === 5 ? 4 : incomplete - 1);
-      setStep(incomplete);
+      const requested = Number(
+        new URLSearchParams(window.location.search).get("step"),
+      );
+      setStep(
+        requested >= 1 && requested <= 5 ? (requested as Step) : incomplete,
+      );
     } finally {
       setLoading(false);
     }
@@ -421,11 +426,14 @@ export function SellerVerificationPage() {
             Seller Central · Verification
           </p>
           <h1 className="font-heading text-2xl sm:text-3xl font-bold mb-2">
-            Become a verified seller
+            {new URLSearchParams(window.location.search).get("step") === "3"
+              ? "Re-verify your GSTIN"
+              : "Become a verified seller"}
           </h1>
           <p className="text-white/65 text-sm max-w-xl">
-            Complete KYC with GST registration so buyers can trust your shop — same idea as
-            Alibaba&apos;s verified suppliers.
+            {new URLSearchParams(window.location.search).get("step") === "3"
+              ? "Your verified badge is paused. Confirm or update GSTIN, then submit to get verified again."
+              : "Complete KYC with GST registration so buyers can trust your shop — same idea as Alibaba's verified suppliers."}
           </p>
         </div>
       </div>

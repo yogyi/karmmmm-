@@ -38,6 +38,8 @@ describe("resolveObjectStorageDriver", () => {
     expect(resolveObjectStorageDriver()).toBe("replit");
     process.env.OBJECT_STORAGE_DRIVER = "gcs";
     expect(resolveObjectStorageDriver()).toBe("gcs");
+    process.env.OBJECT_STORAGE_DRIVER = "local";
+    expect(resolveObjectStorageDriver()).toBe("local");
   });
 
   it("auto-selects s3 when R2/S3 env is present", () => {
@@ -53,5 +55,9 @@ describe("resolveObjectStorageDriver", () => {
   it("auto-selects replit on REPL_ID", () => {
     process.env.REPL_ID = "xyz";
     expect(resolveObjectStorageDriver()).toBe("replit");
+  });
+
+  it("defaults to local when no cloud credentials are set", () => {
+    expect(resolveObjectStorageDriver()).toBe("local");
   });
 });

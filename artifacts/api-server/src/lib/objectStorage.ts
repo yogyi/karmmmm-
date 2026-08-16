@@ -43,6 +43,9 @@ export class ObjectStorageService {
   }
 
   getPrivateObjectDir(): string {
+    if (getObjectStorageDriver() === "local") {
+      return process.env.PRIVATE_OBJECT_DIR || "/karmbaba-local/private";
+    }
     const dir = process.env.PRIVATE_OBJECT_DIR || "";
     if (!dir) {
       throw new Error(
@@ -100,6 +103,13 @@ export class ObjectStorageService {
     const objectId = randomUUID();
     const fullPath = `${privateObjectDir.replace(/\/$/, "")}/uploads/${objectId}`;
     const { bucketName, objectName } = parseObjectPath(fullPath);
+
+    if (getObjectStorageDriver() === "local") {
+      return {
+        uploadURL: `/api/storage/uploads/put/${objectId}`,
+        objectPath: `/objects/uploads/${objectId}`,
+      };
+    }
 
     const uploadURL = await signPutObjectUrl(bucketName, objectName, 900);
     return {

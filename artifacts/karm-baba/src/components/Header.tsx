@@ -14,6 +14,7 @@ import {
   IndianRupee,
   Heart,
   Building2,
+  Pencil,
 } from "lucide-react";
 import { useListCategories } from "@workspace/api-client-react";
 import { useAuth } from "@/context/AuthContext";
@@ -54,6 +55,18 @@ export function Header() {
   const inSellerCentral =
     location.startsWith("/seller") || location.startsWith("/dashboard");
   const inBuyerCentral = location.startsWith("/buyer");
+  const workspaceLabel = inSellerCentral
+    ? "Seller Central"
+    : inBuyerCentral
+      ? "Buyer Central"
+      : "Karm Baba";
+  const nameInitials = (user?.name ?? "U")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase() || "U";
 
   const currentPath = location.split("?")[0];
   const currentSearch = new URLSearchParams(
@@ -162,14 +175,9 @@ export function Header() {
                 </button>
               </>
             ) : (
-              <span className="text-white/75 flex items-center gap-1.5 truncate max-w-full">
+              <span className="sm:hidden text-white/80 flex items-center gap-1.5 truncate max-w-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block shrink-0" />
-                <span className="text-white font-semibold truncate">{user?.name}</span>
-                {user?.role && user.role !== "admin" && (
-                  <span className="text-white/50 capitalize shrink-0 hidden sm:inline">
-                    · {user.role}
-                  </span>
-                )}
+                <span className="font-medium truncate">{workspaceLabel}</span>
               </span>
             )}
           </div>
@@ -302,11 +310,11 @@ export function Header() {
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <span className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center flex-shrink-0">
-                    <User size={16} className="text-muted-foreground" />
+                  <span className="w-8 h-8 rounded-full bg-primary text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">
+                    {nameInitials}
                   </span>
                 )}
-                <span className="max-w-[120px] truncate hidden sm:inline">{user?.name}</span>
+                <span className="max-w-[140px] truncate hidden sm:inline">{user?.name}</span>
                 <ChevronDown
                   size={14}
                   className={`text-muted-foreground transition-transform hidden sm:block ${userMenuOpen ? "rotate-180" : ""}`}
@@ -325,8 +333,8 @@ export function Header() {
                           referrerPolicy="no-referrer"
                         />
                       ) : (
-                        <span className="w-10 h-10 rounded-full bg-muted border border-border flex items-center justify-center flex-shrink-0">
-                          <User size={18} className="text-muted-foreground" />
+                        <span className="w-10 h-10 rounded-full bg-primary text-white text-sm font-semibold flex items-center justify-center flex-shrink-0">
+                          {nameInitials}
                         </span>
                       )}
                       <div className="min-w-0">
@@ -339,6 +347,16 @@ export function Header() {
                         </div>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigate("/account");
+                        setUserMenuOpen(false);
+                      }}
+                      className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
+                    >
+                      <Pencil size={15} className="text-muted-foreground" /> Edit profile
+                    </button>
                     {isBuyer && (
                       <button
                         type="button"
@@ -536,6 +554,7 @@ export function Header() {
             {(isLoggedIn && isBuyer
               ? [
                   { label: "Buyer Central", path: "/buyer" },
+                  { label: "Edit profile", path: "/account" },
                   { label: "Products", path: "/products" },
                   { label: "Suppliers", path: "/suppliers" },
                   { label: "My RFQs", path: "/rfq" },
@@ -544,6 +563,7 @@ export function Header() {
               : isLoggedIn && isSeller
                 ? [
                     { label: "Seller Central", path: "/seller" },
+                    { label: "Edit profile", path: "/account" },
                     { label: "Products", path: "/seller?tab=products" },
                     { label: "Leads", path: "/seller/leads" },
                     { label: "Plans", path: "/seller/plans" },

@@ -9,6 +9,16 @@ import {
   getStoredAuthMode,
 } from "@/lib/authMode";
 import { consumeAuthRedirect } from "@/lib/authRedirect";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import logoUrl from "@assets/logo_1780688383558.png";
 
 export function OnboardingPage() {
@@ -24,6 +34,7 @@ export function OnboardingPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoTried, setAutoTried] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   async function applyRole(role: AuthMode, companyName?: string) {
     const token = await getToken();
@@ -120,22 +131,16 @@ export function OnboardingPage() {
     );
   }
 
-  async function submit() {
-    if (!choice) {
-      setError("Choose how you want to use Karm Baba.");
-      return;
-    }
-    if (
-      changing &&
-      user?.onboardingCompleted &&
-      user.role !== "admin" &&
-      choice !== user.role
-    ) {
-      const ok = window.confirm(
-        `Switch from ${user.role} to ${choice}? Your dashboard and navigation will change. Sellers may need to re-verify.`,
-      );
-      if (!ok) return;
-    }
+  const switchingRole =
+    Boolean(changing) &&
+    Boolean(user?.onboardingCompleted) &&
+    user?.role !== "admin" &&
+    Boolean(choice) &&
+    choice !== user?.role;
+
+  async function saveRole() {
+    if (!choice) return;
+    setConfirmOpen(false);
     setSaving(true);
     setError(null);
     try {
@@ -144,6 +149,18 @@ export function OnboardingPage() {
       setError(e instanceof Error ? e.message : "Something went wrong");
       setSaving(false);
     }
+  }
+
+  function submit() {
+    if (!choice) {
+      setError("Choose how you want to use Karm Baba.");
+      return;
+    }
+    if (switchingRole) {
+      setConfirmOpen(true);
+      return;
+    }
+    void saveRole();
   }
 
   return (
@@ -236,7 +253,7 @@ export function OnboardingPage() {
           <button
             type="button"
             disabled={saving || !choice}
-            onClick={() => void submit()}
+            onClick={submit}
             className="w-full bg-primary text-white rounded-xl py-3.5 font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saving ? <Loader2 size={18} className="animate-spin" /> : null}
@@ -245,6 +262,31 @@ export function OnboardingPage() {
           </button>
         </div>
       </main>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent className="max-w-[min(100%-2rem,26rem)] rounded-2xl border-border bg-white p-6 gap-5 sm:rounded-2xl">
+          <AlertDialogHeader className="text-left space-y-2">
+            <AlertDialogTitle className="font-heading text-xl font-semibold text-foreground">
+              Switch from {user?.role} to {choice}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm leading-relaxed text-muted-foreground">
+              Your dashboard and navigation will change. Sellers may need to
+              re-verify.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:space-x-0">
+            <AlertDialogCancel className="mt-0 rounded-xl px-4 py-2.5">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-xl bg-primary px-4 py-2.5 font-semibold text-white hover:bg-primary/90"
+              onClick={() => void saveRole()}
+            >
+              Switch to {choice === "seller" ? "seller" : "buyer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

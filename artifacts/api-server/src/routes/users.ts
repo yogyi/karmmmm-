@@ -85,7 +85,10 @@ router.post("/users/sync", requireClerkAuth, async (req, res): Promise<void> => 
   const byClerk = await prisma.user.findUnique({ where: { clerkId: userId } });
 
   if (byClerk) {
-    const data: Prisma.UserUpdateInput = { name, email, avatarUrl };
+    const data: Prisma.UserUpdateInput = { email };
+    if (!byClerk.avatarUrl && avatarUrl) {
+      data.avatarUrl = avatarUrl;
+    }
     if (isClerkAdmin && byClerk.role !== "admin") {
       data.role = "admin";
       data.onboardingCompleted = true;
@@ -303,6 +306,83 @@ router.post(
     res.json(LoginUserResponse.parse(safeUser(user)));
   },
 );
+
+router.patch("/users/me", requireClerkAuth, async (req, res): Promise<void> => {
+  if (!clerkEnabled) {
+    res.status(503).json({ error: "Clerk is not configured" });
+    return;
+  }
+
+  const { getAuth, clerkClient } = await import("@clerk/express");
+  const { userId } = getAuth(req);
+  if (!userId) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const user = await prisma.user.findUnique({ where: { clerkId: userId } });
+  if (!user) {
+    res.status(404).json({ error: "User profile not synced yet. Call POST /api/users/sync." });
+    return;
+  }
+
+  const body = req.body as { name?: unknown; company?: unknown; avatarUrl?: unknown };
+  const name =
+    typeof body.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
+  if (!name || name.length < 2) {
+    res.status(400).json({ error: "Enter your name (at least 2 characters)" });
+    return;
+  }
+  if (name.length > 80) {
+    res.status(400).json({ error: "Name is too long" });
+    return;
+  }
+
+  let company = user.company;
+  if (typeof body.company === "string") {
+    const trimmed = body.company.trim().replace(/\s+/g, " ");
+    company = trimmed ? trimmed.slice(0, 120) : null;
+  }
+
+  let avatarUrl: string | null | undefined;
+  if (body.avatarUrl === null || body.avatarUrl === "") {
+    avatarUrl = null;
+  } else if (typeof body.avatarUrl === "string") {
+    const url = body.avatarUrl.trim();
+    if (
+      !url.startsWith("/api/storage/") &&
+      !url.startsWith("https://") &&
+      !url.startsWith("http://")
+    ) {
+      res.status(400).json({ error: "Invalid profile photo URL" });
+      return;
+    }
+    avatarUrl = url.slice(0, 500);
+  }
+
+  const parts = name.split(" ");
+  const firstName = parts[0] ?? name;
+  const lastName = parts.slice(1).join(" ");
+  try {
+    await clerkClient.users.updateUser(userId, {
+      firstName,
+      lastName: lastName || undefined,
+    });
+  } catch (err) {
+    console.warn("Failed to update Clerk name", err);
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      name,
+      company,
+      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+    },
+  });
+
+  res.json(GetUserResponse.parse(safeUser(updated)));
+});
 
 router.get("/users/me", requireClerkAuth, async (req, res): Promise<void> => {
   if (!clerkEnabled) {

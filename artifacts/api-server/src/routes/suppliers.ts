@@ -158,7 +158,185 @@ router.get("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> =>
   }
   res.json({
     ...mapSupplier(supplier),
+    gstLocked: supplier.verified || supplier.gstVerified,
     shareUrl: supplier.slug ? `/s/${supplier.slug}` : null,
+  });
+});
+
+function readTrimmed(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return value.trim();
+}
+
+/** Update shop profile after verification. GSTIN is locked unless re-verify is started. */
+router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> => {
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (!isSellerOrAdmin(dbUser)) {
+    res.status(403).json({ error: "Forbidden — sellers only" });
+    return;
+  }
+  const supplierId = parseLinkedSupplierId(dbUser);
+  if (supplierId == null) {
+    res.status(404).json({ error: "No supplier profile linked yet" });
+    return;
+  }
+  const existing = await prisma.supplier.findUnique({ where: { id: supplierId } });
+  if (!existing) {
+    res.status(404).json({ error: "Supplier not found" });
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const gstLocked = existing.verified || existing.gstVerified;
+  const incomingGst = readTrimmed(body.gstin);
+
+  if (incomingGst) {
+    const gst = validateGstin(incomingGst);
+    if (!gst.ok) {
+      res.status(400).json({ error: gst.error });
+      return;
+    }
+    if (gstLocked && gst.gstin !== existing.gstin) {
+      res.status(409).json({
+        error:
+          "GSTIN is locked after verification. Start GST re-verification to change it.",
+        code: "GST_LOCKED",
+      });
+      return;
+    }
+  }
+
+  const patch: Prisma.SupplierUpdateInput = {};
+  const companyName = readTrimmed(body.companyName);
+  if (companyName) patch.companyName = companyName;
+  const legalName = readTrimmed(body.legalName);
+  if (legalName !== undefined) patch.legalName = legalName || null;
+  const businessAddress = readTrimmed(body.businessAddress);
+  if (businessAddress !== undefined) patch.businessAddress = businessAddress || null;
+  const city = readTrimmed(body.city);
+  if (city !== undefined) patch.city = city || null;
+  const state = readTrimmed(body.state);
+  if (state !== undefined) patch.state = state || null;
+  const pincode = readTrimmed(body.pincode);
+  if (pincode !== undefined) patch.pincode = pincode || null;
+  const country = readTrimmed(body.country);
+  if (country) patch.country = country;
+  const description = readTrimmed(body.description);
+  if (description !== undefined) patch.description = description || null;
+  const contactPerson = readTrimmed(body.contactPerson);
+  if (contactPerson !== undefined) patch.contactPerson = contactPerson || null;
+  const contactPhone = readTrimmed(body.contactPhone);
+  if (contactPhone !== undefined) {
+    if (contactPhone && !/^[6-9]\d{9}$/.test(contactPhone)) {
+      res.status(400).json({ error: "Enter a valid 10-digit Indian mobile number" });
+      return;
+    }
+    patch.contactPhone = contactPhone || null;
+  }
+  const contactEmail = readTrimmed(body.contactEmail);
+  if (contactEmail !== undefined) patch.contactEmail = contactEmail || null;
+  const website = readTrimmed(body.website);
+  if (website !== undefined) patch.website = website || null;
+  const bankAccountName = readTrimmed(body.bankAccountName);
+  if (bankAccountName !== undefined) patch.bankAccountName = bankAccountName || null;
+  const bankIfsc = readTrimmed(body.bankIfsc);
+  if (bankIfsc !== undefined) {
+    const ifsc = bankIfsc.toUpperCase();
+    if (ifsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
+      res.status(400).json({ error: "Valid IFSC code is required (e.g. HDFC0001234)" });
+      return;
+    }
+    patch.bankIfsc = ifsc || null;
+  }
+  if (body.yearsInBusiness != null && body.yearsInBusiness !== "") {
+    patch.yearsInBusiness = Number(body.yearsInBusiness);
+  }
+  const employeeCount = readTrimmed(body.employeeCount);
+  if (employeeCount !== undefined) patch.employeeCount = employeeCount || null;
+  if (Array.isArray(body.mainProducts)) {
+    patch.mainProducts = body.mainProducts.filter(
+      (x): x is string => typeof x === "string" && x.trim().length > 0,
+    );
+  }
+  if (Array.isArray(body.certifications)) {
+    patch.certifications = body.certifications.filter(
+      (x): x is string => typeof x === "string" && x.trim().length > 0,
+    );
+  }
+
+  if (city !== undefined || state !== undefined) {
+    const nextCity = city !== undefined ? city : existing.city;
+    const nextState = state !== undefined ? state : existing.state;
+    patch.location = [nextCity, nextState].filter(Boolean).join(", ") || existing.location;
+  }
+
+  if (incomingGst && !gstLocked) {
+    const gst = validateGstin(incomingGst);
+    if (gst.ok) {
+      const clash = await prisma.supplier.findFirst({
+        where: { gstin: gst.gstin, NOT: { id: supplierId } },
+      });
+      if (clash) {
+        res.status(409).json({ error: "This GSTIN is already registered to another seller" });
+        return;
+      }
+      patch.gstin = gst.gstin;
+      patch.pan = gst.pan;
+    }
+  }
+
+  const updated = await prisma.supplier.update({
+    where: { id: supplierId },
+    data: patch,
+  });
+  res.json({
+    ...mapSupplier(updated),
+    gstLocked: updated.verified || updated.gstVerified,
+    shareUrl: updated.slug ? `/s/${updated.slug}` : null,
+  });
+});
+
+/** Drop verified badge so the seller can change GSTIN and complete KYC again. */
+router.post("/suppliers/me/reverify-gst", requireClerkAuth, async (req, res): Promise<void> => {
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (!isSellerOrAdmin(dbUser)) {
+    res.status(403).json({ error: "Forbidden — sellers only" });
+    return;
+  }
+  const supplierId = parseLinkedSupplierId(dbUser);
+  if (supplierId == null) {
+    res.status(404).json({ error: "No supplier profile linked yet" });
+    return;
+  }
+  const existing = await prisma.supplier.findUnique({ where: { id: supplierId } });
+  if (!existing) {
+    res.status(404).json({ error: "Supplier not found" });
+    return;
+  }
+
+  const updated = await prisma.supplier.update({
+    where: { id: supplierId },
+    data: {
+      verified: false,
+      gstVerified: false,
+      verificationStatus: "draft",
+      verificationStep: 3,
+      verifiedAt: null,
+    },
+  });
+
+  res.json({
+    supplier: mapSupplier(updated),
+    next: "/seller/verify?step=3",
+    message: "Verified badge paused. Confirm your GSTIN to get verified again.",
   });
 });
 

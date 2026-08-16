@@ -7,6 +7,7 @@ interface ProductFormData {
   name: string;
   description: string;
   categoryId: number;
+  customCategory: string;
   minPrice: string;
   maxPrice: string;
   unit: string;
@@ -17,33 +18,38 @@ interface ProductFormData {
   tags: string;
 }
 
+interface ProductSubmitData {
+  name: string;
+  description: string;
+  categoryId: number;
+  customCategory?: string;
+  minPrice: number;
+  maxPrice: number;
+  unit: string;
+  minOrder: number;
+  imageUrl: string;
+  images: string[];
+  inStock: boolean;
+  tags: string[];
+}
+
 interface ProductFormModalProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (data: {
-    name: string;
-    description: string;
-    categoryId: number;
-    minPrice: number;
-    maxPrice: number;
-    unit: string;
-    minOrder: number;
-    imageUrl: string;
-    images: string[];
-    inStock: boolean;
-    tags: string[];
-  }) => Promise<void>;
+  onSubmit: (data: ProductSubmitData) => Promise<void>;
   initialValues?: Partial<ProductFormData & { id: number }>;
   loading?: boolean;
   title?: string;
 }
 
 const UNITS = ["piece", "kg", "gram", "litre", "box", "set", "pair", "dozen", "meter", "roll"];
+const OTHERS_CATEGORY_ID = -1;
 
 const DEFAULT_FORM: ProductFormData = {
   name: "",
   description: "",
   categoryId: 0,
+  customCategory: "",
   minPrice: "",
   maxPrice: "",
   unit: "piece",
@@ -66,6 +72,7 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
           name: initialValues.name ?? "",
           description: initialValues.description ?? "",
           categoryId: initialValues.categoryId ?? 0,
+          customCategory: initialValues.customCategory ?? "",
           minPrice: initialValues.minPrice ?? "",
           maxPrice: initialValues.maxPrice ?? "",
           unit: initialValues.unit ?? "piece",
@@ -100,7 +107,15 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
     setError(null);
 
     if (!form.name.trim()) { setError("Product name is required"); return; }
-    if (!form.categoryId) { setError("Please select a category"); return; }
+    if (form.categoryId === OTHERS_CATEGORY_ID) {
+      if (form.customCategory.trim().length < 2) {
+        setError("Please enter a custom category");
+        return;
+      }
+    } else if (!form.categoryId) {
+      setError("Please select a category");
+      return;
+    }
     if (!form.minPrice || !form.maxPrice) { setError("Price range is required"); return; }
     const minP = parseFloat(form.minPrice);
     const maxP = parseFloat(form.maxPrice);
@@ -109,19 +124,23 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
       return;
     }
 
-    const primaryImage = form.imageUrl || form.images[0] || "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=400";
+    const primaryImage = form.imageUrl || form.images[0] || "";
+
+    const usingCustom = form.categoryId === OTHERS_CATEGORY_ID;
+    const customName = form.customCategory.trim();
 
     try {
       await onSubmit({
         name: form.name.trim(),
         description: form.description.trim(),
-        categoryId: form.categoryId,
+        categoryId: usingCustom ? OTHERS_CATEGORY_ID : form.categoryId,
+        customCategory: usingCustom ? customName : undefined,
         minPrice: minP,
         maxPrice: maxP,
         unit: form.unit,
         minOrder: parseInt(form.minOrder) || 1,
         imageUrl: primaryImage,
-        images: form.images.length > 0 ? form.images : [primaryImage],
+        images: form.images,
         inStock: form.inStock,
         tags: form.tags.split(",").map(t => t.trim()).filter(Boolean),
       });
@@ -210,14 +229,39 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
             </label>
             <select
               value={form.categoryId}
-              onChange={e => set("categoryId", parseInt(e.target.value))}
+              onChange={e => {
+                const nextId = parseInt(e.target.value, 10);
+                setForm(prev => ({
+                  ...prev,
+                  categoryId: nextId,
+                  customCategory: nextId === OTHERS_CATEGORY_ID ? prev.customCategory : "",
+                }));
+              }}
               className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm bg-white"
             >
               <option value={0}>Select a category</option>
-              {categories?.map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
+              {categories
+                ?.filter(cat => cat.name.toLowerCase() !== "others")
+                .map(cat => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                ))}
+              <option value={OTHERS_CATEGORY_ID}>Others</option>
             </select>
+            {form.categoryId === OTHERS_CATEGORY_ID && (
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  Custom category <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.customCategory}
+                  onChange={e => set("customCategory", e.target.value)}
+                  placeholder="e.g. Packaging, Chemicals, Stationery"
+                  className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
+                  autoFocus
+                />
+              </div>
+            )}
           </div>
 
           {/* Price Range */}

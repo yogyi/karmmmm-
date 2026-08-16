@@ -7,8 +7,12 @@ import {
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { ObjectPermission, getObjectAclPolicy } from "../lib/objectAcl";
 import { getClerkUserId, requireClerkAuth } from "../lib/auth";
+import { getObjectStorageDriver } from "../lib/objectStorageBackend";
+import { writeLocalObject } from "../lib/localObjectStorage";
+import express from "express";
 
 const router: IRouter = Router();
+export const storagePublicRouter: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 
 function parseFinalizeBody(body: unknown): {
@@ -103,6 +107,35 @@ router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, 
   }
 });
 
+/** Local-disk PUT target used when OBJECT_STORAGE_DRIVER=local (or no cloud creds). */
+router.put(
+  "/storage/uploads/put/:objectId",
+  requireClerkAuth,
+  express.raw({ type: "*/*", limit: "8mb" }),
+  async (req: Request, res: Response) => {
+    if (getObjectStorageDriver() !== "local") {
+      res.status(400).json({ error: "Direct PUT uploads are only enabled for local storage" });
+      return;
+    }
+    const objectId = String(req.params.objectId || "").replace(/[^a-zA-Z0-9-]/g, "");
+    if (!objectId) {
+      res.status(400).json({ error: "Missing upload id" });
+      return;
+    }
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body ?? []);
+    if (body.length === 0) {
+      res.status(400).json({ error: "Empty file" });
+      return;
+    }
+    const contentType =
+      typeof req.headers["content-type"] === "string"
+        ? req.headers["content-type"]
+        : "application/octet-stream";
+    await writeLocalObject("karmbaba-local", `private/uploads/${objectId}`, body, contentType);
+    res.status(200).json({ ok: true, objectPath: `/objects/uploads/${objectId}` });
+  },
+);
+
 /**
  * Serve public assets from PUBLIC_OBJECT_SEARCH_PATHS.
  * Requires a Karm Baba session (same-origin Clerk cookie is enough for <img>).
@@ -141,7 +174,7 @@ router.get("/storage/public-objects/*filePath", requireClerkAuth, async (req: Re
  * - visibility=public → readable without auth
  * - visibility=private / missing ACL → authenticated owner (or ACL rule) only
  */
-router.get("/storage/objects/*path", requireClerkAuth, async (req: Request, res: Response) => {
+storagePublicRouter.get("/storage/objects/*path", async (req: Request, res: Response) => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;

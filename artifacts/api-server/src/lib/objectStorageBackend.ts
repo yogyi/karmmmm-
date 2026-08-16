@@ -9,8 +9,9 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable } from "node:stream";
+import { LocalStoredObject } from "./localObjectStorage";
 
-export type ObjectStorageDriver = "gcs" | "s3" | "replit";
+export type ObjectStorageDriver = "gcs" | "s3" | "replit" | "local";
 
 const REPLIT_SIDECAR_ENDPOINT =
   process.env.REPLIT_SIDECAR_ENDPOINT || "http://127.0.0.1:1106";
@@ -30,7 +31,12 @@ export interface StoredObject {
 
 export function resolveObjectStorageDriver(): ObjectStorageDriver {
   const explicit = (process.env.OBJECT_STORAGE_DRIVER || "").toLowerCase();
-  if (explicit === "gcs" || explicit === "s3" || explicit === "replit") {
+  if (
+    explicit === "gcs" ||
+    explicit === "s3" ||
+    explicit === "replit" ||
+    explicit === "local"
+  ) {
     return explicit;
   }
   if (
@@ -51,8 +57,7 @@ export function resolveObjectStorageDriver(): ObjectStorageDriver {
   if (process.env.REPL_ID || process.env.REPL_SLUG) {
     return "replit";
   }
-  // Prefer real GCS ADC over hard-failing; callers still need buckets configured.
-  return "gcs";
+  return "local";
 }
 
 let cachedDriver: ObjectStorageDriver | null = null;
@@ -253,6 +258,9 @@ export function getStoredObject(
   objectName: string,
 ): StoredObject {
   const driver = getObjectStorageDriver();
+  if (driver === "local") {
+    return new LocalStoredObject(bucketName, objectName);
+  }
   if (driver === "s3") {
     return new S3StoredObject(bucketName, objectName, createS3Client());
   }

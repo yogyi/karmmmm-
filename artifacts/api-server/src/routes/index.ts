@@ -8,7 +8,7 @@ import rfqRouter from "./rfq";
 import usersRouter from "./users";
 import reviewsRouter from "./reviews";
 import dashboardRouter from "./dashboard";
-import storageRouter from "./storage";
+import storageRouter, { storagePublicRouter } from "./storage";
 import leadsRouter from "./leads";
 import shopRouter from "./shop";
 
@@ -16,6 +16,7 @@ const router: IRouter = Router();
 
 // Uptime only — every other /api route requires a Clerk session.
 router.use(healthRouter);
+router.use(storagePublicRouter);
 router.use(requireClerkAuth);
 router.use(categoriesRouter);
 router.use(productsRouter);

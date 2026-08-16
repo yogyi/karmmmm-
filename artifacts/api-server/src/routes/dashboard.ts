@@ -13,6 +13,7 @@ import {
   parseLinkedSupplierId,
 } from "../lib/authorize";
 import { redactRfqForViewer } from "../lib/redact";
+import { sellerInboxWhere } from "../lib/rfqScope";
 
 const router: IRouter = Router();
 
@@ -124,14 +125,15 @@ router.get("/dashboard/supplier/:id", requireClerkAuth, async (req, res): Promis
     return;
   }
 
+  const inbox = sellerInboxWhere(params.data.id);
+  const pendingInbox = sellerInboxWhere(params.data.id, "pending");
+
   const [productCount, rfqCount, pendingRfqs, recentRfqs] = await Promise.all([
     prisma.product.count({ where: { supplierId: params.data.id } }),
-    prisma.rfq.count({ where: { supplierId: params.data.id } }),
-    prisma.rfq.count({
-      where: { supplierId: params.data.id, status: "pending" },
-    }),
+    prisma.rfq.count({ where: inbox }),
+    prisma.rfq.count({ where: pendingInbox }),
     prisma.rfq.findMany({
-      where: { supplierId: params.data.id },
+      where: inbox,
       orderBy: { createdAt: "desc" },
       take: 5,
     }),

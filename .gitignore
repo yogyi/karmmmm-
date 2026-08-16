@@ -50,6 +50,7 @@ testem.log
 .env.*.local
 
 # System Files
+data/
 .DS_Store
 Thumbs.db
 

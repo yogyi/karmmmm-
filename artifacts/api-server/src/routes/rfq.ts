@@ -18,6 +18,7 @@ import {
   parseLinkedSupplierId,
 } from "../lib/authorize";
 import { redactRfqForViewer } from "../lib/redact";
+import { sellerInboxWhere } from "../lib/rfqScope";
 
 const router: IRouter = Router();
 
@@ -93,20 +94,8 @@ router.get("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
       // Explicit "my requests" filter
       where.buyerId = dbUser.id;
     } else if (supplierId != null && linkedSupplierId === supplierId) {
-      // Seller shop inbox: RFQs assigned to this shop + open marketplace inquiries
-      where.OR = [
-        { supplierId: linkedSupplierId },
-        { supplierId: null, status: status ?? "pending" },
-      ];
-      // status already applied globally would AND with OR incorrectly for open ones —
-      // when we expand open RFQs, drop the top-level status and encode it in OR branches.
-      if (status != null) {
-        delete where.status;
-        where.OR = [
-          { supplierId: linkedSupplierId, status },
-          { supplierId: null, status },
-        ];
-      }
+      Object.assign(where, sellerInboxWhere(linkedSupplierId, status));
+      delete where.status;
     } else if (linkedSupplierId != null && (dbUser.role === "seller" || dbUser.role === "admin")) {
       // Default seller view: own buyer RFQs + assigned + open pending
       where.OR = [

@@ -40,8 +40,9 @@ export function setBaseUrl(url: string | null): void {
  * NOTE: This function should never be used in web applications where session
  * token cookies are automatically associated with API calls by the browser.
  */
-export function setAuthTokenGetter(getter: AuthTokenGetter | null): void {
-  _authTokenGetter = getter;
+export async function getAuthToken(): Promise<string | null> {
+  if (!_authTokenGetter) return null;
+  return _authTokenGetter();
 }
 
 function isRequest(input: RequestInfo | URL): input is Request {

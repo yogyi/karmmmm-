@@ -25,6 +25,7 @@ import { SellerLeadsPage } from "@/pages/SellerLeadsPage";
 import { SellerShopPlansPage } from "@/pages/SellerShopPlansPage";
 import { ShareProfilePage } from "@/pages/ShareProfilePage";
 import { PrivacyPage, TermsPage, RefundPage } from "@/pages/LegalPages";
+import { ProfilePage } from "@/pages/ProfilePage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
@@ -75,6 +76,7 @@ function Router() {
       <Route path="/seller/verify" component={() => <PageLayout><SellerVerificationPage /></PageLayout>} />
       <Route path="/seller/leads" component={() => <PageLayout><SellerLeadsPage /></PageLayout>} />
       <Route path="/seller/plans" component={() => <PageLayout><SellerShopPlansPage /></PageLayout>} />
+      <Route path="/account" component={() => <PageLayout><ProfilePage /></PageLayout>} />
       <Route path="/seller" component={() => <PageLayout><DashboardPage /></PageLayout>} />
       <Route path="/dashboard" component={() => <PageLayout><DashboardPage /></PageLayout>} />
       <Route path="/s/:slug" component={({ params }) => <PageLayout><ShareProfilePage params={params} /></PageLayout>} />

@@ -16,6 +16,7 @@ interface UploadResponse {
 interface UseUploadOptions {
   /** Base path where object storage routes are mounted (default: "/api/storage") */
   basePath?: string;
+  getToken?: () => Promise<string | null> | string | null;
   onSuccess?: (response: UploadResponse) => void;
   onError?: (error: Error) => void;
 }
@@ -61,10 +62,12 @@ export function useUpload(options: UseUploadOptions = {}) {
 
   const requestUploadUrl = useCallback(
     async (file: File): Promise<UploadResponse> => {
+      const token = await options.getToken?.();
       const response = await fetch(`${basePath}/uploads/request-url`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         credentials: "include",
         body: JSON.stringify({
@@ -81,16 +84,21 @@ export function useUpload(options: UseUploadOptions = {}) {
 
       return response.json();
     },
-    [basePath]
+    [basePath, options.getToken]
   );
 
   const uploadToPresignedUrl = useCallback(
     async (file: File, uploadURL: string): Promise<void> => {
+      const isAppUpload =
+        uploadURL.startsWith("/") || uploadURL.includes("/api/storage/uploads/put/");
+      const token = isAppUpload ? await options.getToken?.() : null;
       const response = await fetch(uploadURL, {
         method: "PUT",
         body: file,
+        credentials: isAppUpload ? "include" : "omit",
         headers: {
           "Content-Type": file.type || "application/octet-stream",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
 
@@ -98,7 +106,7 @@ export function useUpload(options: UseUploadOptions = {}) {
         throw new Error("Failed to upload file to storage");
       }
     },
-    []
+    [options.getToken]
   );
 
   const uploadFile = useCallback(
@@ -116,9 +124,13 @@ export function useUpload(options: UseUploadOptions = {}) {
 
         // Attach ACL (owner + visibility) so /storage/objects/* can enforce access.
         setProgress(80);
+        const token = await options.getToken?.();
         const finalizeRes = await fetch(`${basePath}/uploads/finalize`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           credentials: "include",
           body: JSON.stringify({
             objectPath: uploadResponse.objectPath,

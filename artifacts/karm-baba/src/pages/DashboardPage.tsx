@@ -206,13 +206,27 @@ export function DashboardPage() {
   const { data: supplierDash } = useGetSupplierDashboard(supplierId ?? 0, {
     query: { enabled: isSupplier && hasLinkedShop && shopVerified === true } as any,
   });
-  const { data: allRfqs } = useListRfqs({}, { query: { enabled: !!user } as any });
+  const { data: inboxRfqs } = useListRfqs(
+    hasLinkedShop && supplierId != null
+      ? { supplierId }
+      : user && user.id > 0
+        ? { buyerId: user.id }
+        : undefined,
+    {
+      query: {
+        enabled: !!user && user.id > 0,
+        refetchOnMount: "always",
+        staleTime: 0,
+      } as any,
+    },
+  );
 
   const { data: supplierProductsData, refetch: refetchProducts } = useListProducts(
     { supplierId: supplierId ?? undefined },
     { query: { enabled: isSupplier && hasLinkedShop && shopVerified === true } as any }
   );
   const supplierProducts = supplierProductsData?.items ?? [];
+  const recentRfqs = (inboxRfqs ?? supplierDash?.recentRfqs ?? platformStats?.recentRfqs ?? []).slice(0, 5);
 
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
@@ -253,30 +267,40 @@ export function DashboardPage() {
   }
 
   async function handleCreate(data: {
-    name: string; description: string; categoryId: number;
+    name: string; description: string; categoryId: number; customCategory?: string;
     minPrice: number; maxPrice: number; unit: string; minOrder: number;
     imageUrl: string; images: string[]; inStock: boolean; tags: string[];
   }) {
     if (supplierId == null) {
       throw new Error("No supplier shop is linked to this account");
     }
+    const { customCategory, ...product } = data;
     await createProduct.mutateAsync({
-      data: { ...data, supplierId },
+      data: {
+        ...product,
+        supplierId,
+        ...(customCategory ? { customCategory } : {}),
+      } as Parameters<typeof createProduct.mutateAsync>[0]["data"],
     });
     queryClient.invalidateQueries();
-    refetchProducts();
+    await refetchProducts();
     setAddModalOpen(false);
+    switchTab("products");
   }
 
   async function handleUpdate(data: {
-    name: string; description: string; categoryId: number;
+    name: string; description: string; categoryId: number; customCategory?: string;
     minPrice: number; maxPrice: number; unit: string; minOrder: number;
     imageUrl: string; images: string[]; inStock: boolean; tags: string[];
   }) {
     if (!editProduct) return;
+    const { customCategory, ...product } = data;
     await updateProduct.mutateAsync({
       id: editProduct.id,
-      data,
+      data: {
+        ...product,
+        ...(customCategory ? { customCategory } : {}),
+      } as Parameters<typeof updateProduct.mutateAsync>[0]["data"],
     });
     queryClient.invalidateQueries();
     refetchProducts();
@@ -572,7 +596,10 @@ export function DashboardPage() {
                   <button onClick={() => navigate("/rfq")} className="text-sm text-primary hover:underline">View All</button>
                 </div>
                 <div className="divide-y divide-border">
-                  {(isSupplier ? supplierDash?.recentRfqs : platformStats?.recentRfqs ?? allRfqs?.slice(0, 5))?.map(rfq => {
+                  {recentRfqs.length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground text-sm">No RFQs yet</div>
+                  ) : (
+                    recentRfqs.map((rfq) => {
                     const status = statusConfig[rfq.status as keyof typeof statusConfig] ?? statusConfig.pending;
                     return (
                       <div
@@ -593,8 +620,7 @@ export function DashboardPage() {
                         </span>
                       </div>
                     );
-                  }) ?? (
-                    <div className="p-8 text-center text-muted-foreground text-sm">No RFQs yet</div>
+                  })
                   )}
                 </div>
               </div>
