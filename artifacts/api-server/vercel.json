@@ -2,5 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
-  "buildCommand": "cd ../.. && pnpm --filter @workspace/karm-baba build && pnpm --filter @workspace/api-server run vercel-build"
+  "buildCommand": "cd ../.. && pnpm --filter @workspace/karm-baba build && pnpm --filter @workspace/api-server run vercel-build",
+  "ignoreCommand": "exit 1"
 }
