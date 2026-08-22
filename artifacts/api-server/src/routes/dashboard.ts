@@ -41,10 +41,10 @@ function mapRfqRow(r: {
 }
 
 /**
- * Platform stats for signed-in users.
- * Recent RFQs are scoped to the viewer; emails redacted unless party/admin.
+ * Platform stats for homepage / buyers.
+ * Recent RFQs are scoped to the viewer when signed in; guests get counts only.
  */
-router.get("/dashboard/stats", requireClerkAuth, async (req, res): Promise<void> => {
+router.get("/dashboard/stats", async (req, res): Promise<void> => {
   const dbUser = await getAuthenticatedDbUser(req);
 
   const [totalProducts, totalSuppliers, totalRfqs, totalUsers, categories] =

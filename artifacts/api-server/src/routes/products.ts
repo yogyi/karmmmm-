@@ -46,7 +46,7 @@ async function enrichProduct(product: ProductRow) {
   };
 }
 
-router.get("/products", requireClerkAuth, async (req, res): Promise<void> => {
+router.get("/products", async (req, res): Promise<void> => {
   const parsed = ListProductsQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -108,7 +108,7 @@ router.get("/products", requireClerkAuth, async (req, res): Promise<void> => {
   res.json({ items: enriched, total, page, limit });
 });
 
-router.get("/products/featured", requireClerkAuth, async (_req, res): Promise<void> => {
+router.get("/products/featured", async (_req, res): Promise<void> => {
   const items = await prisma.product.findMany({
     where: { featured: true },
     take: 12,
@@ -118,7 +118,7 @@ router.get("/products/featured", requireClerkAuth, async (_req, res): Promise<vo
   res.json(GetFeaturedProductsResponse.parse(enriched));
 });
 
-router.get("/products/:id", requireClerkAuth, async (req, res): Promise<void> => {
+router.get("/products/:id", async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetProductParams.safeParse({ id: parseInt(rawId, 10) });
   if (!params.success) {

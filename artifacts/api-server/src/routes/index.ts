@@ -14,19 +14,21 @@ import shopRouter from "./shop";
 
 const router: IRouter = Router();
 
-// Uptime only — every other /api route requires a Clerk session.
+// Public catalog (homepage / browse) + health. Mutating routes keep requireClerkAuth.
 router.use(healthRouter);
 router.use(storagePublicRouter);
-router.use(requireClerkAuth);
 router.use(categoriesRouter);
 router.use(productsRouter);
 router.use(suppliersRouter);
-router.use(rfqRouter);
-router.use(usersRouter);
 router.use(reviewsRouter);
 router.use(dashboardRouter);
+router.use(shopRouter);
+
+// Auth-gated areas
+router.use(requireClerkAuth);
+router.use(rfqRouter);
+router.use(usersRouter);
 router.use(storageRouter);
 router.use(leadsRouter);
-router.use(shopRouter);
 
 export default router;

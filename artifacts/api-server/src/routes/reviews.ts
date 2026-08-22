@@ -10,7 +10,7 @@ import { getAuthenticatedDbUser } from "../lib/authorize";
 
 const router: IRouter = Router();
 
-router.get("/reviews", requireClerkAuth, async (req, res): Promise<void> => {
+router.get("/reviews", async (req, res): Promise<void> => {
   const parsed = ListReviewsQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });

@@ -63,56 +63,56 @@ INSERT INTO products (
     'Premium Cotton Fabric Roll',
     '100% cotton fabric suitable for garments and home textiles.',
     1, 2, 180.00, 320.00, 'meter', 500,
-    'https://images.unsplash.com/photo-1558171813-4c088753af8f?w=600&q=80',
-    ARRAY['https://images.unsplash.com/photo-1558171813-4c088753af8f?w=600&q=80'],
+    'https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?auto=format&fit=crop&w=600&q=80',
+    ARRAY['https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?auto=format&fit=crop&w=600&q=80'],
     true, true, 4.70, 12, ARRAY['cotton','fabric','wholesale']
   ),
   (
     '9W LED Bulb Pack (50 pcs)',
     'Energy-efficient LED bulbs with warm white output.',
     2, 5, 45.00, 65.00, 'piece', 100,
-    'https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?auto=format&fit=crop&w=600&q=80',
-    ARRAY['https://images.unsplash.com/photo-1494438639946-1ebd1d20bf85?auto=format&fit=crop&w=600&q=80'],
+    'https://images.unsplash.com/photo-1524484483546-6f9ac825bc1f?auto=format&fit=crop&w=600&q=80',
+    ARRAY['https://images.unsplash.com/photo-1524484483546-6f9ac825bc1f?auto=format&fit=crop&w=600&q=80'],
     true, true, 4.50, 18, ARRAY['led','lighting']
   ),
   (
     '1121 Basmati Rice',
     'Long-grain aged basmati rice for wholesale buyers.',
     3, 3, 85.00, 120.00, 'kg', 1000,
-    'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=600&q=80',
-    ARRAY['https://images.unsplash.com/photo-1586201375761-83865001e31c?w=600&q=80'],
+    'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80',
+    ARRAY['https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80'],
     true, true, 4.90, 45, ARRAY['rice','basmati']
   ),
   (
     '3-Axis CNC Milling Machine',
     'Industrial CNC mill for precision metal fabrication.',
     4, 4, 450000.00, 780000.00, 'unit', 1,
-    'https://images.unsplash.com/photo-1565043589221-1a6fd9ae45c7?w=600&q=80',
-    ARRAY['https://images.unsplash.com/photo-1565043589221-1a6fd9ae45c7?w=600&q=80'],
+    'https://images.unsplash.com/photo-1537462715879-360eeb61a0ad?auto=format&fit=crop&w=600&q=80',
+    ARRAY['https://images.unsplash.com/photo-1537462715879-360eeb61a0ad?auto=format&fit=crop&w=600&q=80'],
     true, true, 4.60, 9, ARRAY['cnc','machine']
   ),
   (
     'Nitrile Surgical Gloves (Box of 100)',
     'Powder-free nitrile examination gloves.',
     5, 8, 220.00, 310.00, 'box', 50,
-    'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600&q=80',
-    ARRAY['https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600&q=80'],
+    'https://images.unsplash.com/photo-1583947215259-38e31be8751f?auto=format&fit=crop&w=600&q=80',
+    ARRAY['https://images.unsplash.com/photo-1583947215259-38e31be8751f?auto=format&fit=crop&w=600&q=80'],
     true, true, 4.80, 33, ARRAY['gloves','ppe']
   ),
   (
     'Polyester Blend Shirting Fabric',
     'Durable poly-cotton blend for commercial garment units.',
     1, 2, 95.00, 160.00, 'meter', 300,
-    'https://images.unsplash.com/photo-1523381294911-8d3cead13475?w=600&q=80',
-    ARRAY['https://images.unsplash.com/photo-1523381294911-8d3cead13475?w=600&q=80'],
+    'https://images.unsplash.com/photo-1558171813-4c088753af8f?auto=format&fit=crop&w=600&q=80',
+    ARRAY['https://images.unsplash.com/photo-1558171813-4c088753af8f?auto=format&fit=crop&w=600&q=80'],
     true, true, 4.40, 21, ARRAY['polyester','shirting']
   ),
   (
     'SMD LED Driver 12V',
     'Constant-voltage LED driver for commercial fixtures.',
     2, 1, 120.00, 210.00, 'piece', 200,
-    'https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&q=80',
-    ARRAY['https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&q=80'],
+    'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=600&q=80',
+    ARRAY['https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=600&q=80'],
     true, false, 4.30, 14, ARRAY['driver','smd']
   ),
   (

@@ -11,7 +11,7 @@ import { getSupplierEntitlements } from "../lib/shop";
 
 const router: IRouter = Router();
 
-router.get("/plans", requireClerkAuth, async (_req, res): Promise<void> => {
+router.get("/plans", async (_req, res): Promise<void> => {
   const plans = await prisma.plan.findMany({
     where: { active: true },
     orderBy: { sortOrder: "asc" },
