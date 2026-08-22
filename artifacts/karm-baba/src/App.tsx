@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/context/AuthContext";
 import { OnboardingGate } from "@/components/OnboardingGate";
+import { ScrollToTop } from "@/components/ScrollToTop";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { HomePage } from "@/pages/HomePage";
@@ -98,10 +99,11 @@ function App() {
         <MotionConfig reducedMotion="user">
           <AuthProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <ScrollToTop />
               <OnboardingGate />
               <Router />
+              <Toaster />
             </WouterRouter>
-            <Toaster />
           </AuthProvider>
         </MotionConfig>
       </TooltipProvider>

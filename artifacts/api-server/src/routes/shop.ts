@@ -7,7 +7,11 @@ import {
   isSellerOrAdmin,
   parseLinkedSupplierId,
 } from "../lib/authorize";
-import { getSupplierEntitlements } from "../lib/shop";
+import {
+  createShopOnFreePlan,
+  ensureFreeSubscription,
+  getSupplierEntitlements,
+} from "../lib/shop";
 
 const router: IRouter = Router();
 
@@ -29,6 +33,88 @@ router.get("/plans", async (_req, res): Promise<void> => {
       priceUsdMonthly: p.priceUsdMonthly,
       priceUsdYearly: p.priceUsdYearly,
     })),
+  });
+});
+
+/**
+ * Subscription-based shop setup.
+ * Creates a Free shop when the seller has none yet (company name required).
+ * Paid tiers still require admin / payment — not self-activated here.
+ */
+router.post("/shop/setup", requireClerkAuth, async (req, res): Promise<void> => {
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const body = req.body as {
+    companyName?: string;
+    location?: string;
+    region?: string;
+    planCode?: string;
+  };
+  const planCode = (body.planCode ?? "free").trim() || "free";
+  if (planCode !== "free" && !isAdmin(dbUser)) {
+    res.status(402).json({
+      error:
+        "Start on Free. Paid plans require payment or Karm Baba sales approval.",
+    });
+    return;
+  }
+
+  let supplierId = parseLinkedSupplierId(dbUser);
+  if (supplierId == null) {
+    const companyName =
+      (typeof body.companyName === "string" && body.companyName.trim()) ||
+      dbUser.company?.trim() ||
+      "";
+    if (!companyName) {
+      res.status(400).json({ error: "companyName is required to open your shop" });
+      return;
+    }
+    try {
+      const created = await createShopOnFreePlan({
+        userId: dbUser.id,
+        companyName,
+        location: body.location,
+        region: body.region === "usd" ? "usd" : "inr",
+      });
+      supplierId = created.supplierId;
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Could not create shop",
+      });
+      return;
+    }
+  } else {
+    await ensureFreeSubscription(supplierId);
+  }
+
+  const entitlements = await getSupplierEntitlements(supplierId);
+  const supplier = await prisma.supplier.findUnique({
+    where: { id: supplierId },
+    select: { id: true, companyName: true, slug: true, verificationStatus: true },
+  });
+  const productCount = await prisma.product.count({ where: { supplierId } });
+  const leadCount = await prisma.lead.count({
+    where: {
+      supplierId,
+      createdAt: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
+    },
+  });
+
+  res.status(201).json({
+    ...entitlements,
+    supplierId,
+    companyName: supplier?.companyName ?? null,
+    slug: supplier?.slug ?? null,
+    verificationStatus: supplier?.verificationStatus ?? "draft",
+    productCount,
+    leadCountThisMonth: leadCount,
+    next: "/seller",
+    message:
+      "Free shop is active. Add products anytime; finish GST verification for the verified badge.",
   });
 });
 
@@ -58,7 +144,10 @@ router.get("/shop/subscription", requireClerkAuth, async (req, res): Promise<voi
   });
 });
 
-/** Manual plan assign (admin) or self-upgrade stub until payment gateway. */
+/**
+ * Assign a plan. Paid tiers are admin-only until payment is wired.
+ * Sellers may only keep/reset to free. Use /shop/setup to create a shop first.
+ */
 router.post("/shop/subscription", requireClerkAuth, async (req, res): Promise<void> => {
   const dbUser = await getAuthenticatedDbUser(req);
   if (!dbUser) {
@@ -84,27 +173,25 @@ router.post("/shop/subscription", requireClerkAuth, async (req, res): Promise<vo
     supplierId = body.supplierId;
   }
   if (supplierId == null) {
-    res.status(400).json({ error: "No shop to upgrade" });
+    res.status(400).json({
+      error: "No shop yet — use POST /shop/setup to open a Free shop first",
+    });
     return;
   }
   if (!isAdmin(dbUser) && !isSellerOrAdmin(dbUser)) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
-  // Non-admins may only move onto free/pro_trade without payment for now;
-  // business/enterprise require admin until Razorpay is wired.
-  if (!isAdmin(dbUser) && !["free", "pro_trade"].includes(planCode)) {
+  if (!isAdmin(dbUser) && planCode !== "free") {
     res.status(402).json({
       error:
-        "Contact Karm Baba sales to activate Business/Enterprise. Pro Trade can be enabled for testing.",
+        "Paid plans require payment or Karm Baba sales approval. Self-activation is disabled.",
     });
     return;
   }
 
   const periodEnd =
-    planCode === "free"
-      ? null
-      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    planCode === "free" ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
   const sub = await prisma.shopSubscription.upsert({
     where: { supplierId },

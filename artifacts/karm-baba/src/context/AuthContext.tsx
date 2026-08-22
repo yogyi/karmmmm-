@@ -38,6 +38,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+/** Exported for soft reads (e.g. OnboardingGate) during Vite HMR context splits. */
+export { AuthContext };
+
 async function syncProfile(getToken: () => Promise<string | null>): Promise<AuthUser | null> {
   const token = await getToken();
   if (!token) return null;
@@ -142,4 +145,11 @@ export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
+}
+
+// Auth context identity must not survive HMR — consumers would see a null context.
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    import.meta.hot?.invalidate();
+  });
 }

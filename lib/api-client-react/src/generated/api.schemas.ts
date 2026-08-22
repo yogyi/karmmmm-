@@ -173,12 +173,6 @@ export interface Rfq {
   /** @nullable */
   description?: string | null;
   status: RfqStatus;
-  /** @nullable */
-  quotedPrice?: number | null;
-  /** @nullable */
-  sellerMessage?: string | null;
-  /** @nullable */
-  quotedAt?: string | null;
   createdAt: string;
 }
 
@@ -234,6 +228,24 @@ export interface User {
   supplierId?: number | null;
   onboardingCompleted: boolean;
   createdAt: string;
+}
+
+/**
+ * Marketplace role chosen by the user in onboarding UI.
+ */
+export type OnboardingInputRole = typeof OnboardingInputRole[keyof typeof OnboardingInputRole];
+
+
+export const OnboardingInputRole = {
+  buyer: 'buyer',
+  seller: 'seller',
+} as const;
+
+export interface OnboardingInput {
+  /** Marketplace role chosen by the user in onboarding UI. */
+  role: OnboardingInputRole;
+  /** Optional company / trading name. */
+  company?: string;
 }
 
 export type UserInputRole = typeof UserInputRole[keyof typeof UserInputRole];
@@ -300,6 +312,7 @@ export interface SupplierDashboard {
   rfqCount: number;
   pendingRfqs: number;
   recentRfqs: Rfq[];
+  /** Reserved for profile-view analytics; currently always 0 (not tracked). */
   totalViews: number;
 }
 
@@ -331,6 +344,132 @@ export interface UploadUrlResponse {
 
 export interface ErrorEnvelope {
   error: string;
+}
+
+export interface Plan {
+  code: string;
+  name: string;
+  /** @nullable */
+  description?: string | null;
+  maxProducts: number;
+  monthlyLeadQuota: number;
+  features: string[];
+  /** @nullable */
+  priceInrMonthly?: number | null;
+  /** @nullable */
+  priceInrYearly?: number | null;
+  /** @nullable */
+  priceUsdMonthly?: number | null;
+  /** @nullable */
+  priceUsdYearly?: number | null;
+}
+
+export interface PlanListResponse {
+  items: Plan[];
+}
+
+export interface ShopSubscription {
+  planCode: string;
+  status: string;
+  maxProducts: number;
+  monthlyLeadQuota: number;
+  features: string[];
+  /** @nullable */
+  periodEnd?: string | null;
+  productCount?: number;
+  leadCountThisMonth?: number;
+}
+
+export type ShopSubscriptionInputRegion = typeof ShopSubscriptionInputRegion[keyof typeof ShopSubscriptionInputRegion];
+
+
+export const ShopSubscriptionInputRegion = {
+  inr: 'inr',
+  usd: 'usd',
+} as const;
+
+export interface ShopSubscriptionInput {
+  planCode: string;
+  supplierId?: number;
+  region?: ShopSubscriptionInputRegion;
+}
+
+export interface Lead {
+  id: number;
+  karmId: string;
+  /** @nullable */
+  supplierId?: number | null;
+  /** @nullable */
+  buyerId?: number | null;
+  /** @nullable */
+  rfqId?: number | null;
+  name: string;
+  /** @nullable */
+  company?: string | null;
+  /** @nullable */
+  country?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  productInterest?: string | null;
+  /** @nullable */
+  avgMonthlyQty?: string | null;
+  /** @nullable */
+  leadSource?: string | null;
+  requirementStatus: string;
+  quotationSent?: boolean;
+  dealStatus: string;
+  /** @nullable */
+  comments?: string | null;
+  /** @nullable */
+  industry?: string | null;
+  createdAt?: string;
+}
+
+export interface LeadListResponse {
+  items: Lead[];
+  total: number;
+  page?: number;
+  limit?: number;
+}
+
+export interface PublicLeadInput {
+  supplierId: number;
+  name: string;
+  company?: string;
+  country?: string;
+  phone?: string;
+  email?: string;
+  productInterest?: string;
+  avgMonthlyQty?: string;
+  comments?: string;
+  industry?: string;
+}
+
+export interface UpdateCurrentUserInput {
+  name?: string;
+  /** @nullable */
+  company?: string | null;
+  /** @nullable */
+  avatarUrl?: string | null;
+  /** @nullable */
+  phone?: string | null;
+}
+
+export interface UpdateLeadInput {
+  requirementStatus?: string;
+  dealStatus?: string;
+  quotationSent?: boolean;
+  /** @nullable */
+  comments?: string | null;
+  /** @nullable */
+  productInterest?: string | null;
+  /** @nullable */
+  avgMonthlyQty?: string | null;
+  /** @nullable */
+  industry?: string | null;
 }
 
 export type ListProductsParams = {
@@ -382,6 +521,22 @@ supplierId?: number | null;
  * @nullable
  */
 status?: string | null;
+};
+
+export type ListLeadsParams = {
+/**
+ * @nullable
+ */
+supplierId?: number | null;
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
 };
 
 export type ListReviewsParams = {

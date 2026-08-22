@@ -23,6 +23,10 @@ tags:
     description: Review operations
   - name: dashboard
     description: Dashboard and analytics
+  - name: shop
+    description: Shop plans and subscriptions
+  - name: leads
+    description: Seller CRM leads
   - name: Storage
     description: Object storage upload and serving endpoints.
 paths:
@@ -426,6 +430,71 @@ paths:
         "401":
           description: Invalid credentials
 
+  /users/sync:
+    post:
+      operationId: syncUser
+      tags: [users]
+      summary: Sync authenticated Clerk user into Postgres
+      description: >
+        Requires a verified Clerk email. Links by clerkId first; may link an existing
+        email row without clearing password. Refuses if email is already linked to
+        another Clerk account.
+      responses:
+        "200":
+          description: Existing user updated or linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Authentication required
+        "403":
+          description: Email not verified
+        "409":
+          description: Email linked to another Clerk account
+
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      tags: [users]
+      summary: Get the authenticated user's profile
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Authentication required
+        "404":
+          description: Profile not synced yet
+    patch:
+      operationId: updateCurrentUser
+      tags: [users]
+      summary: Update the authenticated user's profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCurrentUserInput"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Authentication required
+
   /users/me/onboarding:
     post:
       operationId: completeUserOnboarding
@@ -470,6 +539,193 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
+
+  /plans:
+    get:
+      operationId: listPlans
+      tags: [shop]
+      summary: List active shop plans
+      responses:
+        "200":
+          description: Plans
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanListResponse"
+
+  /shop/setup:
+    post:
+      operationId: setupShop
+      tags: [shop]
+      summary: Open a Free shop (subscription-based setup)
+      description: >
+        Creates a linked supplier + Free subscription when the user has no shop.
+        Paid plan codes are rejected for non-admins.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [companyName]
+              properties:
+                companyName:
+                  type: string
+                location:
+                  type: string
+                region:
+                  type: string
+                  enum: [inr, usd]
+                planCode:
+                  type: string
+                  default: free
+      responses:
+        "201":
+          description: Shop created or Free plan ensured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShopSubscription"
+        "400":
+          description: Missing company name
+        "402":
+          description: Paid plan not self-serve
+
+  /shop/subscription:
+    get:
+      operationId: getShopSubscription
+      tags: [shop]
+      summary: Get linked shop subscription and usage
+      responses:
+        "200":
+          description: Entitlements and usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShopSubscription"
+        "401":
+          description: Authentication required
+        "404":
+          description: No shop linked
+    post:
+      operationId: updateShopSubscription
+      tags: [shop]
+      summary: Assign shop plan (admin for paid; sellers may only set free)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShopSubscriptionInput"
+      responses:
+        "200":
+          description: Updated subscription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShopSubscription"
+        "402":
+          description: Payment or sales approval required
+        "403":
+          description: Forbidden
+
+  /leads:
+    get:
+      operationId: listLeads
+      tags: [leads]
+      summary: List CRM leads for the seller's shop (or admin filter)
+      parameters:
+        - name: supplierId
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Lead list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeadListResponse"
+        "401":
+          description: Authentication required
+
+  /leads/public:
+    post:
+      operationId: createPublicLead
+      tags: [leads]
+      summary: Create a lead from a public shop contact form
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicLeadInput"
+      responses:
+        "201":
+          description: Lead created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+        "402":
+          description: Lead quota exceeded
+
+  /leads/{id}:
+    get:
+      operationId: getLead
+      tags: [leads]
+      summary: Get a lead by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Lead
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+    patch:
+      operationId: updateLead
+      tags: [leads]
+      summary: Update lead status / fields
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLeadInput"
+      responses:
+        "200":
+          description: Updated lead
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
 
   /reviews:
     get:
@@ -1109,3 +1365,180 @@ components:
       properties:
         error:
           type: string
+    PlanListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Plan"
+    Plan:
+      type: object
+      required: [code, name, maxProducts, monthlyLeadQuota, features]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        maxProducts:
+          type: integer
+        monthlyLeadQuota:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+        priceInrMonthly:
+          type: ["integer", "null"]
+        priceInrYearly:
+          type: ["integer", "null"]
+        priceUsdMonthly:
+          type: ["integer", "null"]
+        priceUsdYearly:
+          type: ["integer", "null"]
+    ShopSubscription:
+      type: object
+      required: [planCode, status, maxProducts, monthlyLeadQuota, features]
+      properties:
+        planCode:
+          type: string
+        status:
+          type: string
+        maxProducts:
+          type: integer
+        monthlyLeadQuota:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+        periodEnd:
+          type: ["string", "null"]
+          format: date-time
+        productCount:
+          type: integer
+        leadCountThisMonth:
+          type: integer
+    ShopSubscriptionInput:
+      type: object
+      required: [planCode]
+      properties:
+        planCode:
+          type: string
+        supplierId:
+          type: integer
+        region:
+          type: string
+          enum: [inr, usd]
+    Lead:
+      type: object
+      required: [id, karmId, name, requirementStatus, dealStatus]
+      properties:
+        id:
+          type: integer
+        karmId:
+          type: string
+        supplierId:
+          type: ["integer", "null"]
+        buyerId:
+          type: ["integer", "null"]
+        rfqId:
+          type: ["integer", "null"]
+        name:
+          type: string
+        company:
+          type: ["string", "null"]
+        country:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        productInterest:
+          type: ["string", "null"]
+        avgMonthlyQty:
+          type: ["string", "null"]
+        leadSource:
+          type: ["string", "null"]
+        requirementStatus:
+          type: string
+        quotationSent:
+          type: boolean
+        dealStatus:
+          type: string
+        comments:
+          type: ["string", "null"]
+        industry:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+    LeadListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Lead"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+    PublicLeadInput:
+      type: object
+      required: [supplierId, name]
+      properties:
+        supplierId:
+          type: integer
+        name:
+          type: string
+        company:
+          type: string
+        country:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        productInterest:
+          type: string
+        avgMonthlyQty:
+          type: string
+        comments:
+          type: string
+        industry:
+          type: string
+    UpdateCurrentUserInput:
+      type: object
+      properties:
+        name:
+          type: string
+        company:
+          type: ["string", "null"]
+        avatarUrl:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+    UpdateLeadInput:
+      type: object
+      properties:
+        requirementStatus:
+          type: string
+        dealStatus:
+          type: string
+        quotationSent:
+          type: boolean
+        comments:
+          type: ["string", "null"]
+        productInterest:
+          type: ["string", "null"]
+        avgMonthlyQty:
+          type: ["string", "null"]
+        industry:
+          type: ["string", "null"]

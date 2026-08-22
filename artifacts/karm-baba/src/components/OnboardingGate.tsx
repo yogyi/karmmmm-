@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useContext, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useAuth } from "@/context/AuthContext";
+import { AuthContext } from "@/context/AuthContext";
 import { rememberAuthRedirect } from "@/lib/authRedirect";
 
 const AUTH_PAGES = ["/onboarding", "/login", "/register", "/seller/verify"];
@@ -12,10 +12,14 @@ const AUTH_PAGES = ["/onboarding", "/login", "/register", "/seller/verify"];
  * completion and explicit Buyer/Seller Central links.
  */
 export function OnboardingGate() {
-  const { isLoggedIn, isLoaded, profileReady, user } = useAuth();
+  // Soft-read so Vite HMR cannot crash the app if this module remounts against a
+  // refreshed AuthContext while AuthProvider still holds the previous context object.
+  const auth = useContext(AuthContext);
   const [location, navigate] = useLocation();
 
   useEffect(() => {
+    if (!auth) return;
+    const { isLoggedIn, isLoaded, profileReady, user } = auth;
     if (!isLoaded || !profileReady || !isLoggedIn || !user) return;
     if (user.id <= 0) return;
     if (user.role === "admin") return;
@@ -25,7 +29,7 @@ export function OnboardingGate() {
       rememberAuthRedirect(location);
       navigate("/onboarding");
     }
-  }, [isLoaded, profileReady, isLoggedIn, user, location, navigate]);
+  }, [auth, location, navigate]);
 
   return null;
 }

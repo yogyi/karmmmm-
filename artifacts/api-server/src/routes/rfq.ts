@@ -302,14 +302,51 @@ router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
           where: { id: linkedSupplierId },
           select: { companyName: true },
         });
-        updates.supplier = { connect: { id: linkedSupplierId } };
-        updates.supplierName = shop?.companyName ?? body.supplierName ?? null;
+        const claimData: Prisma.RfqUpdateManyMutationInput = {
+          supplierName: shop?.companyName ?? body.supplierName ?? null,
+        };
+        if (body.sellerMessage != null) claimData.sellerMessage = body.sellerMessage;
+        if (body.quotedPrice != null) {
+          claimData.quotedPrice = body.quotedPrice;
+          claimData.quotedAt = new Date();
+          claimData.status = body.status ?? "responded";
+        } else if (body.status != null && (admin || body.status === "responded" || body.status === "rejected")) {
+          claimData.status = body.status;
+        }
+
+        const claimed = await prisma.rfq.updateMany({
+          where: { id: params.data.id, supplierId: null },
+          data: {
+            ...claimData,
+            supplierId: linkedSupplierId,
+          },
+        });
+        if (claimed.count === 0) {
+          res.status(409).json({
+            error: "This RFQ was just claimed by another supplier",
+          });
+          return;
+        }
+
+        const rfq = await prisma.rfq.findUnique({ where: { id: params.data.id } });
+        if (!rfq) {
+          res.status(404).json({ error: "RFQ not found" });
+          return;
+        }
+        try {
+          const { upsertLeadFromRfq } = await import("./leads");
+          await upsertLeadFromRfq(rfq.id);
+        } catch (err) {
+          console.warn("Lead mirror after RFQ claim failed", err);
+        }
+        res.json(UpdateRfqResponse.parse(formatRfqForViewer(rfq, dbUser)));
+        return;
       }
     } else if (!admin && !isSupplierParty) {
       res.status(403).json({ error: "Forbidden — only the assigned supplier can quote this RFQ" });
       return;
     }
-    if (body.supplierName != null && updates.supplierName == null) {
+    if (body.supplierName != null) {
       updates.supplierName = body.supplierName;
     }
     if (body.sellerMessage != null) updates.sellerMessage = body.sellerMessage;
@@ -329,7 +366,32 @@ router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
       (body.status === "responded" || body.status === "rejected")
     ) {
       if (canClaimOpen && linkedSupplierId != null && existing.supplierId == null) {
-        updates.supplier = { connect: { id: linkedSupplierId } };
+        const claimed = await prisma.rfq.updateMany({
+          where: { id: params.data.id, supplierId: null },
+          data: {
+            supplierId: linkedSupplierId,
+            status: body.status,
+          },
+        });
+        if (claimed.count === 0) {
+          res.status(409).json({
+            error: "This RFQ was just claimed by another supplier",
+          });
+          return;
+        }
+        const rfq = await prisma.rfq.findUnique({ where: { id: params.data.id } });
+        if (!rfq) {
+          res.status(404).json({ error: "RFQ not found" });
+          return;
+        }
+        try {
+          const { upsertLeadFromRfq } = await import("./leads");
+          await upsertLeadFromRfq(rfq.id);
+        } catch (err) {
+          console.warn("Lead mirror after RFQ claim failed", err);
+        }
+        res.json(UpdateRfqResponse.parse(formatRfqForViewer(rfq, dbUser)));
+        return;
       }
       updates.status = body.status;
     } else if (isBuyer && (body.status === "accepted" || body.status === "rejected")) {

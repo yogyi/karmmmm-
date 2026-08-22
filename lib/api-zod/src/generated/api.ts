@@ -380,9 +380,6 @@ export const ListRfqsResponseItem = zod.object({
   "targetPrice": zod.number().nullish(),
   "description": zod.string().nullish(),
   "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
-  "quotedPrice": zod.number().nullish(),
-  "sellerMessage": zod.string().nullish(),
-  "quotedAt": zod.string().nullish(),
   "createdAt": zod.string()
 })
 export const ListRfqsResponse = zod.array(ListRfqsResponseItem)
@@ -426,9 +423,6 @@ export const GetRfqResponse = zod.object({
   "targetPrice": zod.number().nullish(),
   "description": zod.string().nullish(),
   "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
-  "quotedPrice": zod.number().nullish(),
-  "sellerMessage": zod.string().nullish(),
-  "quotedAt": zod.string().nullish(),
   "createdAt": zod.string()
 })
 
@@ -461,9 +455,6 @@ export const UpdateRfqResponse = zod.object({
   "targetPrice": zod.number().nullish(),
   "description": zod.string().nullish(),
   "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
-  "quotedPrice": zod.number().nullish(),
-  "sellerMessage": zod.string().nullish(),
-  "quotedAt": zod.string().nullish(),
   "createdAt": zod.string()
 })
 
@@ -502,6 +493,86 @@ export const LoginUserResponse = zod.object({
 
 
 /**
+ * Requires a verified Clerk email. Links by clerkId first; may link an existing email row without clearing password. Refuses if email is already linked to another Clerk account.
+
+ * @summary Sync authenticated Clerk user into Postgres
+ */
+export const SyncUserResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['buyer', 'seller', 'admin']),
+  "company": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "supplierId": zod.number().nullish(),
+  "onboardingCompleted": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Get the authenticated user's profile
+ */
+export const GetCurrentUserResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['buyer', 'seller', 'admin']),
+  "company": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "supplierId": zod.number().nullish(),
+  "onboardingCompleted": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Update the authenticated user's profile
+ */
+export const UpdateCurrentUserBody = zod.object({
+  "name": zod.string().optional(),
+  "company": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "phone": zod.string().nullish()
+})
+
+export const UpdateCurrentUserResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['buyer', 'seller', 'admin']),
+  "company": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "supplierId": zod.number().nullish(),
+  "onboardingCompleted": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * Sets the authenticated user's marketplace role. Role is stored in Postgres and is not overwritten by opaque Clerk publicMetadata on sync (except admin elevation).
+
+ * @summary Choose buyer or seller role (explicit onboarding)
+ */
+export const CompleteUserOnboardingBody = zod.object({
+  "role": zod.enum(['buyer', 'seller']).describe('Marketplace role chosen by the user in onboarding UI.'),
+  "company": zod.string().optional().describe('Optional company \/ trading name.')
+})
+
+export const CompleteUserOnboardingResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['buyer', 'seller', 'admin']),
+  "company": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "supplierId": zod.number().nullish(),
+  "onboardingCompleted": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
  * @summary Get user by ID
  */
 export const GetUserParams = zod.object({
@@ -520,9 +591,188 @@ export const GetUserResponse = zod.object({
   "createdAt": zod.string()
 })
 
-export const CompleteUserOnboardingBody = zod.object({
-  "role": zod.enum(['buyer', 'seller']),
+
+/**
+ * @summary List active shop plans
+ */
+export const ListPlansResponse = zod.object({
+  "items": zod.array(zod.object({
+  "code": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "maxProducts": zod.number(),
+  "monthlyLeadQuota": zod.number(),
+  "features": zod.array(zod.string()),
+  "priceInrMonthly": zod.number().nullish(),
+  "priceInrYearly": zod.number().nullish(),
+  "priceUsdMonthly": zod.number().nullish(),
+  "priceUsdYearly": zod.number().nullish()
+}))
+})
+
+
+/**
+ * @summary Get linked shop subscription and usage
+ */
+export const GetShopSubscriptionResponse = zod.object({
+  "planCode": zod.string(),
+  "status": zod.string(),
+  "maxProducts": zod.number(),
+  "monthlyLeadQuota": zod.number(),
+  "features": zod.array(zod.string()),
+  "periodEnd": zod.coerce.date().nullish(),
+  "productCount": zod.number().optional(),
+  "leadCountThisMonth": zod.number().optional()
+})
+
+
+/**
+ * @summary Assign shop plan (admin for paid; sellers may only set free)
+ */
+export const UpdateShopSubscriptionBody = zod.object({
+  "planCode": zod.string(),
+  "supplierId": zod.number().optional(),
+  "region": zod.enum(['inr', 'usd']).optional()
+})
+
+export const UpdateShopSubscriptionResponse = zod.object({
+  "planCode": zod.string(),
+  "status": zod.string(),
+  "maxProducts": zod.number(),
+  "monthlyLeadQuota": zod.number(),
+  "features": zod.array(zod.string()),
+  "periodEnd": zod.coerce.date().nullish(),
+  "productCount": zod.number().optional(),
+  "leadCountThisMonth": zod.number().optional()
+})
+
+
+/**
+ * @summary List CRM leads for the seller's shop (or admin filter)
+ */
+
+export const listLeadsQueryLimitMax = 100;
+
+
+
+export const ListLeadsQueryParams = zod.object({
+  "supplierId": zod.coerce.number().nullish(),
+  "page": zod.coerce.number().min(1).optional(),
+  "limit": zod.coerce.number().min(1).max(listLeadsQueryLimitMax).optional()
+})
+
+export const ListLeadsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "karmId": zod.string(),
+  "supplierId": zod.number().nullish(),
+  "buyerId": zod.number().nullish(),
+  "rfqId": zod.number().nullish(),
+  "name": zod.string(),
+  "company": zod.string().nullish(),
+  "country": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "productInterest": zod.string().nullish(),
+  "avgMonthlyQty": zod.string().nullish(),
+  "leadSource": zod.string().nullish(),
+  "requirementStatus": zod.string(),
+  "quotationSent": zod.boolean().optional(),
+  "dealStatus": zod.string(),
+  "comments": zod.string().nullish(),
+  "industry": zod.string().nullish(),
+  "createdAt": zod.coerce.date().optional()
+})),
+  "total": zod.number(),
+  "page": zod.number().optional(),
+  "limit": zod.number().optional()
+})
+
+
+/**
+ * @summary Create a lead from a public shop contact form
+ */
+export const CreatePublicLeadBody = zod.object({
+  "supplierId": zod.number(),
+  "name": zod.string(),
   "company": zod.string().optional(),
+  "country": zod.string().optional(),
+  "phone": zod.string().optional(),
+  "email": zod.string().optional(),
+  "productInterest": zod.string().optional(),
+  "avgMonthlyQty": zod.string().optional(),
+  "comments": zod.string().optional(),
+  "industry": zod.string().optional()
+})
+
+
+/**
+ * @summary Get a lead by ID
+ */
+export const GetLeadParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetLeadResponse = zod.object({
+  "id": zod.number(),
+  "karmId": zod.string(),
+  "supplierId": zod.number().nullish(),
+  "buyerId": zod.number().nullish(),
+  "rfqId": zod.number().nullish(),
+  "name": zod.string(),
+  "company": zod.string().nullish(),
+  "country": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "productInterest": zod.string().nullish(),
+  "avgMonthlyQty": zod.string().nullish(),
+  "leadSource": zod.string().nullish(),
+  "requirementStatus": zod.string(),
+  "quotationSent": zod.boolean().optional(),
+  "dealStatus": zod.string(),
+  "comments": zod.string().nullish(),
+  "industry": zod.string().nullish(),
+  "createdAt": zod.coerce.date().optional()
+})
+
+
+/**
+ * @summary Update lead status / fields
+ */
+export const UpdateLeadParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateLeadBody = zod.object({
+  "requirementStatus": zod.string().optional(),
+  "dealStatus": zod.string().optional(),
+  "quotationSent": zod.boolean().optional(),
+  "comments": zod.string().nullish(),
+  "productInterest": zod.string().nullish(),
+  "avgMonthlyQty": zod.string().nullish(),
+  "industry": zod.string().nullish()
+})
+
+export const UpdateLeadResponse = zod.object({
+  "id": zod.number(),
+  "karmId": zod.string(),
+  "supplierId": zod.number().nullish(),
+  "buyerId": zod.number().nullish(),
+  "rfqId": zod.number().nullish(),
+  "name": zod.string(),
+  "company": zod.string().nullish(),
+  "country": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "productInterest": zod.string().nullish(),
+  "avgMonthlyQty": zod.string().nullish(),
+  "leadSource": zod.string().nullish(),
+  "requirementStatus": zod.string(),
+  "quotationSent": zod.boolean().optional(),
+  "dealStatus": zod.string(),
+  "comments": zod.string().nullish(),
+  "industry": zod.string().nullish(),
+  "createdAt": zod.coerce.date().optional()
 })
 
 
@@ -638,7 +888,7 @@ export const GetSupplierDashboardResponse = zod.object({
   "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
   "createdAt": zod.string()
 })),
-  "totalViews": zod.number()
+  "totalViews": zod.number().describe('Reserved for profile-view analytics; currently always 0 (not tracked).')
 })
 
 

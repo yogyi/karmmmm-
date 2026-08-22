@@ -4,7 +4,11 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import type { StoredObject } from "./objectStorageBackend";
 
-const ROOT = path.resolve(process.cwd(), process.env.LOCAL_OBJECT_DIR || "data/objects");
+const ROOT = path.resolve(
+  process.env.LOCAL_OBJECT_DIR ||
+    // Prefer repo-stable path when cwd is the api-server package during `pnpm dev`.
+    path.join(process.cwd(), "data", "objects"),
+);
 
 function filePath(bucketName: string, objectName: string): string {
   return path.join(ROOT, bucketName, objectName);

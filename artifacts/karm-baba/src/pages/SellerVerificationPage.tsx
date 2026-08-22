@@ -158,7 +158,8 @@ function fieldErrorsForStep(
 
 /**
  * Alibaba-style seller verification wizard.
- * Captures company → contact → GST (checksum validated) → bank → submit → verified badge.
+ * Captures company → contact → GST (format/checksum) → bank → submit → pending review.
+ * Verified badge is granted only after admin approval (not checksum alone).
  */
 export function SellerVerificationPage() {
   const { user, isLoggedIn, isLoaded, profileReady, refreshProfile } = useAuth();
@@ -174,6 +175,7 @@ export function SellerVerificationPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verified, setVerified] = useState(false);
+  const [pendingReview, setPendingReview] = useState(false);
   const [declared, setDeclared] = useState(false);
 
   useEffect(() => {
@@ -225,6 +227,9 @@ export function SellerVerificationPage() {
         setVerified(true);
         navigate("/seller");
         return;
+      }
+      if (s.verificationStatus === "pending") {
+        setPendingReview(true);
       }
       const loaded: FormState = {
         companyName: String(s.companyName ?? ""),
@@ -385,13 +390,20 @@ export function SellerVerificationPage() {
       const body = (await res.json().catch(() => ({}))) as {
         error?: string;
         verified?: boolean;
+        pendingReview?: boolean;
         nextStep?: number;
+        message?: string;
       };
       if (!res.ok) throw new Error(body.error || "Could not save");
       await refreshProfile();
       setHighestSavedStep((prev) => Math.max(prev, opts.submit ? 4 : step));
-      if (body.verified || opts.submit) {
+      if (body.verified) {
         setVerified(true);
+        navigate("/seller");
+        return;
+      }
+      if (body.pendingReview || opts.submit) {
+        setPendingReview(true);
         navigate("/seller");
         return;
       }
@@ -416,6 +428,29 @@ export function SellerVerificationPage() {
 
   if (verified) {
     return null;
+  }
+
+  if (pendingReview) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#f4f6f8] px-4">
+        <div className="max-w-md text-center space-y-3">
+          <h1 className="font-heading text-2xl font-bold text-[#1a3a4a]">
+            Submitted for review
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Your GSTIN passed format checks and is queued for Karm Baba review. The verified
+            badge appears after approval — not automatically from the checksum.
+          </p>
+          <button
+            type="button"
+            className="text-sm font-semibold text-primary underline"
+            onClick={() => navigate("/seller")}
+          >
+            Back to seller dashboard
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -63,9 +63,9 @@ export function OnboardingPage() {
     }
     clearStoredAuthMode();
     await refreshProfile();
-    // Sellers always finish GST verification first; buyers honor post-login redirect.
+    // Sellers open a Free shop via plans first; GST verification is optional next.
     if (role === "seller") {
-      navigate("/seller/verify");
+      navigate("/seller/plans");
       return;
     }
     navigate(consumeAuthRedirect("/buyer"));

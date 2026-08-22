@@ -23,50 +23,13 @@ import {
   ensureFreeSubscription,
   ensureUniqueSupplierSlug,
 } from "../lib/shop";
+import {
+  PUBLIC_SUPPLIER_SELECT,
+  mapOwnerSupplier,
+  mapPublicSupplier,
+} from "../lib/supplierDto";
 
 const router: IRouter = Router();
-
-function mapSupplier(s: Prisma.SupplierGetPayload<object>) {
-  return {
-    ...s,
-    rating: toNumber(s.rating) ?? 0,
-    responseRate: toNumber(s.responseRate),
-    mainProducts: s.mainProducts ?? [],
-    certifications: s.certifications ?? [],
-    createdAt: s.createdAt.toISOString(),
-    verifiedAt: s.verifiedAt ? s.verifiedAt.toISOString() : null,
-  };
-}
-
-/** Public-safe card fields (no bank / GST secrets). */
-function mapPublicSupplier(s: Prisma.SupplierGetPayload<object>) {
-  return {
-    id: s.id,
-    slug: s.slug,
-    companyName: s.companyName,
-    description: s.description,
-    location: s.location,
-    country: s.country,
-    city: s.city,
-    state: s.state,
-    logoUrl: s.logoUrl,
-    coverUrl: s.coverUrl,
-    videoUrl: s.videoUrl,
-    shareImageUrl: s.shareImageUrl,
-    verified: s.verified,
-    yearsInBusiness: s.yearsInBusiness,
-    employeeCount: s.employeeCount,
-    mainProducts: s.mainProducts ?? [],
-    certifications: s.certifications ?? [],
-    rating: toNumber(s.rating) ?? 0,
-    reviewCount: s.reviewCount,
-    productCount: s.productCount,
-    responseRate: toNumber(s.responseRate),
-    responseTime: s.responseTime,
-    website: s.website,
-    createdAt: s.createdAt.toISOString(),
-  };
-}
 
 router.get("/suppliers", async (req, res): Promise<void> => {
   const parsed = ListSuppliersQueryParams.safeParse(req.query);
@@ -84,6 +47,7 @@ router.get("/suppliers", async (req, res): Promise<void> => {
     prisma.supplier.count({ where }),
     prisma.supplier.findMany({
       where,
+      select: PUBLIC_SUPPLIER_SELECT,
       orderBy: [{ verified: "desc" }, { rating: "desc" }],
       take: limit,
       skip: (page - 1) * limit,
@@ -96,7 +60,10 @@ router.get("/suppliers", async (req, res): Promise<void> => {
 /** Shareable seller profile by slug — signed-in Karm users only. */
 router.get("/suppliers/by-slug/:slug", requireClerkAuth, async (req, res): Promise<void> => {
   const slug = String(req.params.slug || "");
-  const supplier = await prisma.supplier.findUnique({ where: { slug } });
+  const supplier = await prisma.supplier.findUnique({
+    where: { slug },
+    select: PUBLIC_SUPPLIER_SELECT,
+  });
   if (!supplier) {
     res.status(404).json({ error: "Supplier not found" });
     return;
@@ -124,6 +91,7 @@ router.get("/suppliers/by-slug/:slug", requireClerkAuth, async (req, res): Promi
 router.get("/suppliers/featured", async (_req, res): Promise<void> => {
   const items = await prisma.supplier.findMany({
     where: { verified: true },
+    select: PUBLIC_SUPPLIER_SELECT,
     orderBy: { rating: "desc" },
     take: 8,
   });
@@ -157,8 +125,8 @@ router.get("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> =>
     });
   }
   res.json({
-    ...mapSupplier(supplier),
-    gstLocked: supplier.verified || supplier.gstVerified,
+    ...mapOwnerSupplier(supplier),
+    gstLocked: supplier.verified || supplier.gstVerified || supplier.verificationStatus === "pending",
     shareUrl: supplier.slug ? `/s/${supplier.slug}` : null,
   });
 });
@@ -191,7 +159,10 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
   }
 
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const gstLocked = existing.verified || existing.gstVerified;
+  const gstLocked =
+    existing.verified ||
+    existing.gstVerified ||
+    existing.verificationStatus === "pending";
   const incomingGst = readTrimmed(body.gstin);
 
   if (incomingGst) {
@@ -294,8 +265,11 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
     data: patch,
   });
   res.json({
-    ...mapSupplier(updated),
-    gstLocked: updated.verified || updated.gstVerified,
+    ...mapOwnerSupplier(updated),
+    gstLocked:
+      updated.verified ||
+      updated.gstVerified ||
+      updated.verificationStatus === "pending",
     shareUrl: updated.slug ? `/s/${updated.slug}` : null,
   });
 });
@@ -334,7 +308,7 @@ router.post("/suppliers/me/reverify-gst", requireClerkAuth, async (req, res): Pr
   });
 
   res.json({
-    supplier: mapSupplier(updated),
+    supplier: mapOwnerSupplier(updated),
     next: "/seller/verify?step=3",
     message: "Verified badge paused. Confirm your GSTIN to get verified again.",
   });
@@ -381,7 +355,8 @@ router.post("/suppliers/me/share-link", requireClerkAuth, async (req, res): Prom
 /**
  * Multi-step seller verification.
  * Body: { step: 1|2|3|4|5, data: {...}, submit?: boolean }
- * Final submit validates GSTIN checksum and marks verified.
+ * Final submit validates GSTIN format/checksum and queues for admin review —
+ * checksum alone never grants the verified badge.
  */
 router.post(
   "/suppliers/me/verification",
@@ -481,7 +456,7 @@ router.post(
         data: { supplierId: created.id, role: "seller" },
       });
       await ensureFreeSubscription(created.id);
-      res.json({ supplier: mapSupplier(withSlug), nextStep: 2 });
+      res.json({ supplier: mapOwnerSupplier(withSlug), nextStep: 2 });
       return;
     }
 
@@ -491,8 +466,20 @@ router.post(
       return;
     }
     if (existing.verified && existing.verificationStatus === "verified") {
-      res.json({ supplier: mapSupplier(existing), nextStep: 5, alreadyVerified: true });
+      res.json({ supplier: mapOwnerSupplier(existing), nextStep: 5, alreadyVerified: true });
       return;
+    }
+    if (existing.verificationStatus === "pending" && !submit && step !== 1) {
+      // Allow reading progress; block duplicate submits until admin acts or reverify.
+      if (step >= 3) {
+        res.json({
+          supplier: mapOwnerSupplier(existing),
+          nextStep: 5,
+          pendingReview: true,
+          message: "GSTIN is awaiting Karm Baba review. Verified badge is not active yet.",
+        });
+        return;
+      }
     }
 
     const patch: Prisma.SupplierUpdateInput = {
@@ -604,7 +591,8 @@ router.post(
       }
       patch.gstin = gst.gstin;
       patch.pan = gst.pan;
-      patch.gstVerified = true;
+      // Format/checksum OK only — not government-verified.
+      patch.gstVerified = false;
       const stateName = GST_STATE_CODES[gst.stateCode];
       if (stateName && !existing.state) patch.state = stateName;
     }
@@ -658,11 +646,12 @@ router.post(
       void preview;
       patch.gstin = gst.gstin;
       patch.pan = gst.pan;
-      patch.gstVerified = true;
-      patch.verified = true;
-      patch.verificationStatus = "verified";
+      // Queue for manual / API GST verification — never auto-verify from checksum.
+      patch.gstVerified = false;
+      patch.verified = false;
+      patch.verificationStatus = "pending";
       patch.verificationStep = 5;
-      patch.verifiedAt = new Date();
+      patch.verifiedAt = null;
       if (!existing.slug) {
         patch.slug = await ensureUniqueSupplierSlug(existing.companyName, supplierId);
       }
@@ -675,15 +664,67 @@ router.post(
       where: { id: supplierId },
       data: patch,
     });
-    if (updated.verified) {
+    // Free plan once profile is submitted (pending), not only when verified.
+    if (updated.verificationStatus === "pending" || updated.verified) {
       await ensureFreeSubscription(updated.id);
     }
 
     res.json({
-      supplier: mapSupplier(updated),
-      nextStep: updated.verified ? 5 : updated.verificationStep,
+      supplier: mapOwnerSupplier(updated),
+      nextStep: updated.verificationStatus === "pending" || updated.verified ? 5 : updated.verificationStep,
       verified: updated.verified,
+      pendingReview: updated.verificationStatus === "pending",
       shareUrl: updated.slug ? `/s/${updated.slug}` : null,
+      message:
+        updated.verificationStatus === "pending"
+          ? "Profile submitted. Verified badge appears after Karm Baba reviews your GSTIN."
+          : undefined,
+    });
+  },
+);
+
+/** Admin: grant verified badge after real GST / KYC review. */
+router.post(
+  "/suppliers/:id/approve-verification",
+  requireClerkAuth,
+  async (req, res): Promise<void> => {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser || !isAdmin(dbUser)) {
+      res.status(403).json({ error: "Admin only" });
+      return;
+    }
+    const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = parseInt(String(rawId), 10);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: "Invalid supplier id" });
+      return;
+    }
+    const existing = await prisma.supplier.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ error: "Supplier not found" });
+      return;
+    }
+    const gst = validateGstin(existing.gstin ?? "");
+    if (!gst.ok) {
+      res.status(400).json({ error: "Supplier has no valid GSTIN on file" });
+      return;
+    }
+    const updated = await prisma.supplier.update({
+      where: { id },
+      data: {
+        gstVerified: true,
+        verified: true,
+        verificationStatus: "verified",
+        verificationStep: 5,
+        verifiedAt: new Date(),
+        pan: existing.pan || gst.pan,
+      },
+    });
+    await ensureFreeSubscription(updated.id);
+    res.json({
+      supplier: mapOwnerSupplier(updated),
+      verified: true,
+      message: "Supplier marked verified",
     });
   },
 );
@@ -696,7 +737,10 @@ router.get("/suppliers/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const supplier = await prisma.supplier.findUnique({ where: { id: params.data.id } });
+  const supplier = await prisma.supplier.findUnique({
+    where: { id: params.data.id },
+    select: PUBLIC_SUPPLIER_SELECT,
+  });
   if (!supplier) {
     res.status(404).json({ error: "Supplier not found" });
     return;
@@ -754,7 +798,7 @@ router.post("/suppliers", requireClerkAuth, async (req, res): Promise<void> => {
 
   res.status(201).json(
     GetSupplierResponse.parse({
-      ...mapSupplier(withSlug),
+      ...mapOwnerSupplier(withSlug),
       responseRate: null,
     }),
   );
@@ -804,7 +848,7 @@ router.patch("/suppliers/:id", requireClerkAuth, async (req, res): Promise<void>
     where: { id: params.data.id },
     data,
   });
-  res.json(UpdateSupplierResponse.parse(mapSupplier(supplier)));
+  res.json(UpdateSupplierResponse.parse(mapOwnerSupplier(supplier)));
 });
 
 export default router;

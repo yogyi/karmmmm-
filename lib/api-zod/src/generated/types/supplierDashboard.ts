@@ -14,5 +14,6 @@ export interface SupplierDashboard {
   rfqCount: number;
   pendingRfqs: number;
   recentRfqs: Rfq[];
+  /** Reserved for profile-view analytics; currently always 0 (not tracked). */
   totalViews: number;
 }

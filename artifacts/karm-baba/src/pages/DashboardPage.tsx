@@ -126,8 +126,10 @@ export function DashboardPage() {
   const [shopVerified, setShopVerified] = useState<boolean | null>(
     user?.role === "admin" ? true : null,
   );
-
+  /** True once /suppliers/me confirms a shop row (any verification status). */
+  const [shopReady, setShopReady] = useState(user?.role === "admin");
   const [needsVerify, setNeedsVerify] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState<string | null>(null);
   const [shopLoadError, setShopLoadError] = useState<string | null>(null);
   const [shareSlug, setShareSlug] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
@@ -149,30 +151,35 @@ export function DashboardPage() {
         if (cancelled) return;
         if (res.status === 404) {
           setNeedsVerify(true);
+          setShopReady(false);
           setShopVerified(false);
           return;
         }
         if (!res.ok) {
           setShopLoadError(`Could not load your shop (${res.status}).`);
+          setShopReady(false);
           setShopVerified(false);
           return;
         }
         const s = (await res.json()) as {
           verified?: boolean;
+          verificationStatus?: string;
           slug?: string | null;
           shareUrl?: string | null;
         };
-        if (!s.verified) {
-          setNeedsVerify(true);
-          setShopVerified(false);
-          return;
-        }
+        // Shop exists → Seller Central is usable (list products, reply to RFQs).
+        // Verified badge is separate; draft shops can still operate.
         setNeedsVerify(false);
-        setShopVerified(true);
+        setShopReady(true);
+        setShopVerified(s.verified === true);
         setShareSlug(s.slug ?? null);
+        setVerificationStatus(
+          typeof s.verificationStatus === "string" ? s.verificationStatus : "draft",
+        );
       } catch {
         if (!cancelled) {
           setShopLoadError("Could not load your shop. Check your connection.");
+          setShopReady(false);
           setShopVerified(false);
         }
       }
@@ -204,7 +211,7 @@ export function DashboardPage() {
 
   const { data: platformStats } = useGetDashboardStats();
   const { data: supplierDash } = useGetSupplierDashboard(supplierId ?? 0, {
-    query: { enabled: isSupplier && hasLinkedShop && shopVerified === true } as any,
+    query: { enabled: isSupplier && hasLinkedShop && shopReady } as any,
   });
   const { data: inboxRfqs } = useListRfqs(
     hasLinkedShop && supplierId != null
@@ -223,7 +230,7 @@ export function DashboardPage() {
 
   const { data: supplierProductsData, refetch: refetchProducts } = useListProducts(
     { supplierId: supplierId ?? undefined },
-    { query: { enabled: isSupplier && hasLinkedShop && shopVerified === true } as any }
+    { query: { enabled: isSupplier && hasLinkedShop && shopReady } as any }
   );
   const supplierProducts = supplierProductsData?.items ?? [];
   const recentRfqs = (inboxRfqs ?? supplierDash?.recentRfqs ?? platformStats?.recentRfqs ?? []).slice(0, 5);
@@ -327,7 +334,7 @@ export function DashboardPage() {
     );
   }
 
-  if (isSupplier && user.role !== "admin" && shopVerified !== true) {
+  if (isSupplier && user.role !== "admin" && !shopReady) {
     if (shopLoadError) {
       return (
         <div className="max-w-lg mx-auto px-4 py-16 text-center">
@@ -356,18 +363,18 @@ export function DashboardPage() {
       return (
         <div className="max-w-lg mx-auto px-4 py-16 text-center">
           <BadgeCheck className="mx-auto text-primary mb-4" size={40} />
-          <h2 className="text-xl font-bold mb-2">Complete seller verification</h2>
+          <h2 className="text-xl font-bold mb-2">Create your shop</h2>
           <p className="text-sm text-muted-foreground mb-6">
-            Verify your GST and company details to unlock Seller Central, product listing, and
-            RFQ quotes.
+            Activate a Free shop to unlock Seller Central, product listing, and RFQ quotes.
+            GST verification is optional for the verified badge.
           </p>
           <div className="flex flex-wrap gap-3 justify-center">
             <button
               type="button"
-              onClick={() => navigate("/seller/verify")}
+              onClick={() => navigate("/seller/plans")}
               className="bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90"
             >
-              Continue verification
+              Open Free shop
             </button>
             <button
               type="button"
@@ -383,7 +390,7 @@ export function DashboardPage() {
     return (
       <div className="min-h-[50vh] flex flex-col items-center justify-center gap-3">
         <Loader2 className="animate-spin text-primary" size={28} />
-        <p className="text-sm text-muted-foreground">Checking seller verification…</p>
+        <p className="text-sm text-muted-foreground">Loading your shop…</p>
       </div>
     );
   }
@@ -400,6 +407,11 @@ export function DashboardPage() {
             {isSupplier && shopVerified && (
               <span className="inline-flex items-center gap-1 text-xs font-semibold bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
                 <BadgeCheck size={12} /> Verified
+              </span>
+            )}
+            {isSupplier && !shopVerified && verificationStatus === "pending" && (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full">
+                Review pending
               </span>
             )}
           </div>
@@ -453,6 +465,23 @@ export function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {isSupplier && !shopVerified && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <p>
+            {verificationStatus === "pending"
+              ? "Your GSTIN is under review. You can list products and quote RFQs meanwhile — the verified badge appears after approval."
+              : "Finish GST verification when you can to earn the verified badge. Product listing and RFQs already work."}
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate("/seller/verify")}
+            className="shrink-0 font-semibold text-amber-900 underline underline-offset-2"
+          >
+            {verificationStatus === "pending" ? "View status" : "Continue verification"}
+          </button>
+        </div>
+      )}
 
       {/* Tabs for suppliers */}
       {isSupplier && (
@@ -527,7 +556,7 @@ export function DashboardPage() {
               )}
             </div>
 
-            {isSupplier && shopVerified && (
+            {isSupplier && shopReady && (
               <div className="bg-white rounded-xl border border-border p-5 mb-8">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="min-w-0">

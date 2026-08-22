@@ -12,6 +12,7 @@ import { requireClerkAuth, clerkEnabled } from "../lib/auth";
 import { getAuthenticatedDbUser, isAdmin } from "../lib/authorize";
 import { hashPassword, verifyPassword } from "../lib/password";
 import { rateLimit } from "../lib/rateLimit";
+import { resolveVerifiedClerkEmail } from "../lib/clerkEmail";
 
 const router: IRouter = Router();
 
@@ -62,14 +63,12 @@ router.post("/users/sync", requireClerkAuth, async (req, res): Promise<void> => 
   }
 
   const clerkUser = await clerkClient.users.getUser(userId);
-  const email =
-    clerkUser.primaryEmailAddress?.emailAddress ??
-    clerkUser.emailAddresses[0]?.emailAddress;
-
-  if (!email) {
-    res.status(400).json({ error: "Clerk user has no email address" });
+  const emailResult = resolveVerifiedClerkEmail(clerkUser);
+  if (!emailResult.ok) {
+    res.status(403).json({ error: emailResult.error });
     return;
   }
+  const email = emailResult.email;
 
   const name =
     [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
@@ -107,6 +106,14 @@ router.post("/users/sync", requireClerkAuth, async (req, res): Promise<void> => 
   const byEmail = await prisma.user.findUnique({ where: { email } });
 
   if (byEmail) {
+    if (byEmail.clerkId && byEmail.clerkId !== userId) {
+      res.status(409).json({
+        error:
+          "This email is already linked to another Clerk account. Sign in with that account or contact support.",
+      });
+      return;
+    }
+    // Link Clerk id; never clear an existing password hash (account-takeover risk).
     const linked = await prisma.user.update({
       where: { id: byEmail.id },
       data: {
@@ -116,7 +123,6 @@ router.post("/users/sync", requireClerkAuth, async (req, res): Promise<void> => 
         role: isClerkAdmin ? "admin" : byEmail.role,
         onboardingCompleted: isClerkAdmin ? true : byEmail.onboardingCompleted,
         company: byEmail.company ?? companyFromMeta,
-        password: null,
       },
     });
     res.json(GetUserResponse.parse(safeUser(linked)));
@@ -172,26 +178,31 @@ router.post(
     // Race-safe: profile may not be synced yet when onboarding fires immediately.
     if (!user) {
       const clerkUser = await clerkClient.users.getUser(userId);
-      const email =
-        clerkUser.primaryEmailAddress?.emailAddress ??
-        clerkUser.emailAddresses[0]?.emailAddress;
-      if (!email) {
-        res.status(400).json({ error: "Clerk user has no email address" });
+      const emailResult = resolveVerifiedClerkEmail(clerkUser);
+      if (!emailResult.ok) {
+        res.status(403).json({ error: emailResult.error });
         return;
       }
+      const email = emailResult.email;
       const name =
         [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim() ||
         email.split("@")[0];
       const avatarUrl = clerkUser.imageUrl ?? null;
       const byEmail = await prisma.user.findUnique({ where: { email } });
       if (byEmail) {
+        if (byEmail.clerkId && byEmail.clerkId !== userId) {
+          res.status(409).json({
+            error:
+              "This email is already linked to another Clerk account. Sign in with that account or contact support.",
+          });
+          return;
+        }
         user = await prisma.user.update({
           where: { id: byEmail.id },
           data: {
             clerkId: userId,
             name,
             avatarUrl,
-            password: null,
           },
         });
       } else {

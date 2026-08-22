@@ -5,10 +5,19 @@ import {
   RequestUploadUrlResponse,
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
-import { ObjectPermission, getObjectAclPolicy } from "../lib/objectAcl";
+import {
+  ObjectPermission,
+  getObjectAclPolicy,
+} from "../lib/objectAcl";
 import { getClerkUserId, requireClerkAuth } from "../lib/auth";
 import { getObjectStorageDriver } from "../lib/objectStorageBackend";
 import { writeLocalObject } from "../lib/localObjectStorage";
+import {
+  MAX_UPLOAD_BYTES,
+  assertUploadMetadata,
+  isAllowedUploadMime,
+  isOwnedUploadObjectPath,
+} from "../lib/uploadLimits";
 import express from "express";
 
 const router: IRouter = Router();
@@ -44,6 +53,12 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
     return;
   }
 
+  const bounds = assertUploadMetadata(parsed.data);
+  if (!bounds.ok) {
+    res.status(400).json({ error: bounds.error });
+    return;
+  }
+
   try {
     const { name, size, contentType } = parsed.data;
 
@@ -74,6 +89,7 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
  *
  * After a successful PUT to the presigned URL, set ACL so only the uploader
  * (and public-read if requested) can download via /storage/objects/*.
+ * Restricted to /objects/uploads/<uuid>; cannot steal another owner's ACL.
  */
 router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, res: Response) => {
   const parsed = parseFinalizeBody(req.body);
@@ -88,9 +104,24 @@ router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, 
     return;
   }
 
+  const normalized = objectStorageService.normalizeObjectEntityPath(parsed.objectPath);
+  if (!isOwnedUploadObjectPath(normalized)) {
+    res.status(400).json({
+      error: "objectPath must be an upload issued by request-url (/objects/uploads/<id>)",
+    });
+    return;
+  }
+
   try {
+    const objectFile = await objectStorageService.getObjectEntityFile(normalized);
+    const existingAcl = await getObjectAclPolicy(objectFile);
+    if (existingAcl && existingAcl.owner !== userId) {
+      res.status(403).json({ error: "Forbidden — object belongs to another user" });
+      return;
+    }
+
     const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
-      parsed.objectPath,
+      normalized,
       {
         owner: userId,
         visibility: parsed.visibility,
@@ -111,7 +142,7 @@ router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, 
 router.put(
   "/storage/uploads/put/:objectId",
   requireClerkAuth,
-  express.raw({ type: "*/*", limit: "8mb" }),
+  express.raw({ type: "*/*", limit: `${MAX_UPLOAD_BYTES}b` }),
   async (req: Request, res: Response) => {
     if (getObjectStorageDriver() !== "local") {
       res.status(400).json({ error: "Direct PUT uploads are only enabled for local storage" });
@@ -127,10 +158,20 @@ router.put(
       res.status(400).json({ error: "Empty file" });
       return;
     }
+    if (body.length > MAX_UPLOAD_BYTES) {
+      res.status(413).json({ error: `File too large (max ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB)` });
+      return;
+    }
     const contentType =
       typeof req.headers["content-type"] === "string"
         ? req.headers["content-type"]
         : "application/octet-stream";
+    if (!isAllowedUploadMime(contentType)) {
+      res.status(415).json({
+        error: "Unsupported file type. Allowed: JPEG, PNG, WebP, GIF, PDF",
+      });
+      return;
+    }
     await writeLocalObject("karmbaba-local", `private/uploads/${objectId}`, body, contentType);
     res.status(200).json({ ok: true, objectPath: `/objects/uploads/${objectId}` });
   },

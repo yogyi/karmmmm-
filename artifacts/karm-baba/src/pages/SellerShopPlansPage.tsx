@@ -38,14 +38,17 @@ type Subscription = {
 
 /**
  * Subscription-based shop setup — Free → Pro Trade → Business → Enterprise.
+ * Opening Free creates the shop + subscription without waiting on GST.
  */
 export function SellerShopPlansPage() {
   const [, navigate] = useLocation();
-  const { user, isLoaded, isLoggedIn } = useAuth();
+  const { user, isLoaded, isLoggedIn, profileReady, refreshProfile } = useAuth();
   const { getToken } = useClerkAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [sub, setSub] = useState<Subscription | null>(null);
   const [slug, setSlug] = useState<string | null>(null);
+  const [hasShop, setHasShop] = useState(false);
+  const [companyName, setCompanyName] = useState("");
   const [region, setRegion] = useState<"inr" | "usd">("inr");
   const [loading, setLoading] = useState(true);
   const [upgrading, setUpgrading] = useState<string | null>(null);
@@ -70,20 +73,30 @@ export function SellerShopPlansPage() {
       const data = (await plansRes.json()) as { items: Plan[] };
       setPlans(data.items);
     }
-    const subRes = await fetch("/api/shop/subscription", { headers });
-    if (subRes.ok) {
-      setSub((await subRes.json()) as Subscription);
-    }
     const meRes = await fetch("/api/suppliers/me", { headers });
     if (meRes.ok) {
-      const me = (await meRes.json()) as { slug?: string | null };
+      const me = (await meRes.json()) as {
+        slug?: string | null;
+        companyName?: string;
+      };
       setSlug(me.slug ?? null);
+      setHasShop(true);
+      if (me.companyName) setCompanyName(me.companyName);
+      const subRes = await fetch("/api/shop/subscription", { headers });
+      if (subRes.ok) {
+        setSub((await subRes.json()) as Subscription);
+      }
+    } else {
+      setHasShop(false);
+      setSub(null);
+      setSlug(null);
+      if (user?.company) setCompanyName(user.company);
     }
     setLoading(false);
-  }, [authHeaders]);
+  }, [authHeaders, user?.company]);
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || !profileReady) return;
     if (!isLoggedIn) {
       navigate("/login?mode=seller&redirect=/seller/plans");
       return;
@@ -93,14 +106,56 @@ export function SellerShopPlansPage() {
       return;
     }
     void load();
-  }, [isLoaded, isLoggedIn, user?.role, load, navigate]);
+  }, [isLoaded, profileReady, isLoggedIn, user?.role, load, navigate]);
+
+  async function startFreeShop() {
+    const name = companyName.trim();
+    if (name.length < 2) {
+      setMessage("Enter your company / shop name to start on Free.");
+      return;
+    }
+    setMessage(null);
+    setUpgrading("free");
+    try {
+      const headers = await authHeaders();
+      const res = await fetch("/api/shop/setup", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ companyName: name, planCode: "free", region }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        slug?: string | null;
+        message?: string;
+      };
+      if (!res.ok) {
+        setMessage(data.error || "Could not open shop");
+        return;
+      }
+      await refreshProfile();
+      setMessage(data.message || "Free shop is active.");
+      if (data.slug) setSlug(data.slug);
+      setHasShop(true);
+      await load();
+    } finally {
+      setUpgrading(null);
+    }
+  }
 
   async function selectPlan(planCode: string) {
+    if (!hasShop) {
+      if (planCode === "free") {
+        await startFreeShop();
+        return;
+      }
+      setMessage("Open a Free shop first, then contact sales for paid plans.");
+      return;
+    }
     if (planCode !== "free") {
-      const ok = window.confirm(
-        "Paid checkout is not live yet. Continue to provision this plan on your shop for testing? Billing will be required before production use.",
+      setMessage(
+        "Paid checkout is not live yet. Contact Karm Baba sales to activate a paid plan — self-activation is disabled.",
       );
-      if (!ok) return;
+      return;
     }
     if (sub?.planCode && planCode === "free" && sub.planCode !== "free") {
       const ok = window.confirm(
@@ -122,11 +177,7 @@ export function SellerShopPlansPage() {
         setMessage(data.error || "Could not update plan");
         return;
       }
-      setMessage(
-        planCode === "free"
-          ? "Shop is on the Free plan."
-          : `Provisioned ${planCode.replace(/_/g, " ")} for testing — payment gateway not connected yet.`,
-      );
+      setMessage("Shop is on the Free plan.");
       await load();
     } finally {
       setUpgrading(null);
@@ -156,9 +207,7 @@ export function SellerShopPlansPage() {
       });
       const data = (await res.json()) as { error?: string; slug?: string };
       if (!res.ok) {
-        setMessage(
-          data.error || "Could not create share link — finish seller verification first.",
-        );
+        setMessage(data.error || "Could not create share link.");
         return;
       }
       if (data.slug) setSlug(data.slug);
@@ -169,11 +218,11 @@ export function SellerShopPlansPage() {
     }
   }
 
-  if (!isLoaded || !isLoggedIn) {
+  if (!isLoaded || !profileReady || !isLoggedIn) {
     return (
       <div className="min-h-[40vh] flex flex-col items-center justify-center gap-3 px-4">
         <Loader2 className="animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Redirecting to sign in…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       </div>
     );
   }
@@ -192,23 +241,57 @@ export function SellerShopPlansPage() {
         <div className="max-w-6xl mx-auto px-4 py-5 sm:py-8">
           <button
             type="button"
-            onClick={() => navigate("/seller")}
+            onClick={() => navigate(hasShop ? "/seller" : "/")}
             className="inline-flex items-center gap-1 text-white/70 text-sm mb-3 hover:text-white min-h-11"
           >
-            <ArrowLeft size={14} /> Seller Central
+            <ArrowLeft size={14} /> {hasShop ? "Seller Central" : "Home"}
           </button>
           <h1 className="font-heading text-2xl sm:text-3xl font-bold flex items-center gap-2">
-            <Sparkles size={24} /> Shop & plans
+            <Sparkles size={24} /> {hasShop ? "Shop & plans" : "Open your shop"}
           </h1>
           <p className="text-white/65 text-sm mt-1 max-w-xl">
-            Choose a subscription tier for product limits, lead quota, and shareable profile
-            cards.
+            {hasShop
+              ? "Manage your subscription tier for product limits, lead quota, and shareable profile cards."
+              : "Start on Free — list products and answer RFQs now. Upgrade later when billing is live."}
           </p>
         </div>
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
-        {/* Current usage + share card */}
+        {!hasShop && (
+          <div className="bg-white rounded-xl border border-border p-5 space-y-4">
+            <h2 className="font-semibold">Start Free shop</h2>
+            <p className="text-sm text-muted-foreground">
+              Company name becomes your public shop title. You can finish GST verification
+              anytime for the verified badge.
+            </p>
+            <label className="block text-sm font-medium">
+              Company / shop name
+              <input
+                type="text"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="e.g. Gujarat Textile Mills"
+                className="mt-1.5 w-full max-w-md px-3 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={upgrading === "free"}
+              onClick={() => void startFreeShop()}
+              className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60"
+            >
+              {upgrading === "free" ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" /> Opening…
+                </>
+              ) : (
+                "Activate Free shop"
+              )}
+            </button>
+          </div>
+        )}
+
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl border border-border p-5">
             <h2 className="font-semibold mb-3">Current plan</h2>
@@ -230,10 +313,17 @@ export function SellerShopPlansPage() {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">Product catalog usage</p>
+                <button
+                  type="button"
+                  onClick={() => navigate("/seller")}
+                  className="mt-4 text-sm font-semibold text-primary underline underline-offset-2"
+                >
+                  Go to Seller Central →
+                </button>
               </>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Complete seller verification to activate your free shop.
+                No active shop yet — activate Free above to start listing.
               </p>
             )}
           </div>
@@ -267,15 +357,19 @@ export function SellerShopPlansPage() {
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  Create your public profile card so buyers can inquire without logging in.
+                  {hasShop
+                    ? "Create your public profile card so buyers can inquire without logging in."
+                    : "Available after you activate a Free shop."}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => void createShareLink()}
-                  className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 min-h-11 rounded-lg bg-primary text-white"
-                >
-                  <Share2 size={14} /> Create shareable card
-                </button>
+                {hasShop && (
+                  <button
+                    type="button"
+                    onClick={() => void createShareLink()}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 min-h-11 rounded-lg bg-primary text-white"
+                  >
+                    <Share2 size={14} /> Create shareable card
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -315,9 +409,7 @@ export function SellerShopPlansPage() {
           {plans.map((plan) => {
             const current = sub?.planCode === plan.code;
             const price =
-              region === "inr"
-                ? plan.priceInrMonthly
-                : plan.priceUsdMonthly;
+              region === "inr" ? plan.priceInrMonthly : plan.priceUsdMonthly;
             const currency = region === "inr" ? "₹" : "$";
             return (
               <div
@@ -364,13 +456,28 @@ export function SellerShopPlansPage() {
                     : current
                       ? "Current plan"
                       : plan.code === "free"
-                        ? "Downgrade to Free"
-                        : "Try plan (billing soon)"}
+                        ? hasShop
+                          ? "Stay on Free"
+                          : "Start Free shop"
+                        : "Contact sales"}
                 </button>
               </div>
             );
           })}
         </div>
+
+        {hasShop && (
+          <p className="text-center text-sm text-muted-foreground">
+            Want the verified badge?{" "}
+            <button
+              type="button"
+              className="font-semibold text-primary underline underline-offset-2"
+              onClick={() => navigate("/seller/verify")}
+            >
+              Continue GST verification
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );

@@ -9,9 +9,9 @@
   "scripts": {
     "generate": "prisma generate --schema ./prisma/schema.prisma",
     "migrate:dev": "sh -c 'set -a; . ../../.env; set +a; prisma migrate dev --schema ./prisma/schema.prisma'",
-    "migrate:deploy": "sh -c 'set -a; . ../../.env; set +a; prisma migrate deploy --schema ./prisma/schema.prisma'",
-    "migrate:status": "sh -c 'set -a; . ../../.env; set +a; prisma migrate status --schema ./prisma/schema.prisma'",
-    "migrate:resolve": "sh -c 'set -a; . ../../.env; set +a; prisma migrate resolve --schema ./prisma/schema.prisma'",
+    "migrate:deploy": "sh -c 'if [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; prisma migrate deploy --schema ./prisma/schema.prisma'",
+    "migrate:status": "sh -c 'if [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; prisma migrate status --schema ./prisma/schema.prisma'",
+    "migrate:resolve": "sh -c 'if [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; prisma migrate resolve --schema ./prisma/schema.prisma'",
     "push": "sh -c 'set -a; . ../../.env; set +a; prisma db push --schema ./prisma/schema.prisma'",
     "studio": "sh -c 'set -a; . ../../.env; set +a; port=${PRISMA_STUDIO_PORT:-5555}; url=${PRISMA_STUDIO_URL:-http://localhost:$port}; echo \"Prisma Studio URL: $url\"; prisma studio --schema ./prisma/schema.prisma --port \"$port\" --browser none'",
     "postinstall": "prisma generate --schema ./prisma/schema.prisma"
