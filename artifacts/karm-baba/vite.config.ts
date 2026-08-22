@@ -56,6 +56,14 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // Standalone `pnpm --filter karm-baba dev` (WEB_PORT=5173) needs this so
+    // /api/* hits the Express API instead of returning index.html.
+    proxy: {
+      "/api": {
+        target: process.env.API_PROXY_TARGET || "http://127.0.0.1:8080",
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port,
