@@ -1,24 +1,67 @@
 import { prisma } from "@workspace/db";
 
-export function slugifyCompany(name: string, id?: number): string {
-  const base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 48) || "shop";
-  return id != null ? `${base}-${id}` : base;
+/** URL-safe shop slug from company name (no database id). */
+export function slugifyCompany(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 48) || "shop"
+  );
 }
 
+/**
+ * Legacy generator always did `name-{supplierId}` (e.g. yogesh-6).
+ * Those should be upgraded to a clean slug when available.
+ */
+export function isLegacyIdSlug(
+  slug: string,
+  companyName: string,
+  supplierId: number,
+): boolean {
+  return slug === `${slugifyCompany(companyName)}-${supplierId}`;
+}
+
+/**
+ * Prefer a clean company slug. Only append -2, -3, … when another shop
+ * already owns that slug — never use the internal supplier id in the URL.
+ */
 export async function ensureUniqueSupplierSlug(
   companyName: string,
   supplierId: number,
 ): Promise<string> {
-  let slug = slugifyCompany(companyName, supplierId);
-  const clash = await prisma.supplier.findFirst({
-    where: { slug, NOT: { id: supplierId } },
-  });
-  if (clash) slug = `${slug}-${Date.now().toString(36)}`;
-  return slug;
+  const base = slugifyCompany(companyName);
+  let slug = base;
+  let n = 2;
+  for (;;) {
+    const clash = await prisma.supplier.findFirst({
+      where: { slug, NOT: { id: supplierId } },
+      select: { id: true },
+    });
+    if (!clash) return slug;
+    slug = `${base}-${n}`;
+    n += 1;
+    if (n > 10_000) {
+      // Extremely unlikely; last-resort uniqueness without advertising raw id style alone
+      return `${base}-${supplierId}-${Date.now().toString(36)}`;
+    }
+  }
+}
+
+/**
+ * Return a shareable slug for this shop: keep a good existing slug, otherwise
+ * allocate a clean unique one (and upgrade legacy `name-{id}` links).
+ */
+export async function resolveShareableSlug(
+  companyName: string,
+  supplierId: number,
+  currentSlug: string | null | undefined,
+): Promise<string> {
+  if (currentSlug && !isLegacyIdSlug(currentSlug, companyName, supplierId)) {
+    return currentSlug;
+  }
+  return ensureUniqueSupplierSlug(companyName, supplierId);
 }
 
 export async function ensureFreeSubscription(supplierId: number): Promise<void> {

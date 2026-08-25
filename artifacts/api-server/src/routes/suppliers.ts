@@ -37,6 +37,8 @@ import { rateLimit } from "../lib/rateLimit";
 import {
   ensureFreeSubscription,
   ensureUniqueSupplierSlug,
+  isLegacyIdSlug,
+  resolveShareableSlug,
 } from "../lib/shop";
 import {
   PUBLIC_SUPPLIER_SELECT,
@@ -131,12 +133,16 @@ router.get("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> =>
     res.status(404).json({ error: "Supplier not found" });
     return;
   }
-  // Always ensure a shareable slug exists so profile cards work after verification.
-  if (!supplier.slug) {
-    const slug = await ensureUniqueSupplierSlug(supplier.companyName, supplier.id);
+  // Always ensure a clean shareable slug (upgrades legacy name-{id} links).
+  const desiredSlug = await resolveShareableSlug(
+    supplier.companyName,
+    supplier.id,
+    supplier.slug,
+  );
+  if (supplier.slug !== desiredSlug) {
     supplier = await prisma.supplier.update({
       where: { id: supplier.id },
-      data: { slug },
+      data: { slug: desiredSlug },
     });
   }
   res.json({
@@ -377,8 +383,11 @@ router.post("/suppliers/me/share-link", requireClerkAuth, async (req, res): Prom
     res.status(404).json({ error: "Supplier not found" });
     return;
   }
-  const slug =
-    supplier.slug ?? (await ensureUniqueSupplierSlug(supplier.companyName, supplier.id));
+  const slug = await resolveShareableSlug(
+    supplier.companyName,
+    supplier.id,
+    supplier.slug,
+  );
   const updated =
     supplier.slug === slug
       ? supplier
@@ -782,8 +791,12 @@ router.post(
       patch.verificationStatus = "pending";
       patch.verificationStep = 5;
       patch.verifiedAt = null;
-      if (!existing.slug) {
-        patch.slug = await ensureUniqueSupplierSlug(existing.companyName, supplierId);
+      if (!existing.slug || isLegacyIdSlug(existing.slug, existing.companyName, supplierId)) {
+        patch.slug = await resolveShareableSlug(
+          existing.companyName,
+          supplierId,
+          existing.slug,
+        );
       }
     } else {
       patch.verificationStatus = "draft";
