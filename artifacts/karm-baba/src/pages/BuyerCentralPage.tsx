@@ -27,12 +27,28 @@ const statusLabel: Record<string, { label: string; className: string }> = {
  */
 export function BuyerCentralPage() {
   const [, navigate] = useLocation();
-  const { user, isLoggedIn, isLoaded } = useAuth();
+  const { user, isLoggedIn, isLoaded, profileReady } = useAuth();
   const { count: shortlistCount } = useShortlist();
-  const { data: rfqs, isLoading: loadingRfqs } = useListRfqs(
-    {},
-    { query: { enabled: isLoggedIn } as any },
-  );
+  const listParams =
+    user && user.id > 0
+      ? user.role === "seller" && typeof user.supplierId === "number"
+        ? { supplierId: user.supplierId }
+        : { buyerId: user.id }
+      : undefined;
+  const {
+    data: rfqs,
+    isLoading: loadingRfqs,
+    isError: rfqsError,
+    refetch: refetchRfqs,
+  } = useListRfqs(listParams, {
+    query: {
+      enabled: isLoggedIn && !!user && user.id > 0 && !!profileReady,
+      refetchOnMount: "always",
+      refetchOnWindowFocus: true,
+      refetchInterval: 15_000,
+      staleTime: 0,
+    } as any,
+  });
   const { data: featured } = useGetFeaturedProducts();
 
   useEffect(() => {
@@ -47,16 +63,11 @@ export function BuyerCentralPage() {
   }, [isLoaded, isLoggedIn, user?.role, navigate]);
 
   if (!isLoaded || !isLoggedIn || user?.role === "seller") {
-    return (
-      <div className="min-h-[40vh] flex items-center justify-center text-sm text-muted-foreground">
-        Loading…
-      </div>
-    );
+    return null;
   }
 
-  const myRfqs = (rfqs ?? []).filter(
-    (r) => user?.id && (r.buyerId === user.id || r.buyerEmail === user.email),
-  );
+  // API already scopes to this buyer — don't re-filter by id (can hide rows if profile lags).
+  const myRfqs = rfqs ?? [];
   const openCount = myRfqs.filter((r) => r.status === "pending" || r.status === "responded").length;
   const repliedCount = myRfqs.filter((r) => r.status === "responded").length;
   const products = Array.isArray(featured) ? featured.slice(0, 4) : [];
@@ -86,7 +97,7 @@ export function BuyerCentralPage() {
               onClick={() => navigate("/rfq/new")}
               className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/15 border border-white/25 text-white px-5 py-2.5 rounded-xl text-sm font-semibold"
             >
-              <FileText size={16} /> Post RFQ
+              <FileText size={16} /> Request quote
             </button>
             <button
               type="button"
@@ -130,6 +141,19 @@ export function BuyerCentralPage() {
             onClick={() => navigate("/shortlist")}
           />
         </div>
+
+        {rfqsError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex flex-wrap items-center justify-between gap-3">
+            <span>Could not load your RFQs. Check your connection and try again.</span>
+            <button
+              type="button"
+              onClick={() => void refetchRfqs()}
+              className="font-semibold underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* How sourcing works */}
         <section className="bg-white rounded-2xl border border-border p-6">
@@ -186,7 +210,7 @@ export function BuyerCentralPage() {
                     onClick={() => navigate("/rfq/new")}
                     className="bg-primary text-white px-4 py-2 rounded-xl text-sm font-semibold"
                   >
-                    Post your first RFQ
+                    Request your first quote
                   </button>
                 </div>
               )}

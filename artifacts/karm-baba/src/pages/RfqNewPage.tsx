@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { CheckCircle, AlertCircle, FileText } from "lucide-react";
 import { motion } from "framer-motion";
-import { useCreateRfq, getGetRfqQueryKey } from "@workspace/api-client-react";
+import { useCreateRfq, getGetRfqQueryKey, useListCategories } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
 
@@ -10,6 +10,7 @@ export function RfqNewPage() {
   const [, navigate] = useLocation();
   const { user, isLoggedIn, isLoaded, profileReady } = useAuth();
   const createRfq = useCreateRfq();
+  const { data: categories } = useListCategories();
   const qc = useQueryClient();
 
   const searchParams = new URLSearchParams(
@@ -23,9 +24,13 @@ export function RfqNewPage() {
     ? Number(searchParams.get("productId"))
     : undefined;
   const defaultProductName = searchParams.get("productName") ?? "";
+  const defaultCategoryId = searchParams.get("categoryId")
+    ? Number(searchParams.get("categoryId"))
+    : 0;
 
   const [form, setForm] = useState({
     productName: defaultProductName,
+    categoryId: Number.isFinite(defaultCategoryId) ? defaultCategoryId : 0,
     quantity: "",
     unit: "piece",
     targetPrice: "",
@@ -56,10 +61,15 @@ export function RfqNewPage() {
       setError("Please fill all required fields.");
       return;
     }
+    if (!form.categoryId) {
+      setError("Please select a category.");
+      return;
+    }
     try {
       const created = await createRfq.mutateAsync({
         data: {
           productName: form.productName.trim(),
+          categoryId: form.categoryId,
           productId:
             defaultProductId && Number.isFinite(defaultProductId)
               ? defaultProductId
@@ -201,6 +211,27 @@ export function RfqNewPage() {
             className="w-full border border-border rounded-xl px-4 py-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus:border-primary transition-colors"
             required
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1.5">
+            Category *
+          </label>
+          <select
+            value={form.categoryId}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, categoryId: parseInt(e.target.value, 10) || 0 }))
+            }
+            className="w-full border border-border rounded-xl px-4 py-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus:border-primary transition-colors bg-white"
+            required
+          >
+            <option value={0}>Select a category</option>
+            {categories?.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="grid grid-cols-2 gap-4">

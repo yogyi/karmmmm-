@@ -199,11 +199,15 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
             </div>
           </div>
           <div className="bg-muted/40 rounded-xl p-3">
+            <div className="text-muted-foreground text-xs mb-1">Category</div>
+            <div className="font-semibold">{rfq.categoryName ?? "Not specified"}</div>
+          </div>
+          <div className="bg-muted/40 rounded-xl p-3">
             <div className="text-muted-foreground text-xs mb-1">Buyer</div>
             <div className="font-semibold">{rfq.buyerName}</div>
             <div className="text-xs text-muted-foreground">{rfq.buyerEmail}</div>
           </div>
-          <div className="bg-muted/40 rounded-xl p-3">
+          <div className="bg-muted/40 rounded-xl p-3 sm:col-span-2">
             <div className="text-muted-foreground text-xs mb-1">Supplier</div>
             <div className="font-semibold">{rfq.supplierName ?? "Open RFQ"}</div>
           </div>

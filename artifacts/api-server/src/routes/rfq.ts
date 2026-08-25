@@ -155,10 +155,32 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
   }
 
   let productId: number | null = null;
+  let categoryId: number | null = null;
+  let categoryName: string | null = null;
+
+  if (input.categoryId != null) {
+    const category = await prisma.category.findUnique({
+      where: { id: input.categoryId },
+      select: { id: true, name: true },
+    });
+    if (!category) {
+      res.status(400).json({ error: "Category not found" });
+      return;
+    }
+    categoryId = category.id;
+    categoryName = category.name;
+  }
+
   if (input.productId != null) {
     const product = await prisma.product.findUnique({
       where: { id: input.productId },
-      select: { id: true, supplierId: true, name: true },
+      select: {
+        id: true,
+        supplierId: true,
+        name: true,
+        categoryId: true,
+        category: { select: { id: true, name: true } },
+      },
     });
     if (!product) {
       res.status(400).json({ error: "Product not found" });
@@ -174,6 +196,10 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
       });
       supplierName = supplier?.companyName ?? null;
     }
+    if (categoryId == null && product.category) {
+      categoryId = product.category.id;
+      categoryName = product.category.name;
+    }
   }
 
   const quantity = Math.floor(Number(input.quantity));
@@ -187,6 +213,8 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
     data: {
       productId,
       productName: input.productName.trim(),
+      categoryId,
+      categoryName,
       supplierId,
       supplierName,
       buyerId: dbUser.id,

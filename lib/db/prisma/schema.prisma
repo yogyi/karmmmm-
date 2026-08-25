@@ -18,6 +18,7 @@ model Category {
   productCount Int     @default(0) @map("product_count")
 
   products Product[]
+  rfqs     Rfq[]
 
   @@map("categories")
 }
@@ -69,6 +70,10 @@ model Supplier {
   contactPerson      String?   @map("contact_person")
   contactPhone       String?   @map("contact_phone")
   contactEmail       String?   @map("contact_email")
+  /// Overseas KYC: company-domain mailbox confirmed via OTP (GST substitute).
+  businessEmailVerified     Boolean   @default(false) @map("business_email_verified")
+  businessEmailOtpHash      String?   @map("business_email_otp_hash")
+  businessEmailOtpExpiresAt DateTime? @map("business_email_otp_expires_at")
   website            String?
   bankAccountName    String?   @map("bank_account_name")
   bankIfsc           String?   @map("bank_ifsc")
@@ -124,6 +129,8 @@ model Rfq {
   id            Int       @id @default(autoincrement())
   productId     Int?      @map("product_id")
   productName   String    @map("product_name")
+  categoryId    Int?      @map("category_id")
+  categoryName  String?   @map("category_name")
   supplierId    Int?      @map("supplier_id")
   supplierName  String?   @map("supplier_name")
   buyerId       Int?      @map("buyer_id")
@@ -140,6 +147,7 @@ model Rfq {
   createdAt     DateTime  @default(now()) @map("created_at")
 
   product  Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   buyer    User?     @relation("RfqBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
   lead     Lead?

@@ -9,6 +9,7 @@
 export interface RfqInput {
   productId?: number;
   productName: string;
+  categoryId?: number;
   supplierId?: number;
   buyerId?: number;
   buyerName: string;

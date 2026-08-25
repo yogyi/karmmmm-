@@ -31,6 +31,8 @@ export function RfqListPage() {
     query: {
       enabled: !!user && user.id > 0 && profileReady,
       refetchOnMount: "always",
+      refetchOnWindowFocus: true,
+      refetchInterval: 15_000,
       staleTime: 0,
     } as any,
   });
@@ -196,6 +198,12 @@ export function RfqListPage() {
                         )}
                       </div>
                       <div className="flex flex-wrap gap-x-3 sm:gap-x-4 gap-y-1 text-xs sm:text-sm text-muted-foreground">
+                        {rfq.categoryName && (
+                          <span>
+                            Category:{" "}
+                            <span className="font-semibold text-foreground">{rfq.categoryName}</span>
+                          </span>
+                        )}
                         <span>
                           Qty:{" "}
                           <span className="font-semibold text-foreground">

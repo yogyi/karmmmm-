@@ -13,6 +13,10 @@ export interface Rfq {
   productId?: number | null;
   productName: string;
   /** @nullable */
+  categoryId?: number | null;
+  /** @nullable */
+  categoryName?: string | null;
+  /** @nullable */
   supplierId?: number | null;
   /** @nullable */
   supplierName?: string | null;

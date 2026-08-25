@@ -1122,6 +1122,10 @@ components:
           type: ["integer", "null"]
         productName:
           type: string
+        categoryId:
+          type: ["integer", "null"]
+        categoryName:
+          type: ["string", "null"]
         supplierId:
           type: ["integer", "null"]
         supplierName:
@@ -1154,6 +1158,8 @@ components:
           type: integer
         productName:
           type: string
+        categoryId:
+          type: integer
         supplierId:
           type: integer
         buyerId:

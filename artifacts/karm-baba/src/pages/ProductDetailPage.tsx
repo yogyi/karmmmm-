@@ -17,7 +17,7 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
   const rfqDialogRef = useRef<HTMLDivElement>(null);
 
   const productId = Number(params.id);
-  const { data: product, isLoading } = useGetProduct(productId, { query: { enabled: !!productId } as any });
+  const { data: product, isLoading, isError, isFetched, refetch } = useGetProduct(productId, { query: { enabled: !!productId } as any });
   const { data: reviews } = useListReviews({ productId }, { query: { enabled: !!productId } as any });
   const { data: related } = useListProducts(
     { categoryId: product?.categoryId, limit: 4, page: 1 },
@@ -88,6 +88,7 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
         data: {
           productId: product?.id,
           productName: product?.name ?? "",
+          categoryId: product?.categoryId,
           supplierId: product?.supplierId,
           buyerName: rfqForm.buyerName,
           buyerEmail: rfqForm.buyerEmail,
@@ -132,17 +133,58 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
     );
   }
 
-  if (!product) {
+  if (isError) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-24 text-center">
+        <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <AlertCircle size={28} className="text-red-500" />
+        </div>
+        <h2 className="text-xl font-heading font-bold mb-2">Couldn’t load this product</h2>
+        <p className="text-sm text-muted-foreground mb-5 max-w-sm mx-auto">
+          Something went wrong fetching product details. Check your connection and try again.
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="inline-flex items-center min-h-11 px-5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90"
+          >
+            Try again
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("/products")}
+            className="text-primary hover:underline text-sm font-medium min-h-11"
+          >
+            ← Back to products
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isFetched && !product) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-24 text-center">
         <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
           <Package size={28} className="text-muted-foreground" />
         </div>
-        <h2 className="text-xl font-heading font-bold mb-2">Product Not Found</h2>
-        <button onClick={() => navigate("/products")} className="text-primary hover:underline text-sm font-medium">← Back to products</button>
+        <h2 className="text-xl font-heading font-bold mb-2">Product not found</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          This product may have been removed or the link is incorrect.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate("/products")}
+          className="text-primary hover:underline text-sm font-medium"
+        >
+          ← Back to products
+        </button>
       </div>
     );
   }
+
+  if (!product) return null;
 
   const allImages = (product.images?.length ? product.images : [product.imageUrl])
     .map((u) => resolveProductImageUrl(u) ?? u)
@@ -285,7 +327,7 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
               }}
               className="flex-1 bg-primary hover:bg-primary/90 text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all hover:shadow-xl hover:shadow-primary/25 hover:-translate-y-0.5"
             >
-              <Send size={18} /> Get Best Price
+              <Send size={18} /> Request quote
             </button>
             <button
               onClick={() => toggle(product.id)}
