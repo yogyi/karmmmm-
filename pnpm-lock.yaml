@@ -591,6 +591,9 @@ importers:
       '@uppy/react':
         specifier: ^5.0.0
         version: 5.2.0(@uppy/core@5.2.0)(@uppy/dashboard@5.1.1(@uppy/core@5.2.0))(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      '@vercel/blob':
+        specifier: ^2.8.0
+        version: 2.8.0
     devDependencies:
       '@types/react':
         specifier: 'catalog:'

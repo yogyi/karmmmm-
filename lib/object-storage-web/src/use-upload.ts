@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import type { UppyFile } from "@uppy/core";
+import { upload as blobClientUpload } from "@vercel/blob/client";
 
 interface UploadMetadata {
   name: string;
@@ -44,12 +45,30 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
   return `${fallback} (HTTP ${response.status})`;
 }
 
+function isBlobClientUploadUrl(uploadURL: string): boolean {
+  return /\/api\/storage\/uploads\/blob-client\//i.test(uploadURL);
+}
+
+function objectIdFromBlobClientUrl(uploadURL: string): string | null {
+  const match = uploadURL.match(/\/blob-client\/([0-9a-f-]{36})/i);
+  return match?.[1] ?? null;
+}
+
+function blobHandleUploadUrl(basePath: string, uploadURL: string): string {
+  try {
+    const u = new URL(uploadURL);
+    return `${u.origin}${basePath}/uploads/blob`;
+  } catch {
+    return `${basePath}/uploads/blob`;
+  }
+}
+
 /**
- * React hook for handling file uploads with presigned URLs.
+ * React hook for handling file uploads with presigned URLs / Vercel Blob client upload.
  *
  * Flow:
  * 1. POST metadata → request-url
- * 2. PUT file to uploadURL
+ * 2. PUT file to uploadURL (S3/GCS/local) OR Blob client upload (production)
  * 3. POST finalize (ACL / public visibility)
  */
 export function useUpload(options: UseUploadOptions = {}) {
@@ -88,7 +107,8 @@ export function useUpload(options: UseUploadOptions = {}) {
   const uploadToPresignedUrl = useCallback(
     async (file: File, uploadURL: string): Promise<void> => {
       const isAppUpload =
-        uploadURL.startsWith("/") || uploadURL.includes("/api/storage/uploads/put/");
+        uploadURL.startsWith("/") ||
+        uploadURL.includes("/api/storage/uploads/put/");
       const token = isAppUpload ? await options.getToken?.() : null;
       const contentType = inferContentType(file);
       const response = await fetch(uploadURL, {
@@ -108,6 +128,33 @@ export function useUpload(options: UseUploadOptions = {}) {
     [options.getToken],
   );
 
+  const uploadViaBlobClient = useCallback(
+    async (file: File, uploadResponse: UploadResponse): Promise<void> => {
+      const objectId = objectIdFromBlobClientUrl(uploadResponse.uploadURL);
+      if (!objectId) {
+        throw new Error("Invalid Blob client upload URL");
+      }
+      const token = await options.getToken?.();
+      const contentType = inferContentType(file);
+      const pathname = `private/uploads/${objectId}`;
+
+      await blobClientUpload(pathname, file, {
+        access: "public",
+        handleUploadUrl: blobHandleUploadUrl(basePath, uploadResponse.uploadURL),
+        clientPayload: uploadResponse.objectPath,
+        contentType,
+        multipart: file.size > 4 * 1024 * 1024,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        onUploadProgress: (event) => {
+          // Map 30–75% of overall bar to Blob transfer.
+          const pct = Math.round(30 + (event.percentage ?? 0) * 0.45);
+          setProgress(pct);
+        },
+      });
+    },
+    [basePath, options.getToken],
+  );
+
   const uploadFile = useCallback(
     async (file: File): Promise<UploadResponse> => {
       setIsUploading(true);
@@ -119,7 +166,11 @@ export function useUpload(options: UseUploadOptions = {}) {
         const uploadResponse = await requestUploadUrl(file);
 
         setProgress(30);
-        await uploadToPresignedUrl(file, uploadResponse.uploadURL);
+        if (isBlobClientUploadUrl(uploadResponse.uploadURL)) {
+          await uploadViaBlobClient(file, uploadResponse);
+        } else {
+          await uploadToPresignedUrl(file, uploadResponse.uploadURL);
+        }
 
         setProgress(80);
         const token = await options.getToken?.();
@@ -151,7 +202,7 @@ export function useUpload(options: UseUploadOptions = {}) {
         setIsUploading(false);
       }
     },
-    [requestUploadUrl, uploadToPresignedUrl, options, basePath],
+    [requestUploadUrl, uploadToPresignedUrl, uploadViaBlobClient, options, basePath],
   );
 
   const getUploadParameters = useCallback(

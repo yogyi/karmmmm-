@@ -13,7 +13,7 @@ interface ImageUploaderProps {
  * Decode + recompress to JPEG so HEIC/odd phone MIME types become
  * `image/jpeg` before hitting the storage allowlist.
  */
-async function fileToJpegFile(file: File, maxEdge = 1600, quality = 0.85): Promise<File> {
+async function fileToJpegFile(file: File, maxEdge = 1400, quality = 0.82): Promise<File> {
   const bitmap = await createImageBitmap(file);
   try {
     const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));

@@ -107,7 +107,14 @@ export class ObjectStorageService {
     const fullPath = `${privateObjectDir.replace(/\/$/, "")}/uploads/${objectId}`;
     const { bucketName, objectName } = parseObjectPath(fullPath);
 
-    if (getObjectStorageDriver() === "local" || getObjectStorageDriver() === "blob") {
+    if (getObjectStorageDriver() === "blob") {
+      // Marker URL — client uses @vercel/blob upload() → handleUpload (no 4.5MB function body).
+      return {
+        uploadURL: `/api/storage/uploads/blob-client/${objectId}`,
+        objectPath: `/objects/uploads/${objectId}`,
+      };
+    }
+    if (getObjectStorageDriver() === "local") {
       return {
         uploadURL: `/api/storage/uploads/put/${objectId}`,
         objectPath: `/objects/uploads/${objectId}`,

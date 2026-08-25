@@ -28,12 +28,7 @@ function aclKey(objectName: string): string {
 
 async function readJsonBlob<T>(pathname: string): Promise<T | null> {
   try {
-    const { blobs } = await list({
-      prefix: pathname,
-      limit: 5,
-      token: token(),
-    });
-    const exact = blobs.find((b) => b.pathname === pathname);
+    const exact = await findExactBlob(pathname);
     if (!exact) return null;
     const res = await fetch(exact.url);
     if (!res.ok) return null;
@@ -43,6 +38,52 @@ async function readJsonBlob<T>(pathname: string): Promise<T | null> {
   }
 }
 
+async function findExactBlob(
+  pathname: string,
+): Promise<{ url: string; contentType?: string } | null> {
+  const { blobs } = await list({
+    prefix: pathname,
+    limit: 20,
+    token: token(),
+  });
+  const exact = blobs.find((b) => b.pathname === pathname);
+  if (!exact) return null;
+  return { url: exact.url, contentType: undefined };
+}
+
+/** Persist CDN URL so later GET/finalize does not depend on list timing. */
+export async function writeBlobMeta(
+  objectName: string,
+  meta: BlobMeta,
+): Promise<void> {
+  await put(metaKey(objectName), JSON.stringify(meta), {
+    access: "public",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: "application/json",
+    token: token(),
+  });
+}
+
+async function resolveMeta(objectName: string): Promise<BlobMeta | null> {
+  const existing = await readJsonBlob<BlobMeta>(metaKey(objectName));
+  if (existing?.url) return existing;
+
+  const blob = await findExactBlob(objectName);
+  if (!blob?.url) return null;
+
+  const meta: BlobMeta = {
+    contentType: blob.contentType || "application/octet-stream",
+    url: blob.url,
+  };
+  try {
+    await writeBlobMeta(objectName, meta);
+  } catch {
+    // Best-effort; still return resolved meta for this request.
+  }
+  return meta;
+}
+
 export class BlobStoredObject implements StoredObject {
   constructor(
     readonly bucketName: string,
@@ -50,7 +91,7 @@ export class BlobStoredObject implements StoredObject {
   ) {}
 
   private async meta(): Promise<BlobMeta | null> {
-    return readJsonBlob<BlobMeta>(metaKey(this.objectName));
+    return resolveMeta(this.objectName);
   }
 
   async exists(): Promise<boolean> {
@@ -126,21 +167,22 @@ export async function writeBlobObject(
     token: token(),
   });
 
-  await put(
-    metaKey(objectName),
-    JSON.stringify({ contentType, url: result.url } satisfies BlobMeta),
-    {
-      access: "public",
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      contentType: "application/json",
-      token: token(),
-    },
-  );
+  await writeBlobMeta(objectName, { contentType, url: result.url });
 
   return { url: result.url };
 }
 
 export function isBlobConfigured(): boolean {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
+
+/** Pathname used for Vercel Blob client uploads (matches finalize object key). */
+export function blobUploadPathname(objectId: string): string {
+  return `private/uploads/${objectId}`;
+}
+
+export function isBlobUploadPathname(pathname: string): boolean {
+  return /^private\/uploads\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    pathname,
+  );
 }
