@@ -75,6 +75,63 @@ export function Header() {
     searchString.startsWith("?") ? searchString.slice(1) : searchString,
   );
 
+  /** Top board text: which workspace + which page the user is on. */
+  function resolvePageTitle(): string {
+    if (currentPath === "/seller/leads") return "Leads";
+    if (currentPath === "/seller/plans") return "Plans";
+    if (currentPath === "/seller/verify") return "Verification";
+    if (currentPath === "/seller" || currentPath === "/dashboard") {
+      const tab = currentSearch.get("tab");
+      if (tab === "products") return "Products";
+      if (tab === "rfqs") return "RFQs";
+      return "Overview";
+    }
+    if (currentPath === "/buyer") return "Home";
+    if (currentPath === "/rfq/new") return "Post RFQ";
+    if (currentPath.startsWith("/rfq/")) return "RFQ detail";
+    if (currentPath === "/rfq") return "RFQs";
+    if (currentPath === "/shortlist") return "Shortlist";
+    if (currentPath === "/account") return "Account";
+    if (currentPath.startsWith("/products/")) return "Product";
+    if (currentPath === "/products") {
+      return currentSearch.get("categoryId") ? "Category" : "Products";
+    }
+    if (currentPath.startsWith("/suppliers/")) return "Supplier";
+    if (currentPath === "/suppliers") {
+      return currentSearch.get("verified") === "true" ? "Verified suppliers" : "Suppliers";
+    }
+    if (currentPath === "/") return "Marketplace";
+    if (currentPath === "/privacy") return "Privacy";
+    if (currentPath === "/terms") return "Terms";
+    if (currentPath === "/refund") return "Refunds";
+    return "Page";
+  }
+
+  const sellerBoardActive =
+    !!isSeller &&
+    (inSellerCentral ||
+      currentPath === "/rfq" ||
+      currentPath.startsWith("/rfq/") ||
+      currentPath === "/account");
+  const buyerBoardActive =
+    !!isBuyer &&
+    (inBuyerCentral ||
+      currentPath === "/rfq" ||
+      currentPath.startsWith("/rfq/") ||
+      currentPath === "/shortlist" ||
+      currentPath === "/products" ||
+      currentPath.startsWith("/products/") ||
+      currentPath === "/suppliers" ||
+      currentPath.startsWith("/suppliers/") ||
+      currentPath === "/account");
+
+  const pageTitle = resolvePageTitle();
+  const boardLabel = sellerBoardActive
+    ? `Seller Central · ${pageTitle}`
+    : buyerBoardActive
+      ? `Buyer Central · ${pageTitle}`
+      : null;
+
   function isNavActive(itemPath: string): boolean {
     const [itemBase, itemQuery = ""] = itemPath.split("?");
     const itemParams = new URLSearchParams(itemQuery);
@@ -133,15 +190,13 @@ export function Header() {
       {/* Top bar — Alibaba-style buyer / seller entry */}
       <div
         className={
-          isSeller && inSellerCentral ? "bg-[#1a3a4a] text-white" : "bg-secondary text-white"
+          sellerBoardActive ? "bg-[#1a3a4a] text-white" : "bg-secondary text-white"
         }
       >
         <div className={`${shell} text-xs min-h-9 sm:h-8 flex justify-between items-center gap-4 py-1 sm:py-0`}>
           <span className="hidden sm:flex items-center gap-3 text-white/70 truncate min-w-0">
-            {isSeller && inSellerCentral ? (
-              <span>Seller Central · Manage products & RFQs</span>
-            ) : isBuyer && inBuyerCentral ? (
-              <span>Buyer Central · Source · RFQ · Shortlist</span>
+            {boardLabel ? (
+              <span aria-current="page">{boardLabel}</span>
             ) : (
               <>
                 <span className="truncate">India&apos;s #1 B2B Wholesale Marketplace</span>
@@ -180,7 +235,9 @@ export function Header() {
             ) : (
               <span className="sm:hidden text-white/80 flex items-center gap-1.5 truncate max-w-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block shrink-0" />
-                <span className="font-medium truncate">{workspaceLabel}</span>
+                <span className="font-medium truncate" aria-current="page">
+                  {boardLabel ?? workspaceLabel}
+                </span>
               </span>
             )}
           </div>

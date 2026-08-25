@@ -9,23 +9,34 @@ interface ImageUploaderProps {
   maxImages?: number;
 }
 
-/** Resize/compress so inline fallback stays under API-friendly payload size. */
-async function fileToDataUrl(file: File, maxEdge = 1280, quality = 0.82): Promise<string> {
-  if (!file.type.startsWith("image/")) {
-    throw new Error("Only image files are allowed");
-  }
+/**
+ * Decode + recompress to JPEG so HEIC/odd phone MIME types become
+ * `image/jpeg` before hitting the storage allowlist.
+ */
+async function fileToJpegFile(file: File, maxEdge = 1600, quality = 0.85): Promise<File> {
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-  const w = Math.max(1, Math.round(bitmap.width * scale));
-  const h = Math.max(1, Math.round(bitmap.height * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Could not process image");
-  ctx.drawImage(bitmap, 0, 0, w, h);
-  bitmap.close();
-  return canvas.toDataURL("image/jpeg", quality);
+  try {
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Could not process image");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("Could not compress image"))),
+        "image/jpeg",
+        quality,
+      );
+    });
+    const base = file.name.replace(/\.[^.]+$/, "") || "product";
+    return new File([blob], `${base}.jpg`, { type: "image/jpeg" });
+  } finally {
+    bitmap.close();
+  }
 }
 
 export function ImageUploader({ images, onChange, maxImages = 5 }: ImageUploaderProps) {
@@ -36,20 +47,16 @@ export function ImageUploader({ images, onChange, maxImages = 5 }: ImageUploader
 
   const { uploadFile, isUploading, progress } = useUpload({
     getToken,
-    onSuccess: (response) => {
-      const servingUrl = `/api/storage${response.objectPath}`;
-      onChange([...images, servingUrl]);
-      setUploadError(null);
-    },
-    onError: () => {
-      // Handled in handleFiles with inline fallback.
-    },
   });
 
   async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
+
+    const looksLikeImage =
+      file.type.startsWith("image/") ||
+      /\.(jpe?g|png|webp|gif|heic|heif|avif)$/i.test(file.name);
+    if (!looksLikeImage) {
       setUploadError("Only image files are allowed");
       return;
     }
@@ -57,16 +64,23 @@ export function ImageUploader({ images, onChange, maxImages = 5 }: ImageUploader
       setUploadError(`You can upload up to ${maxImages} images`);
       return;
     }
+
     setUploadError(null);
     setLocalBusy(true);
     try {
-      const uploaded = await uploadFile(file);
-      if (uploaded) return;
+      let toUpload: File;
+      try {
+        toUpload = await fileToJpegFile(file);
+      } catch {
+        if (!file.type.startsWith("image/") || file.type.includes("heic") || file.type.includes("heif")) {
+          throw new Error("Could not read this image. Please use JPEG or PNG.");
+        }
+        toUpload = file;
+      }
 
-      // Object storage unavailable (local ephemeral / missing cloud creds) —
-      // still attach a real image so the product listing works.
-      const dataUrl = await fileToDataUrl(file);
-      onChange([...images, dataUrl]);
+      const uploaded = await uploadFile(toUpload);
+      const servingUrl = `/api/storage${uploaded.objectPath}`;
+      onChange([...images, servingUrl]);
       setUploadError(null);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
@@ -87,7 +101,7 @@ export function ImageUploader({ images, onChange, maxImages = 5 }: ImageUploader
       <div className="flex flex-wrap gap-2">
         {images.map((url, i) => (
           <div
-            key={i}
+            key={`${url}-${i}`}
             className="relative group w-20 h-20 rounded-lg border border-border overflow-hidden bg-muted"
           >
             <img src={url} alt={`Product image ${i + 1}`} className="w-full h-full object-cover" />
@@ -133,9 +147,9 @@ export function ImageUploader({ images, onChange, maxImages = 5 }: ImageUploader
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif"
         className="hidden"
-        onChange={handleFiles}
+        onChange={(e) => void handleFiles(e)}
       />
 
       {uploadError && <p className="text-sm text-red-500">{uploadError}</p>}

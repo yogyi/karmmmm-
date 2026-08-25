@@ -125,6 +125,14 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
     }
 
     const primaryImage = form.imageUrl || form.images[0] || "";
+    if (!primaryImage || form.images.length === 0) {
+      setError("Upload at least one product image");
+      return;
+    }
+    if (form.images.some((u) => u.startsWith("data:"))) {
+      setError("Image upload did not finish. Remove the image and upload again.");
+      return;
+    }
 
     const usingCustom = form.categoryId === OTHERS_CATEGORY_ID;
     const customName = form.customCategory.trim();

@@ -4,6 +4,7 @@ import { useAuth as useClerkAuth } from "@clerk/react";
 import { useAuth } from "@/context/AuthContext";
 import { clearStoredAuthMode, type AuthMode } from "@/lib/authMode";
 import { consumeAuthRedirect } from "@/lib/authRedirect";
+import { useAppDialog } from "@/components/AppDialog";
 
 export async function applyAccountRole(
   role: AuthMode,
@@ -39,6 +40,7 @@ export async function applyAccountRole(
 export function useSwitchAccountRole() {
   const { user, refreshProfile } = useAuth();
   const { getToken } = useClerkAuth();
+  const { alert } = useAppDialog();
   const [, navigate] = useLocation();
   const [switching, setSwitching] = useState(false);
 
@@ -60,11 +62,14 @@ export function useSwitchAccountRole() {
         }
         navigate(consumeAuthRedirect("/buyer"));
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : "Could not switch account");
+        await alert({
+          title: "Could not switch account",
+          message: e instanceof Error ? e.message : "Could not switch account",
+        });
         setSwitching(false);
       }
     },
-    [switching, user?.role, getToken, refreshProfile, navigate],
+    [switching, user?.role, getToken, refreshProfile, navigate, alert],
   );
 
   return { switchTo, switching };

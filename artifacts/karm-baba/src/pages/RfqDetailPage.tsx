@@ -20,6 +20,7 @@ import type { RfqQuote } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
 import { invalidateRfqQueries } from "@/lib/rfqQueries";
+import { useAppDialog } from "@/components/AppDialog";
 
 const statusConfig = {
   pending: {
@@ -93,6 +94,7 @@ function formatMoney(amount: number, code: string) {
 export function RfqDetailPage({ params }: { params: { id: string } }) {
   const [, navigate] = useLocation();
   const { user, isLoggedIn } = useAuth();
+  const { confirm } = useAppDialog();
   const qc = useQueryClient();
   const rfqId = Number(params.id);
 
@@ -208,9 +210,12 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   }
 
   async function onAward(quoteId: number) {
-    const ok = window.confirm(
-      "Accept this quote and close the deal? Other quotes will be declined.",
-    );
+    const ok = await confirm({
+      title: "Accept quote & close deal?",
+      message: "Accept this quote and close the deal? Other quotes will be declined.",
+      confirmLabel: "Accept & close",
+      cancelLabel: "Keep comparing",
+    });
     if (!ok) return;
     setError("");
     setSuccess("");
@@ -225,9 +230,13 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   }
 
   async function onCancelRfq() {
-    const ok = window.confirm(
-      "Cancel this RFQ? No deal will be made and all quotes will be declined.",
-    );
+    const ok = await confirm({
+      title: "Cancel this RFQ?",
+      message: "No deal will be made and all quotes will be declined.",
+      confirmLabel: "Cancel RFQ",
+      cancelLabel: "Keep open",
+      destructive: true,
+    });
     if (!ok) return;
     setError("");
     try {

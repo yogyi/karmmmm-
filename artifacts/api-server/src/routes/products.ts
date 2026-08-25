@@ -158,6 +158,18 @@ router.post("/products", requireClerkAuth, async (req, res): Promise<void> => {
     body.imageUrl = "";
   }
 
+  const imageUrls = [
+    typeof body.imageUrl === "string" ? body.imageUrl : "",
+    ...(Array.isArray(body.images) ? body.images.filter((u): u is string => typeof u === "string") : []),
+  ];
+  if (imageUrls.some((u) => u.startsWith("data:"))) {
+    res.status(400).json({
+      error:
+        "Inline image data is not allowed. Upload images via storage first, then save the product.",
+    });
+    return;
+  }
+
   const parsed = CreateProductBody.safeParse(body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });

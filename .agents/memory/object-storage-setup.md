@@ -1,21 +1,32 @@
----
-name: Object Storage (GCS) setup for Karm Baba
-description: Presigned URL upload flow; GCS / S3 / R2 drivers; Replit sidecar is legacy-only.
----
+# Object storage (Karm Baba)
 
-## Rule
-Store `objectPath` returned from `POST /api/storage/uploads/request-url` in the DB. Serve via `GET /api/storage${objectPath}`.
+## Production (Vercel) — use Blob
 
-**Why:** Files upload directly to cloud storage via a **presigned PUT URL** — never through the Express server. Signing must work off Replit (Vercel/local).
+Product images must not use local disk on serverless.
 
-**Drivers** (`OBJECT_STORAGE_DRIVER`, or auto-detect):
-- `gcs` — `@google-cloud/storage` V4 signed URLs + `GCS_SERVICE_ACCOUNT_JSON` / ADC
-- `s3` — AWS S3 or Cloudflare R2 (`S3_ENDPOINT` / `R2_ACCOUNT_ID` + AWS keys)
-- `replit` — local sidecar at `127.0.0.1:1106` (legacy; fails on Vercel)
+1. Open the Vercel project (`karmmmm-api-server`) → **Storage** → **Create** → **Blob**
+2. Connect the store to the project (Production + Preview)
+3. Vercel injects `BLOB_READ_WRITE_TOKEN` automatically
+4. Set env (optional explicit):
+   - `OBJECT_STORAGE_DRIVER=blob`
+   - `PRIVATE_OBJECT_DIR=/karmbaba-blob/private` (default if unset)
+5. Redeploy
 
-Paths: `PRIVATE_OBJECT_DIR=/bucket/private`, `PUBLIC_OBJECT_SEARCH_PATHS=/bucket/public`
+Auto-detect: if `BLOB_READ_WRITE_TOKEN` is present, or `VERCEL=1`, the API uses the `blob` driver.
 
-**How to apply:**
-- Upload: `useUpload()` from `@workspace/object-storage-web`
-- Serving: `<img src={/api/storage${objectPath}} />`
-- See `.env.example` for credential env vars
+## Drivers
+
+| Driver | When |
+|--------|------|
+| `blob` | Vercel Blob (`BLOB_READ_WRITE_TOKEN`) — **preferred on Vercel** |
+| `s3` | AWS S3 / Cloudflare R2 |
+| `gcs` | Google Cloud Storage |
+| `local` | Local disk only (`pnpm dev`) — never on Vercel |
+| `replit` | Legacy Replit sidecar |
+
+## Upload flow
+
+1. `POST /api/storage/uploads/request-url`
+2. `PUT` file to returned URL (Blob/local: `/api/storage/uploads/put/:id`)
+3. `POST /api/storage/uploads/finalize` (ACL / public)
+4. Serve via `/api/storage/objects/...` (Blob public → 302 to CDN URL)

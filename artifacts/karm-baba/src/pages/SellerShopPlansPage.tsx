@@ -11,6 +11,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useAppDialog } from "@/components/AppDialog";
 
 type Plan = {
   code: string;
@@ -44,6 +45,7 @@ export function SellerShopPlansPage() {
   const [, navigate] = useLocation();
   const { user, isLoaded, isLoggedIn, profileReady } = useAuth();
   const { getToken } = useClerkAuth();
+  const { confirm } = useAppDialog();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [sub, setSub] = useState<Subscription | null>(null);
   const [slug, setSlug] = useState<string | null>(null);
@@ -125,9 +127,14 @@ export function SellerShopPlansPage() {
       return;
     }
     if (sub?.planCode && planCode === "free" && sub.planCode !== "free") {
-      const ok = window.confirm(
-        "Downgrade to Free? You may lose paid product and lead limits after the change.",
-      );
+      const ok = await confirm({
+        title: "Downgrade to Free?",
+        message:
+          "You may lose paid product and lead limits after the change.",
+        confirmLabel: "Downgrade",
+        cancelLabel: "Keep current plan",
+        destructive: true,
+      });
       if (!ok) return;
     }
     setMessage(null);

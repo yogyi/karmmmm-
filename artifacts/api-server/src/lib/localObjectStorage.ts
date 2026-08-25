@@ -6,8 +6,10 @@ import type { StoredObject } from "./objectStorageBackend";
 
 const ROOT = path.resolve(
   process.env.LOCAL_OBJECT_DIR ||
-    // Prefer repo-stable path when cwd is the api-server package during `pnpm dev`.
-    path.join(process.cwd(), "data", "objects"),
+    (process.env.VERCEL
+      ? path.join("/tmp", "karmbaba-objects")
+      : // Prefer repo-stable path when cwd is the api-server package during `pnpm dev`.
+        path.join(process.cwd(), "data", "objects")),
 );
 
 function filePath(bucketName: string, objectName: string): string {

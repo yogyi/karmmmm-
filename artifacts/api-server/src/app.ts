@@ -34,8 +34,9 @@ app.use(
 );
 app.use(cors(buildCorsOptions()));
 logger.info({ origins: listAllowedCorsOrigins() }, "CORS allowlist configured");
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Product/profile JSON may include several image URL strings; keep headroom above default 100kb.
+app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 if (clerkEnabled) {
   app.use(clerkMiddleware());

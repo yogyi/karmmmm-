@@ -5,10 +5,12 @@ import { getProduct, getGetProductQueryKey } from "@workspace/api-client-react";
 import { useShortlist } from "@/hooks/useShortlist";
 import { StarRating } from "@/components/StarRating";
 import { ProductImage } from "@/components/ProductImage";
+import { useAppDialog } from "@/components/AppDialog";
 
 export function ShortlistPage() {
   const [, navigate] = useLocation();
   const { ids, toggle, clear, count } = useShortlist();
+  const { confirm } = useAppDialog();
 
   const queries = useQueries({
     queries: ids.map((id) => ({
@@ -42,13 +44,16 @@ export function ShortlistPage() {
           <button
             type="button"
             onClick={() => {
-              if (
-                window.confirm(
-                  `Clear all ${count} shortlisted product${count === 1 ? "" : "s"}? This cannot be undone.`,
-                )
-              ) {
-                clear();
-              }
+              void (async () => {
+                const ok = await confirm({
+                  title: "Clear shortlist?",
+                  message: `Clear all ${count} shortlisted product${count === 1 ? "" : "s"}? This cannot be undone.`,
+                  confirmLabel: "Clear all",
+                  cancelLabel: "Keep",
+                  destructive: true,
+                });
+                if (ok) clear();
+              })();
             }}
             className="text-sm text-muted-foreground hover:text-destructive border border-border rounded-xl px-3 py-2 min-h-11"
           >

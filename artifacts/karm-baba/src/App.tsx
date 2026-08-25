@@ -4,6 +4,7 @@ import { MotionConfig } from "framer-motion";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/context/AuthContext";
+import { AppDialogProvider } from "@/components/AppDialog";
 import { OnboardingGate } from "@/components/OnboardingGate";
 import { ScrollToTop } from "@/components/ScrollToTop";
 import { Header } from "@/components/Header";
@@ -100,12 +101,14 @@ function App() {
       <TooltipProvider>
         <MotionConfig reducedMotion="user">
           <AuthProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <ScrollToTop />
-              <OnboardingGate />
-              <Router />
-              <Toaster />
-            </WouterRouter>
+            <AppDialogProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                <ScrollToTop />
+                <OnboardingGate />
+                <Router />
+                <Toaster />
+              </WouterRouter>
+            </AppDialogProvider>
           </AuthProvider>
         </MotionConfig>
       </TooltipProvider>

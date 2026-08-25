@@ -12,6 +12,7 @@ import {
 import { getClerkUserId, requireClerkAuth } from "../lib/auth";
 import { getObjectStorageDriver } from "../lib/objectStorageBackend";
 import { writeLocalObject } from "../lib/localObjectStorage";
+import { writeBlobObject, isBlobConfigured } from "../lib/blobObjectStorage";
 import {
   MAX_UPLOAD_BYTES,
   assertUploadMetadata,
@@ -39,6 +40,10 @@ function parseFinalizeBody(body: unknown): {
   return { objectPath, visibility };
 }
 
+function isDirectPutDriver(driver: string): boolean {
+  return driver === "local" || driver === "blob";
+}
+
 /**
  * POST /storage/uploads/request-url
  *
@@ -63,7 +68,7 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
     const { name, size, contentType } = parsed.data;
 
     const { uploadURL, objectPath } =
-      await objectStorageService.getObjectEntityUploadURL();
+      await objectStorageService.getObjectEntityUploadURL({ contentType });
 
     res.json(
       RequestUploadUrlResponse.parse({
@@ -79,7 +84,9 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
     );
     res.status(500).json({
       error:
-        "Failed to generate upload URL. Check OBJECT_STORAGE_DRIVER and cloud credentials.",
+        getObjectStorageDriver() === "blob" && !isBlobConfigured()
+          ? "Vercel Blob is not linked. In Vercel → Storage → create/connect Blob, then redeploy (BLOB_READ_WRITE_TOKEN)."
+          : "Failed to generate upload URL. Check OBJECT_STORAGE_DRIVER and cloud credentials.",
     });
   }
 });
@@ -138,14 +145,24 @@ router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, 
   }
 });
 
-/** Local-disk PUT target used when OBJECT_STORAGE_DRIVER=local (or no cloud creds). */
+/** Local-disk or Vercel Blob PUT target (direct upload through the API). */
 router.put(
   "/storage/uploads/put/:objectId",
   requireClerkAuth,
   express.raw({ type: "*/*", limit: `${MAX_UPLOAD_BYTES}b` }),
   async (req: Request, res: Response) => {
-    if (getObjectStorageDriver() !== "local") {
-      res.status(400).json({ error: "Direct PUT uploads are only enabled for local storage" });
+    const driver = getObjectStorageDriver();
+    if (!isDirectPutDriver(driver)) {
+      res.status(400).json({
+        error: "Direct PUT uploads are only enabled for local or blob storage",
+      });
+      return;
+    }
+    if (driver === "blob" && !isBlobConfigured()) {
+      res.status(503).json({
+        error:
+          "Vercel Blob is not configured. Connect a Blob store to this project (BLOB_READ_WRITE_TOKEN), then redeploy.",
+      });
       return;
     }
     const objectId = String(req.params.objectId || "").replace(/[^a-zA-Z0-9-]/g, "");
@@ -172,7 +189,13 @@ router.put(
       });
       return;
     }
-    await writeLocalObject("karmbaba-local", `private/uploads/${objectId}`, body, contentType);
+
+    const objectName = `private/uploads/${objectId}`;
+    if (driver === "blob") {
+      await writeBlobObject(objectName, body, contentType.split(";")[0]!.trim());
+    } else {
+      await writeLocalObject("karmbaba-local", objectName, body, contentType);
+    }
     res.status(200).json({ ok: true, objectPath: `/objects/uploads/${objectId}` });
   },
 );
@@ -245,6 +268,18 @@ storagePublicRouter.get("/storage/objects/*path", async (req: Request, res: Resp
     if (!canAccess) {
       res.status(403).json({ error: "Forbidden" });
       return;
+    }
+
+    // Prefer CDN redirect for Vercel Blob public objects (fast product images).
+    if (
+      aclPolicy.visibility === "public" &&
+      typeof objectFile.getPublicUrl === "function"
+    ) {
+      const publicUrl = await objectFile.getPublicUrl();
+      if (publicUrl) {
+        res.redirect(302, publicUrl);
+        return;
+      }
     }
 
     const response = await objectStorageService.downloadObject(objectFile);

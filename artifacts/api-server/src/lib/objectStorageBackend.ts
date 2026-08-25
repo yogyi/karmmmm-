@@ -10,8 +10,9 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable } from "node:stream";
 import { LocalStoredObject } from "./localObjectStorage";
+import { BlobStoredObject, isBlobConfigured } from "./blobObjectStorage";
 
-export type ObjectStorageDriver = "gcs" | "s3" | "replit" | "local";
+export type ObjectStorageDriver = "gcs" | "s3" | "replit" | "local" | "blob";
 
 const REPLIT_SIDECAR_ENDPOINT =
   process.env.REPLIT_SIDECAR_ENDPOINT || "http://127.0.0.1:1106";
@@ -27,6 +28,8 @@ export interface StoredObject {
   getContentInfo(): Promise<{ contentType: string; size?: string }>;
   getAclPolicyJson(): Promise<string | null>;
   setAclPolicyJson(json: string): Promise<void>;
+  /** Optional CDN URL (Vercel Blob) for direct redirects. */
+  getPublicUrl?(): Promise<string | null>;
 }
 
 export function resolveObjectStorageDriver(): ObjectStorageDriver {
@@ -35,9 +38,14 @@ export function resolveObjectStorageDriver(): ObjectStorageDriver {
     explicit === "gcs" ||
     explicit === "s3" ||
     explicit === "replit" ||
-    explicit === "local"
+    explicit === "local" ||
+    explicit === "blob"
   ) {
     return explicit;
+  }
+  // Prefer durable Blob on Vercel when the store token is linked.
+  if (isBlobConfigured()) {
+    return "blob";
   }
   if (
     process.env.S3_BUCKET ||
@@ -56,6 +64,10 @@ export function resolveObjectStorageDriver(): ObjectStorageDriver {
   }
   if (process.env.REPL_ID || process.env.REPL_SLUG) {
     return "replit";
+  }
+  // Never use ephemeral local disk on Vercel — fail loudly at upload time instead.
+  if (process.env.VERCEL) {
+    return "blob";
   }
   return "local";
 }
@@ -261,6 +273,9 @@ export function getStoredObject(
   if (driver === "local") {
     return new LocalStoredObject(bucketName, objectName);
   }
+  if (driver === "blob") {
+    return new BlobStoredObject(bucketName, objectName);
+  }
   if (driver === "s3") {
     return new S3StoredObject(bucketName, objectName, createS3Client());
   }
@@ -272,6 +287,7 @@ export async function signPutObjectUrl(
   bucketName: string,
   objectName: string,
   ttlSec: number,
+  contentType?: string,
 ): Promise<string> {
   const driver = getObjectStorageDriver();
 
@@ -291,6 +307,7 @@ export async function signPutObjectUrl(
       new PutObjectCommand({
         Bucket: bucketName,
         Key: objectName,
+        ...(contentType ? { ContentType: contentType } : {}),
       }),
       { expiresIn: ttlSec },
     );
@@ -302,6 +319,7 @@ export async function signPutObjectUrl(
     version: "v4",
     action: "write",
     expires: Date.now() + ttlSec * 1000,
+    ...(contentType ? { contentType } : {}),
   });
   return url;
 }

@@ -12,6 +12,8 @@ const KEYS = [
   "GCS_PROJECT_ID",
   "REPL_ID",
   "REPL_SLUG",
+  "BLOB_READ_WRITE_TOKEN",
+  "VERCEL",
 ] as const;
 
 describe("resolveObjectStorageDriver", () => {
@@ -40,6 +42,18 @@ describe("resolveObjectStorageDriver", () => {
     expect(resolveObjectStorageDriver()).toBe("gcs");
     process.env.OBJECT_STORAGE_DRIVER = "local";
     expect(resolveObjectStorageDriver()).toBe("local");
+    process.env.OBJECT_STORAGE_DRIVER = "blob";
+    expect(resolveObjectStorageDriver()).toBe("blob");
+  });
+
+  it("auto-selects blob when BLOB_READ_WRITE_TOKEN is present", () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "vercel_blob_rw_test";
+    expect(resolveObjectStorageDriver()).toBe("blob");
+  });
+
+  it("prefers blob on Vercel even without token (upload fails clearly later)", () => {
+    process.env.VERCEL = "1";
+    expect(resolveObjectStorageDriver()).toBe("blob");
   });
 
   it("auto-selects s3 when R2/S3 env is present", () => {

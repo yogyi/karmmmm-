@@ -46,11 +46,14 @@ export class ObjectStorageService {
     if (getObjectStorageDriver() === "local") {
       return process.env.PRIVATE_OBJECT_DIR || "/karmbaba-local/private";
     }
+    if (getObjectStorageDriver() === "blob") {
+      return process.env.PRIVATE_OBJECT_DIR || "/karmbaba-blob/private";
+    }
     const dir = process.env.PRIVATE_OBJECT_DIR || "";
     if (!dir) {
       throw new Error(
         "PRIVATE_OBJECT_DIR not set. Example: /my-bucket/private. " +
-          "Configure OBJECT_STORAGE_DRIVER=gcs|s3|replit and credentials — see .env.example.",
+          "Configure OBJECT_STORAGE_DRIVER=blob|gcs|s3|replit and credentials — see .env.example.",
       );
     }
     return dir;
@@ -95,7 +98,7 @@ export class ObjectStorageService {
    * Signing uses native GCS / S3(R2) credentials — Replit sidecar only when
    * OBJECT_STORAGE_DRIVER=replit (or auto-detected REPL_ID).
    */
-  async getObjectEntityUploadURL(): Promise<{
+  async getObjectEntityUploadURL(opts?: { contentType?: string }): Promise<{
     uploadURL: string;
     objectPath: string;
   }> {
@@ -104,14 +107,19 @@ export class ObjectStorageService {
     const fullPath = `${privateObjectDir.replace(/\/$/, "")}/uploads/${objectId}`;
     const { bucketName, objectName } = parseObjectPath(fullPath);
 
-    if (getObjectStorageDriver() === "local") {
+    if (getObjectStorageDriver() === "local" || getObjectStorageDriver() === "blob") {
       return {
         uploadURL: `/api/storage/uploads/put/${objectId}`,
         objectPath: `/objects/uploads/${objectId}`,
       };
     }
 
-    const uploadURL = await signPutObjectUrl(bucketName, objectName, 900);
+    const uploadURL = await signPutObjectUrl(
+      bucketName,
+      objectName,
+      900,
+      opts?.contentType,
+    );
     return {
       uploadURL,
       objectPath: `/objects/uploads/${objectId}`,

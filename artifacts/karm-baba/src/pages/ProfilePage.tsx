@@ -191,7 +191,6 @@ export function ProfilePage() {
       }
       if (!nextUrl) {
         const uploaded = await uploadFile(file);
-        if (!uploaded) throw new Error("Could not upload photo");
         nextUrl = `/api/storage${uploaded.objectPath}`;
       }
       await persistAvatar(nextUrl);
