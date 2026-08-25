@@ -42,8 +42,11 @@ import type {
   Review,
   ReviewInput,
   Rfq,
+  RfqAwardInput,
   RfqInput,
+  RfqQuoteInput,
   RfqUpdate,
+  SetupShopBody,
   ShopSubscription,
   ShopSubscriptionInput,
   Supplier,
@@ -1361,6 +1364,150 @@ export const useUpdateRfq = <TError = ErrorType<unknown>,
       return useMutation(getUpdateRfqMutationOptions(options));
     }
 
+export const getSubmitRfqQuoteUrl = (id: number,) => {
+
+
+
+
+  return `/api/rfq/${id}/quotes`
+}
+
+/**
+ * @summary Submit or update a seller quote on an open RFQ
+ */
+export const submitRfqQuote = async (id: number,
+    rfqQuoteInput: RfqQuoteInput, options?: RequestInit): Promise<Rfq> => {
+
+  return customFetch<Rfq>(getSubmitRfqQuoteUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      rfqQuoteInput,)
+  }
+);}
+
+
+
+
+export const getSubmitRfqQuoteMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitRfqQuote>>, TError,{id: number;data: BodyType<RfqQuoteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof submitRfqQuote>>, TError,{id: number;data: BodyType<RfqQuoteInput>}, TContext> => {
+
+const mutationKey = ['submitRfqQuote'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof submitRfqQuote>>, {id: number;data: BodyType<RfqQuoteInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  submitRfqQuote(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SubmitRfqQuoteMutationResult = NonNullable<Awaited<ReturnType<typeof submitRfqQuote>>>
+    export type SubmitRfqQuoteMutationBody = BodyType<RfqQuoteInput>
+    export type SubmitRfqQuoteMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Submit or update a seller quote on an open RFQ
+ */
+export const useSubmitRfqQuote = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitRfqQuote>>, TError,{id: number;data: BodyType<RfqQuoteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof submitRfqQuote>>,
+        TError,
+        {id: number;data: BodyType<RfqQuoteInput>},
+        TContext
+      > => {
+      return useMutation(getSubmitRfqQuoteMutationOptions(options));
+    }
+
+export const getAwardRfqQuoteUrl = (id: number,) => {
+
+
+
+
+  return `/api/rfq/${id}/award`
+}
+
+/**
+ * @summary Buyer awards one quote and closes the deal
+ */
+export const awardRfqQuote = async (id: number,
+    rfqAwardInput: RfqAwardInput, options?: RequestInit): Promise<Rfq> => {
+
+  return customFetch<Rfq>(getAwardRfqQuoteUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      rfqAwardInput,)
+  }
+);}
+
+
+
+
+export const getAwardRfqQuoteMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof awardRfqQuote>>, TError,{id: number;data: BodyType<RfqAwardInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof awardRfqQuote>>, TError,{id: number;data: BodyType<RfqAwardInput>}, TContext> => {
+
+const mutationKey = ['awardRfqQuote'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof awardRfqQuote>>, {id: number;data: BodyType<RfqAwardInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  awardRfqQuote(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AwardRfqQuoteMutationResult = NonNullable<Awaited<ReturnType<typeof awardRfqQuote>>>
+    export type AwardRfqQuoteMutationBody = BodyType<RfqAwardInput>
+    export type AwardRfqQuoteMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Buyer awards one quote and closes the deal
+ */
+export const useAwardRfqQuote = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof awardRfqQuote>>, TError,{id: number;data: BodyType<RfqAwardInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof awardRfqQuote>>,
+        TError,
+        {id: number;data: BodyType<RfqAwardInput>},
+        TContext
+      > => {
+      return useMutation(getAwardRfqQuoteMutationOptions(options));
+    }
+
 export const getCreateUserUrl = () => {
 
 
@@ -1949,6 +2096,79 @@ export function useListPlans<TData = Awaited<ReturnType<typeof listPlans>>, TErr
 
 
 
+
+export const getSetupShopUrl = () => {
+
+
+
+
+  return `/api/shop/setup`
+}
+
+/**
+ * Creates a linked supplier + Free subscription when the user has no shop. Paid plan codes are rejected for non-admins.
+
+ * @summary Open a Free shop (subscription-based setup)
+ */
+export const setupShop = async (setupShopBody: SetupShopBody, options?: RequestInit): Promise<ShopSubscription> => {
+
+  return customFetch<ShopSubscription>(getSetupShopUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      setupShopBody,)
+  }
+);}
+
+
+
+
+export const getSetupShopMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setupShop>>, TError,{data: BodyType<SetupShopBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setupShop>>, TError,{data: BodyType<SetupShopBody>}, TContext> => {
+
+const mutationKey = ['setupShop'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setupShop>>, {data: BodyType<SetupShopBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  setupShop(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetupShopMutationResult = NonNullable<Awaited<ReturnType<typeof setupShop>>>
+    export type SetupShopMutationBody = BodyType<SetupShopBody>
+    export type SetupShopMutationError = ErrorType<void>
+
+    /**
+ * @summary Open a Free shop (subscription-based setup)
+ */
+export const useSetupShop = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setupShop>>, TError,{data: BodyType<SetupShopBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setupShop>>,
+        TError,
+        {data: BodyType<SetupShopBody>},
+        TContext
+      > => {
+      return useMutation(getSetupShopMutationOptions(options));
+    }
 
 export const getGetShopSubscriptionUrl = () => {
 

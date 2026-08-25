@@ -382,6 +382,30 @@ export const ListRfqsResponseItem = zod.object({
   "targetPrice": zod.number().nullish(),
   "description": zod.string().nullish(),
   "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
+  "quotedPrice": zod.number().nullish().describe('Winning or latest unit price (denormalized for lists)'),
+  "sellerMessage": zod.string().nullish(),
+  "quotedAt": zod.string().nullish(),
+  "awardedQuoteId": zod.number().nullish(),
+  "closedAt": zod.string().nullish(),
+  "quoteCount": zod.number().optional().describe('Number of active\/awarded quotes on this RFQ'),
+  "quotes": zod.array(zod.object({
+  "id": zod.number(),
+  "rfqId": zod.number(),
+  "supplierId": zod.number(),
+  "supplierName": zod.string(),
+  "unitPrice": zod.number(),
+  "currency": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string(),
+  "leadTimeDays": zod.number().nullish(),
+  "validDays": zod.number().nullish(),
+  "paymentTerms": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "status": zod.enum(['active', 'withdrawn', 'awarded', 'declined']),
+  "lineTotal": zod.number().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional(),
   "createdAt": zod.string()
 })
 export const ListRfqsResponse = zod.array(ListRfqsResponseItem)
@@ -428,6 +452,30 @@ export const GetRfqResponse = zod.object({
   "targetPrice": zod.number().nullish(),
   "description": zod.string().nullish(),
   "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
+  "quotedPrice": zod.number().nullish().describe('Winning or latest unit price (denormalized for lists)'),
+  "sellerMessage": zod.string().nullish(),
+  "quotedAt": zod.string().nullish(),
+  "awardedQuoteId": zod.number().nullish(),
+  "closedAt": zod.string().nullish(),
+  "quoteCount": zod.number().optional().describe('Number of active\/awarded quotes on this RFQ'),
+  "quotes": zod.array(zod.object({
+  "id": zod.number(),
+  "rfqId": zod.number(),
+  "supplierId": zod.number(),
+  "supplierName": zod.string(),
+  "unitPrice": zod.number(),
+  "currency": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string(),
+  "leadTimeDays": zod.number().nullish(),
+  "validDays": zod.number().nullish(),
+  "paymentTerms": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "status": zod.enum(['active', 'withdrawn', 'awarded', 'declined']),
+  "lineTotal": zod.number().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional(),
   "createdAt": zod.string()
 })
 
@@ -443,7 +491,8 @@ export const UpdateRfqBody = zod.object({
   "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']).optional(),
   "quotedPrice": zod.number().optional(),
   "sellerMessage": zod.string().optional(),
-  "supplierName": zod.string().optional()
+  "supplierName": zod.string().optional(),
+  "awardQuoteId": zod.number().optional().describe('Buyer awards this quote and closes the deal')
 })
 
 export const UpdateRfqResponse = zod.object({
@@ -462,6 +511,147 @@ export const UpdateRfqResponse = zod.object({
   "targetPrice": zod.number().nullish(),
   "description": zod.string().nullish(),
   "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
+  "quotedPrice": zod.number().nullish().describe('Winning or latest unit price (denormalized for lists)'),
+  "sellerMessage": zod.string().nullish(),
+  "quotedAt": zod.string().nullish(),
+  "awardedQuoteId": zod.number().nullish(),
+  "closedAt": zod.string().nullish(),
+  "quoteCount": zod.number().optional().describe('Number of active\/awarded quotes on this RFQ'),
+  "quotes": zod.array(zod.object({
+  "id": zod.number(),
+  "rfqId": zod.number(),
+  "supplierId": zod.number(),
+  "supplierName": zod.string(),
+  "unitPrice": zod.number(),
+  "currency": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string(),
+  "leadTimeDays": zod.number().nullish(),
+  "validDays": zod.number().nullish(),
+  "paymentTerms": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "status": zod.enum(['active', 'withdrawn', 'awarded', 'declined']),
+  "lineTotal": zod.number().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Submit or update a seller quote on an open RFQ
+ */
+export const SubmitRfqQuoteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SubmitRfqQuoteBody = zod.object({
+  "unitPrice": zod.number(),
+  "currency": zod.string().optional(),
+  "quantity": zod.number(),
+  "unit": zod.string(),
+  "leadTimeDays": zod.number().optional(),
+  "validDays": zod.number().optional(),
+  "paymentTerms": zod.string().optional(),
+  "message": zod.string().optional()
+})
+
+export const SubmitRfqQuoteResponse = zod.object({
+  "id": zod.number(),
+  "productId": zod.number().nullish(),
+  "productName": zod.string(),
+  "categoryId": zod.number().nullish(),
+  "categoryName": zod.string().nullish(),
+  "supplierId": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "buyerId": zod.number().nullish(),
+  "buyerName": zod.string(),
+  "buyerEmail": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string(),
+  "targetPrice": zod.number().nullish(),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
+  "quotedPrice": zod.number().nullish().describe('Winning or latest unit price (denormalized for lists)'),
+  "sellerMessage": zod.string().nullish(),
+  "quotedAt": zod.string().nullish(),
+  "awardedQuoteId": zod.number().nullish(),
+  "closedAt": zod.string().nullish(),
+  "quoteCount": zod.number().optional().describe('Number of active\/awarded quotes on this RFQ'),
+  "quotes": zod.array(zod.object({
+  "id": zod.number(),
+  "rfqId": zod.number(),
+  "supplierId": zod.number(),
+  "supplierName": zod.string(),
+  "unitPrice": zod.number(),
+  "currency": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string(),
+  "leadTimeDays": zod.number().nullish(),
+  "validDays": zod.number().nullish(),
+  "paymentTerms": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "status": zod.enum(['active', 'withdrawn', 'awarded', 'declined']),
+  "lineTotal": zod.number().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Buyer awards one quote and closes the deal
+ */
+export const AwardRfqQuoteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AwardRfqQuoteBody = zod.object({
+  "quoteId": zod.number().describe('Quote the buyer awards to close the deal')
+})
+
+export const AwardRfqQuoteResponse = zod.object({
+  "id": zod.number(),
+  "productId": zod.number().nullish(),
+  "productName": zod.string(),
+  "categoryId": zod.number().nullish(),
+  "categoryName": zod.string().nullish(),
+  "supplierId": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "buyerId": zod.number().nullish(),
+  "buyerName": zod.string(),
+  "buyerEmail": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string(),
+  "targetPrice": zod.number().nullish(),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
+  "quotedPrice": zod.number().nullish().describe('Winning or latest unit price (denormalized for lists)'),
+  "sellerMessage": zod.string().nullish(),
+  "quotedAt": zod.string().nullish(),
+  "awardedQuoteId": zod.number().nullish(),
+  "closedAt": zod.string().nullish(),
+  "quoteCount": zod.number().optional().describe('Number of active\/awarded quotes on this RFQ'),
+  "quotes": zod.array(zod.object({
+  "id": zod.number(),
+  "rfqId": zod.number(),
+  "supplierId": zod.number(),
+  "supplierName": zod.string(),
+  "unitPrice": zod.number(),
+  "currency": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string(),
+  "leadTimeDays": zod.number().nullish(),
+  "validDays": zod.number().nullish(),
+  "paymentTerms": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "status": zod.enum(['active', 'withdrawn', 'awarded', 'declined']),
+  "lineTotal": zod.number().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional(),
   "createdAt": zod.string()
 })
 
@@ -615,6 +805,21 @@ export const ListPlansResponse = zod.object({
   "priceUsdMonthly": zod.number().nullish(),
   "priceUsdYearly": zod.number().nullish()
 }))
+})
+
+
+/**
+ * Creates a linked supplier + Free subscription when the user has no shop. Paid plan codes are rejected for non-admins.
+
+ * @summary Open a Free shop (subscription-based setup)
+ */
+export const setupShopBodyPlanCodeDefault = `free`;
+
+export const SetupShopBody = zod.object({
+  "companyName": zod.string(),
+  "location": zod.string().optional(),
+  "region": zod.enum(['inr', 'usd']).optional(),
+  "planCode": zod.string().default(setupShopBodyPlanCodeDefault)
 })
 
 
@@ -833,6 +1038,8 @@ export const GetDashboardStatsResponse = zod.object({
   "id": zod.number(),
   "productId": zod.number().nullish(),
   "productName": zod.string(),
+  "categoryId": zod.number().nullish(),
+  "categoryName": zod.string().nullish(),
   "supplierId": zod.number().nullish(),
   "supplierName": zod.string().nullish(),
   "buyerId": zod.number().nullish(),
@@ -843,6 +1050,30 @@ export const GetDashboardStatsResponse = zod.object({
   "targetPrice": zod.number().nullish(),
   "description": zod.string().nullish(),
   "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
+  "quotedPrice": zod.number().nullish().describe('Winning or latest unit price (denormalized for lists)'),
+  "sellerMessage": zod.string().nullish(),
+  "quotedAt": zod.string().nullish(),
+  "awardedQuoteId": zod.number().nullish(),
+  "closedAt": zod.string().nullish(),
+  "quoteCount": zod.number().optional().describe('Number of active\/awarded quotes on this RFQ'),
+  "quotes": zod.array(zod.object({
+  "id": zod.number(),
+  "rfqId": zod.number(),
+  "supplierId": zod.number(),
+  "supplierName": zod.string(),
+  "unitPrice": zod.number(),
+  "currency": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string(),
+  "leadTimeDays": zod.number().nullish(),
+  "validDays": zod.number().nullish(),
+  "paymentTerms": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "status": zod.enum(['active', 'withdrawn', 'awarded', 'declined']),
+  "lineTotal": zod.number().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional(),
   "createdAt": zod.string()
 }))
 })
@@ -883,6 +1114,8 @@ export const GetSupplierDashboardResponse = zod.object({
   "id": zod.number(),
   "productId": zod.number().nullish(),
   "productName": zod.string(),
+  "categoryId": zod.number().nullish(),
+  "categoryName": zod.string().nullish(),
   "supplierId": zod.number().nullish(),
   "supplierName": zod.string().nullish(),
   "buyerId": zod.number().nullish(),
@@ -893,6 +1126,30 @@ export const GetSupplierDashboardResponse = zod.object({
   "targetPrice": zod.number().nullish(),
   "description": zod.string().nullish(),
   "status": zod.enum(['pending', 'responded', 'accepted', 'rejected']),
+  "quotedPrice": zod.number().nullish().describe('Winning or latest unit price (denormalized for lists)'),
+  "sellerMessage": zod.string().nullish(),
+  "quotedAt": zod.string().nullish(),
+  "awardedQuoteId": zod.number().nullish(),
+  "closedAt": zod.string().nullish(),
+  "quoteCount": zod.number().optional().describe('Number of active\/awarded quotes on this RFQ'),
+  "quotes": zod.array(zod.object({
+  "id": zod.number(),
+  "rfqId": zod.number(),
+  "supplierId": zod.number(),
+  "supplierName": zod.string(),
+  "unitPrice": zod.number(),
+  "currency": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string(),
+  "leadTimeDays": zod.number().nullish(),
+  "validDays": zod.number().nullish(),
+  "paymentTerms": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "status": zod.enum(['active', 'withdrawn', 'awarded', 'declined']),
+  "lineTotal": zod.number().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional(),
   "createdAt": zod.string()
 })),
   "totalViews": zod.number().describe('Reserved for profile-view analytics; currently always 0 (not tracked).')

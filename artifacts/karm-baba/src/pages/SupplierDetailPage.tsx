@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { CheckCircle, ChevronLeft, MapPin, Users, Clock, Star, Send, Award, Package, TrendingUp } from "lucide-react";
+import { CheckCircle, ChevronLeft, MapPin, Users, Clock, Star, Send, Award, Package, TrendingUp, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { useGetSupplier, useListProducts, useListReviews } from "@workspace/api-client-react";
 import { StarRating } from "@/components/StarRating";
@@ -9,7 +9,7 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
   const [, navigate] = useLocation();
   const supplierId = Number(params.id);
 
-  const { data: supplier, isLoading } = useGetSupplier(supplierId, { query: { enabled: !!supplierId } as any });
+  const { data: supplier, isLoading, isError, isFetched, refetch } = useGetSupplier(supplierId, { query: { enabled: !!supplierId } as any });
   const { data: productsData } = useListProducts({ supplierId }, { query: { enabled: !!supplierId } as any });
   const { data: reviews } = useListReviews({ supplierId }, { query: { enabled: !!supplierId } as any });
 
@@ -25,19 +25,58 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
     );
   }
 
-  if (!supplier) {
+  if (isError) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-24 text-center">
+        <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <AlertCircle size={28} className="text-red-500" />
+        </div>
+        <h2 className="text-xl font-heading font-bold mb-2">Couldn’t load this supplier</h2>
+        <p className="text-sm text-muted-foreground mb-5 max-w-sm mx-auto">
+          Something went wrong fetching the supplier profile. Check your connection and try again.
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="inline-flex items-center min-h-11 px-5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90"
+          >
+            Try again
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("/suppliers")}
+            className="text-primary hover:underline text-sm font-medium min-h-11"
+          >
+            ← Back to suppliers
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isFetched && !supplier) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-24 text-center">
         <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
           <Package size={28} className="text-muted-foreground" />
         </div>
-        <h2 className="text-xl font-heading font-bold mb-2">Supplier Not Found</h2>
-        <button onClick={() => navigate("/suppliers")} className="text-primary hover:underline text-sm font-medium">
+        <h2 className="text-xl font-heading font-bold mb-2">Supplier not found</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          This supplier may have been removed or the link is incorrect.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate("/suppliers")}
+          className="text-primary hover:underline text-sm font-medium"
+        >
           ← Back to Suppliers
         </button>
       </div>
     );
   }
+
+  if (!supplier) return null;
 
   return (
     <div>

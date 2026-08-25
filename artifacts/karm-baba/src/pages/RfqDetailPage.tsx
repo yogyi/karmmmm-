@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
   ChevronLeft,
@@ -8,28 +8,86 @@ import {
   MessageSquare,
   Send,
   Package,
-  IndianRupee,
+  Trophy,
 } from "lucide-react";
 import {
   useGetRfq,
   useUpdateRfq,
-  getListRfqsQueryKey,
-  getGetRfqQueryKey,
+  useSubmitRfqQuote,
+  useAwardRfqQuote,
 } from "@workspace/api-client-react";
+import type { RfqQuote } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
+import { invalidateRfqQueries } from "@/lib/rfqQueries";
 
 const statusConfig = {
-  pending: { label: "Pending", color: "bg-yellow-100 text-yellow-700 border-yellow-200", icon: <Clock size={12} /> },
-  responded: { label: "Quoted", color: "bg-blue-100 text-blue-700 border-blue-200", icon: <MessageSquare size={12} /> },
-  accepted: { label: "Accepted", color: "bg-green-100 text-green-700 border-green-200", icon: <CheckCircle size={12} /> },
-  rejected: { label: "Rejected", color: "bg-red-100 text-red-600 border-red-200", icon: <XCircle size={12} /> },
+  pending: {
+    label: "Open for quotes",
+    color: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    icon: <Clock size={12} />,
+  },
+  responded: {
+    label: "Quotes received",
+    color: "bg-blue-100 text-blue-700 border-blue-200",
+    icon: <MessageSquare size={12} />,
+  },
+  accepted: {
+    label: "Deal closed",
+    color: "bg-green-100 text-green-700 border-green-200",
+    icon: <CheckCircle size={12} />,
+  },
+  rejected: {
+    label: "Cancelled",
+    color: "bg-red-100 text-red-600 border-red-200",
+    icon: <XCircle size={12} />,
+  },
 };
+
+const CURRENCIES = [
+  { code: "INR", symbol: "₹", label: "INR (₹)" },
+  { code: "USD", symbol: "$", label: "USD ($)" },
+  { code: "EUR", symbol: "€", label: "EUR (€)" },
+] as const;
+
+const UNITS = ["piece", "kg", "ton", "meter", "liter", "box", "set", "dozen", "pair", "roll"] as const;
+
+const PAYMENT_TERMS = [
+  "Negotiable",
+  "100% advance",
+  "30% advance, 70% before dispatch",
+  "Against delivery (COD)",
+  "Net 15",
+  "Net 30",
+  "LC at sight",
+] as const;
+
+type CurrencyCode = (typeof CURRENCIES)[number]["code"];
 
 function httpStatus(err: unknown): number | null {
   if (!err || typeof err !== "object") return null;
-  const e = err as { status?: number; response?: { status?: number } };
+  const e = err as { status?: number; response?: { status?: number }; message?: string };
   return e.status ?? e.response?.status ?? null;
+}
+
+function errMessage(err: unknown, fallback: string) {
+  if (err && typeof err === "object" && "message" in err) {
+    const m = String((err as { message?: string }).message || "");
+    if (m && !m.startsWith("Failed") && m.length < 200) return m;
+  }
+  return fallback;
+}
+
+function currencySymbol(code: string) {
+  return CURRENCIES.find((c) => c.code === code)?.symbol ?? "₹";
+}
+
+function formatMoney(amount: number, code: string) {
+  const symbol = currencySymbol(code);
+  return `${symbol}${amount.toLocaleString("en-IN", {
+    minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 export function RfqDetailPage({ params }: { params: { id: string } }) {
@@ -38,77 +96,147 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   const qc = useQueryClient();
   const rfqId = Number(params.id);
 
-  const { data: rfq, isLoading, isError, error: loadError } = useGetRfq(rfqId, {
+  const { data: rfq, isLoading, isError, error: loadError, refetch } = useGetRfq(rfqId, {
     query: {
       enabled: !!rfqId,
+      refetchInterval: 8_000,
+      staleTime: 0,
       retry: (failureCount: number, err: unknown) =>
         httpStatus(err) !== 401 && failureCount < 1,
     } as any,
   });
   const updateRfq = useUpdateRfq();
+  const submitQuote = useSubmitRfqQuote();
+  const awardQuote = useAwardRfqQuote();
 
+  const [currency, setCurrency] = useState<CurrencyCode>("INR");
   const [quotePrice, setQuotePrice] = useState("");
+  const [quoteQty, setQuoteQty] = useState("");
+  const [quoteUnit, setQuoteUnit] = useState("piece");
+  const [leadTimeDays, setLeadTimeDays] = useState("7");
+  const [validDays, setValidDays] = useState("7");
+  const [paymentTerms, setPaymentTerms] = useState<string>(PAYMENT_TERMS[0]);
   const [quoteMessage, setQuoteMessage] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [qtySeeded, setQtySeeded] = useState(false);
+
+  useEffect(() => {
+    if (!rfq || qtySeeded) return;
+    setQuoteQty(String(rfq.quantity));
+    setQuoteUnit(rfq.unit || "piece");
+    if (rfq.targetPrice != null) setQuotePrice(String(rfq.targetPrice));
+    setQtySeeded(true);
+  }, [rfq, qtySeeded]);
+
+  // Prefill form from seller's existing quote when updating
+  useEffect(() => {
+    if (!rfq || !user?.supplierId) return;
+    const mine = (rfq.quotes ?? []).find((q) => q.supplierId === user.supplierId);
+    if (!mine) return;
+    setQuotePrice(String(mine.unitPrice));
+    setQuoteQty(String(mine.quantity));
+    setQuoteUnit(mine.unit || "piece");
+    setCurrency((mine.currency as CurrencyCode) || "INR");
+    if (mine.leadTimeDays != null) setLeadTimeDays(String(mine.leadTimeDays));
+    if (mine.validDays != null) setValidDays(String(mine.validDays));
+    if (mine.paymentTerms) setPaymentTerms(mine.paymentTerms);
+    if (mine.message) setQuoteMessage(mine.message);
+  }, [rfq?.id, user?.supplierId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const unitPriceNum = Number(quotePrice);
+  const qtyNum = Number(quoteQty);
+  const lineTotal = useMemo(() => {
+    if (!Number.isFinite(unitPriceNum) || unitPriceNum < 0) return null;
+    if (!Number.isFinite(qtyNum) || qtyNum < 1) return null;
+    return unitPriceNum * qtyNum;
+  }, [unitPriceNum, qtyNum]);
 
   const linkedShop =
-    !!user && user.role === "seller" && typeof user.supplierId === "number";
+    !!user && user.role === "seller" && typeof user.supplierId === "number" && user.supplierId > 0;
 
-  // Assigned shop, open marketplace RFQ (claim on quote), or admin.
+  const isOpenForQuotes = !!rfq && (rfq.status === "pending" || rfq.status === "responded");
   const canSendQuote =
     !!user &&
     !!rfq &&
-    rfq.status === "pending" &&
+    isOpenForQuotes &&
     (user.role === "admin" ||
-      (linkedShop &&
-        (rfq.supplierId == null || rfq.supplierId === user.supplierId)));
+      (linkedShop && (rfq.supplierId == null || rfq.supplierId === user.supplierId)));
 
-  const isOpenRfq = !!rfq && rfq.supplierId == null;
+  const myQuote = useMemo(() => {
+    if (!rfq || !user?.supplierId) return null;
+    return (rfq.quotes ?? []).find((q) => q.supplierId === user.supplierId) ?? null;
+  }, [rfq, user?.supplierId]);
+
   const isBuyer = !!user && user.id === rfq?.buyerId;
+  const quotes = (rfq?.quotes ?? []) as RfqQuote[];
+  const activeQuotes = quotes.filter((q) => q.status === "active" || q.status === "awarded");
+  const dealClosed = rfq?.status === "accepted" || rfq?.status === "rejected";
 
-  async function submitQuote(e: React.FormEvent) {
+  async function onSubmitQuote(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setSuccess("");
-    if (!quotePrice) {
-      setError("Enter your quoted price per unit.");
+    if (!Number.isFinite(unitPriceNum) || unitPriceNum <= 0) {
+      setError("Enter a valid unit price.");
+      return;
+    }
+    if (!Number.isFinite(qtyNum) || qtyNum < 1) {
+      setError("Enter a valid offer quantity (at least 1).");
       return;
     }
     try {
-      await updateRfq.mutateAsync({
+      await submitQuote.mutateAsync({
         id: rfqId,
         data: {
-          status: "responded",
-          quotedPrice: Number(quotePrice),
-          sellerMessage: quoteMessage || undefined,
-        } as { status: "responded"; quotedPrice: number; sellerMessage?: string },
+          unitPrice: unitPriceNum,
+          currency,
+          quantity: Math.floor(qtyNum),
+          unit: quoteUnit,
+          leadTimeDays: leadTimeDays.trim() ? Math.floor(Number(leadTimeDays)) : undefined,
+          validDays: validDays.trim() ? Math.floor(Number(validDays)) : undefined,
+          paymentTerms: paymentTerms || undefined,
+          message: quoteMessage.trim() || undefined,
+        },
       });
-      qc.invalidateQueries({ queryKey: getGetRfqQueryKey(rfqId) });
-      qc.invalidateQueries({ queryKey: getListRfqsQueryKey() });
-      setSuccess("Quote sent to the buyer.");
-      setQuotePrice("");
-      setQuoteMessage("");
-    } catch {
-      setError("Failed to send quote. Please try again.");
+      await invalidateRfqQueries(qc, { rfqId });
+      await refetch();
+      setSuccess(myQuote ? "Quote updated — buyer can compare offers." : "Quote sent — buyer can compare offers.");
+    } catch (err) {
+      setError(errMessage(err, "Failed to send quote. Please try again."));
     }
   }
 
-  async function setStatus(status: "accepted" | "rejected") {
-    if (status === "rejected") {
-      const ok = window.confirm(
-        "Reject this quote? You can still post a new RFQ later if needed.",
-      );
-      if (!ok) return;
+  async function onAward(quoteId: number) {
+    const ok = window.confirm(
+      "Accept this quote and close the deal? Other quotes will be declined.",
+    );
+    if (!ok) return;
+    setError("");
+    setSuccess("");
+    try {
+      await awardQuote.mutateAsync({ id: rfqId, data: { quoteId } });
+      await invalidateRfqQueries(qc, { rfqId });
+      await refetch();
+      setSuccess("Deal closed — you accepted this supplier's quote.");
+    } catch (err) {
+      setError(errMessage(err, "Could not award this quote."));
     }
+  }
+
+  async function onCancelRfq() {
+    const ok = window.confirm(
+      "Cancel this RFQ? No deal will be made and all quotes will be declined.",
+    );
+    if (!ok) return;
     setError("");
     try {
-      await updateRfq.mutateAsync({ id: rfqId, data: { status } });
-      qc.invalidateQueries({ queryKey: getGetRfqQueryKey(rfqId) });
-      qc.invalidateQueries({ queryKey: getListRfqsQueryKey() });
-      setSuccess(status === "accepted" ? "Quote accepted." : "Quote rejected.");
-    } catch {
-      setError("Could not update status.");
+      await updateRfq.mutateAsync({ id: rfqId, data: { status: "rejected" } });
+      await invalidateRfqQueries(qc, { rfqId });
+      await refetch();
+      setSuccess("RFQ cancelled.");
+    } catch (err) {
+      setError(errMessage(err, "Could not cancel RFQ."));
     }
   }
 
@@ -159,8 +287,10 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   }
 
   const status = statusConfig[rfq.status as keyof typeof statusConfig] ?? statusConfig.pending;
-  const quotedPrice = (rfq as { quotedPrice?: number | null }).quotedPrice;
-  const sellerMessage = (rfq as { sellerMessage?: string | null }).sellerMessage;
+  const symbol = currencySymbol(currency);
+  const fieldClass =
+    "mt-1 w-full border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 bg-white";
+  const busy = submitQuote.isPending || awardQuote.isPending || updateRfq.isPending;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -178,6 +308,9 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
             <h1 className="font-heading text-2xl font-bold text-foreground">{rfq.productName}</h1>
             <p className="text-sm text-muted-foreground mt-1">
               RFQ #{rfq.id} · {new Date(rfq.createdAt).toLocaleString("en-IN")}
+              {(rfq.quoteCount ?? activeQuotes.length) > 0 && (
+                <> · {rfq.quoteCount ?? activeQuotes.length} quote{(rfq.quoteCount ?? activeQuotes.length) === 1 ? "" : "s"}</>
+              )}
             </p>
           </div>
           <span className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border ${status.color}`}>
@@ -187,7 +320,7 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
 
         <div className="grid sm:grid-cols-2 gap-4 text-sm">
           <div className="bg-muted/40 rounded-xl p-3">
-            <div className="text-muted-foreground text-xs mb-1">Quantity</div>
+            <div className="text-muted-foreground text-xs mb-1">Requested qty</div>
             <div className="font-semibold">
               {rfq.quantity} {rfq.unit}
             </div>
@@ -208,8 +341,12 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
             <div className="text-xs text-muted-foreground">{rfq.buyerEmail}</div>
           </div>
           <div className="bg-muted/40 rounded-xl p-3 sm:col-span-2">
-            <div className="text-muted-foreground text-xs mb-1">Supplier</div>
-            <div className="font-semibold">{rfq.supplierName ?? "Open RFQ"}</div>
+            <div className="text-muted-foreground text-xs mb-1">
+              {rfq.status === "accepted" ? "Awarded supplier" : "Routing"}
+            </div>
+            <div className="font-semibold">
+              {rfq.supplierName ?? "Open marketplace — all sellers can quote"}
+            </div>
           </div>
         </div>
 
@@ -221,94 +358,297 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
         )}
       </div>
 
-      {/* Quote card */}
-      {(quotedPrice != null || sellerMessage) && (
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5 mb-6">
-          <div className="flex items-center gap-2 mb-2 text-blue-800 font-semibold">
-            <IndianRupee size={16} /> Supplier Quote
-          </div>
-          {quotedPrice != null && (
-            <div className="text-2xl font-heading font-bold text-blue-900 mb-1">
-              ₹{quotedPrice}
-              <span className="text-sm font-medium text-blue-700"> / {rfq.unit}</span>
-            </div>
-          )}
-          {sellerMessage && <p className="text-sm text-blue-900/80 whitespace-pre-wrap">{sellerMessage}</p>}
+      {error && (
+        <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="mb-4 text-sm text-green-700 bg-green-50 border border-green-100 rounded-xl px-3 py-2">
+          {success}
         </div>
       )}
 
-      {error && <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{error}</div>}
-      {success && <div className="mb-4 text-sm text-green-700 bg-green-50 border border-green-100 rounded-xl px-3 py-2">{success}</div>}
-
-      {/* Seller quote form (assigned shop or claim open RFQ) */}
-      {isLoggedIn && canSendQuote && (
-        <form onSubmit={submitQuote} className="bg-white rounded-2xl border border-border p-6 shadow-sm space-y-4">
-          <h2 className="font-heading font-bold text-lg">
-            {isOpenRfq ? "Claim & send your best price" : "Send your best price"}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {isOpenRfq
-              ? "This is an open marketplace inquiry. Sending a quote assigns it to your shop."
-              : "Reply with a competitive wholesale quote for this buyer."}
-          </p>
+      {/* Buyer: compare quotes & award */}
+      {isLoggedIn && isBuyer && activeQuotes.length > 0 && (
+        <div className="bg-white rounded-2xl border border-border p-6 shadow-sm mb-6 space-y-4">
           <div>
-            <label className="text-xs font-semibold text-muted-foreground">Quoted price (₹ / {rfq.unit})</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={quotePrice}
-              onChange={(e) => setQuotePrice(e.target.value)}
-              className="mt-1 w-full border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-              placeholder="e.g. 185"
-            />
+            <h2 className="font-heading font-bold text-lg">
+              {rfq.status === "accepted" ? "Winning quote" : "Compare quotes"}
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {rfq.status === "accepted"
+                ? "Deal is closed with the supplier below."
+                : "Review offers and accept one to close the deal. Other quotes are then declined."}
+            </p>
           </div>
+
+          <div className="space-y-3">
+            {activeQuotes.map((q) => {
+              const isWinner = q.status === "awarded" || q.id === rfq.awardedQuoteId;
+              return (
+                <div
+                  key={q.id}
+                  className={`rounded-xl border p-4 ${
+                    isWinner ? "border-green-300 bg-green-50/60" : "border-border bg-muted/20"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-foreground flex items-center gap-2">
+                        {q.supplierName}
+                        {isWinner && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                            <Trophy size={10} /> Awarded
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-2xl font-heading font-bold mt-1">
+                        {formatMoney(q.unitPrice, q.currency)}
+                        <span className="text-sm font-medium text-muted-foreground">
+                          {" "}
+                          / {q.unit}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Qty {q.quantity} {q.unit}
+                        {q.lineTotal != null && <> · Total {formatMoney(q.lineTotal, q.currency)}</>}
+                        {q.leadTimeDays != null && <> · Lead {q.leadTimeDays}d</>}
+                        {q.paymentTerms && <> · {q.paymentTerms}</>}
+                      </div>
+                      {q.message && (
+                        <p className="text-sm text-foreground/80 whitespace-pre-wrap mt-2">{q.message}</p>
+                      )}
+                    </div>
+                    {isBuyer && rfq.status === "responded" && q.status === "active" && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void onAward(q.id)}
+                        className="shrink-0 bg-green-600 text-white px-4 min-h-10 rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-60"
+                      >
+                        Accept & close deal
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {isBuyer && isOpenForQuotes && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onCancelRfq()}
+              className="w-full border border-border py-2.5 rounded-xl font-semibold text-sm hover:bg-muted disabled:opacity-60"
+            >
+              Cancel RFQ (no deal)
+            </button>
+          )}
+        </div>
+      )}
+
+      {isLoggedIn && isBuyer && isOpenForQuotes && activeQuotes.length === 0 && (
+        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 mb-6 text-sm text-amber-900">
+          Waiting for sellers to send quotes. This page refreshes automatically.
+        </div>
+      )}
+
+      {/* Seller: own quote status when deal closed */}
+      {isLoggedIn && linkedShop && myQuote && dealClosed && (
+        <div
+          className={`rounded-2xl border p-5 mb-6 ${
+            myQuote.status === "awarded"
+              ? "bg-green-50 border-green-200"
+              : "bg-muted/40 border-border"
+          }`}
+        >
+          <h2 className="font-heading font-bold text-lg mb-1">
+            {myQuote.status === "awarded" ? "You won this deal" : "Deal closed"}
+          </h2>
+          <p className="text-sm text-muted-foreground mb-2">
+            {myQuote.status === "awarded"
+              ? "The buyer accepted your quote."
+              : myQuote.status === "declined"
+                ? "Another supplier was awarded, or the buyer cancelled."
+                : "This RFQ is no longer open."}
+          </p>
+          <div className="text-xl font-heading font-bold">
+            {formatMoney(myQuote.unitPrice, myQuote.currency)} / {myQuote.unit}
+          </div>
+        </div>
+      )}
+
+      {isLoggedIn && canSendQuote && (
+        <form
+          onSubmit={(e) => void onSubmitQuote(e)}
+          className="bg-white rounded-2xl border border-border p-6 shadow-sm space-y-5"
+        >
+          <div>
+            <h2 className="font-heading font-bold text-lg">
+              {myQuote ? "Update your quote" : "Send your best price"}
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {rfq.supplierId == null
+                ? "Open inquiry — multiple sellers can quote. Buyer picks one to close the deal."
+                : "Reply with a clear wholesale offer the buyer can accept."}
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground">Currency</label>
+              <select
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+                className={fieldClass}
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground">Unit price</label>
+              <div className="mt-1 flex rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10">
+                <span className="inline-flex items-center px-3 bg-muted/50 text-sm font-semibold text-foreground border-r border-border select-none">
+                  {symbol}
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="any"
+                  value={quotePrice}
+                  onChange={(e) => setQuotePrice(e.target.value)}
+                  className="no-spinner flex-1 min-w-0 px-3 py-2.5 text-sm outline-none border-0"
+                  placeholder="e.g. 185"
+                  required
+                />
+                <span className="inline-flex items-center px-3 bg-muted/30 text-xs text-muted-foreground border-l border-border whitespace-nowrap">
+                  / {quoteUnit}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground">Offer quantity</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                step="1"
+                value={quoteQty}
+                onChange={(e) => setQuoteQty(e.target.value)}
+                className={`${fieldClass} no-spinner`}
+                required
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Buyer asked for {rfq.quantity} {rfq.unit}.
+              </p>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground">Unit</label>
+              <select
+                value={quoteUnit}
+                onChange={(e) => setQuoteUnit(e.target.value)}
+                className={fieldClass}
+              >
+                {!UNITS.includes(quoteUnit as (typeof UNITS)[number]) && (
+                  <option value={quoteUnit}>{quoteUnit}</option>
+                )}
+                {UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground">Lead time (days)</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                step="1"
+                value={leadTimeDays}
+                onChange={(e) => setLeadTimeDays(e.target.value)}
+                className={`${fieldClass} no-spinner`}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground">
+                Quote valid for (days)
+              </label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                step="1"
+                value={validDays}
+                onChange={(e) => setValidDays(e.target.value)}
+                className={`${fieldClass} no-spinner`}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground">Payment terms</label>
+            <select
+              value={paymentTerms}
+              onChange={(e) => setPaymentTerms(e.target.value)}
+              className={fieldClass}
+            >
+              {PAYMENT_TERMS.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="text-xs font-semibold text-muted-foreground">Message to buyer</label>
             <textarea
               value={quoteMessage}
               onChange={(e) => setQuoteMessage(e.target.value)}
               rows={3}
-              className="mt-1 w-full border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-              placeholder="MOQ notes, delivery timeline, payment terms..."
+              className={fieldClass}
+              placeholder="MOQ notes, packaging, Incoterms, sample policy…"
             />
           </div>
+
+          {lineTotal != null && (
+            <div className="rounded-xl bg-muted/40 border border-border px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm text-muted-foreground">
+                Estimated line total
+                <span className="block text-[11px] mt-0.5">
+                  {formatMoney(unitPriceNum, currency)} × {Math.floor(qtyNum)} {quoteUnit}
+                </span>
+              </div>
+              <div className="font-heading text-xl font-bold text-foreground">
+                {formatMoney(lineTotal, currency)}
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={updateRfq.isPending}
+            disabled={busy}
             className="w-full inline-flex items-center justify-center gap-2 bg-primary text-white px-5 min-h-11 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60"
           >
-            <Send size={14} /> Send Quote
+            <Send size={14} />
+            {submitQuote.isPending ? "Sending…" : myQuote ? "Update Quote" : "Send Quote"}
           </button>
         </form>
-      )}
-
-      {/* Buyer accept/reject */}
-      {isLoggedIn && isBuyer && rfq.status === "responded" && (
-        <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
-          <h2 className="font-heading font-bold text-lg mb-2">Respond to quote</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            Accept to lock in this wholesale offer, or reject to keep negotiating.
-          </p>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              disabled={updateRfq.isPending}
-              onClick={() => void setStatus("accepted")}
-              className="flex-1 bg-green-600 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-green-700 disabled:opacity-60"
-            >
-              Accept Quote
-            </button>
-            <button
-              type="button"
-              disabled={updateRfq.isPending}
-              onClick={() => void setStatus("rejected")}
-              className="flex-1 border border-border py-2.5 rounded-xl font-semibold text-sm hover:bg-muted disabled:opacity-60"
-            >
-              Reject
-            </button>
-          </div>
-        </div>
       )}
     </div>
   );

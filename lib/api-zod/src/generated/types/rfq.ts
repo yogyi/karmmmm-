@@ -5,6 +5,7 @@
  * Karm Baba B2B Marketplace API
  * OpenAPI spec version: 0.1.0
  */
+import type { RfqQuote } from './rfqQuote';
 import type { RfqStatus } from './rfqStatus';
 
 export interface Rfq {
@@ -31,5 +32,21 @@ export interface Rfq {
   /** @nullable */
   description?: string | null;
   status: RfqStatus;
+  /**
+     * Winning or latest unit price (denormalized for lists)
+     * @nullable
+     */
+  quotedPrice?: number | null;
+  /** @nullable */
+  sellerMessage?: string | null;
+  /** @nullable */
+  quotedAt?: string | null;
+  /** @nullable */
+  awardedQuoteId?: number | null;
+  /** @nullable */
+  closedAt?: string | null;
+  /** Number of active/awarded quotes on this RFQ */
+  quoteCount?: number;
+  quotes?: RfqQuote[];
   createdAt: string;
 }

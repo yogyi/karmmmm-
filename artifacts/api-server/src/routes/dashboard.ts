@@ -13,7 +13,7 @@ import {
   parseLinkedSupplierId,
 } from "../lib/authorize";
 import { redactRfqForViewer } from "../lib/redact";
-import { sellerInboxWhere } from "../lib/rfqScope";
+import { sellerInboxWhere, sortRfqsForSellerInbox } from "../lib/rfqScope";
 
 const router: IRouter = Router();
 
@@ -128,16 +128,18 @@ router.get("/dashboard/supplier/:id", requireClerkAuth, async (req, res): Promis
   const inbox = sellerInboxWhere(params.data.id);
   const pendingInbox = sellerInboxWhere(params.data.id, "pending");
 
-  const [productCount, rfqCount, pendingRfqs, recentRfqs] = await Promise.all([
+  const [productCount, rfqCount, pendingRfqs, recentRfqsRaw] = await Promise.all([
     prisma.product.count({ where: { supplierId: params.data.id } }),
     prisma.rfq.count({ where: inbox }),
     prisma.rfq.count({ where: pendingInbox }),
     prisma.rfq.findMany({
       where: inbox,
       orderBy: { createdAt: "desc" },
-      take: 5,
+      take: 40,
     }),
   ]);
+
+  const recentRfqs = sortRfqsForSellerInbox(recentRfqsRaw).slice(0, 5);
 
   res.json(
     GetSupplierDashboardResponse.parse({

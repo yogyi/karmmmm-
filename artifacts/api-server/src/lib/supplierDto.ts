@@ -45,16 +45,21 @@ const SENSITIVE_KEYS = [
   "bankAccountNumber",
 ] as const;
 
-/** Owner/admin DTO — includes verification + payout fields. */
+/** Owner/admin DTO — includes verification + payout fields (never OTP secrets). */
 export function mapOwnerSupplier(s: SupplierRow) {
+  const { businessEmailOtpHash: _omit, ...rest } = s;
+  void _omit;
   return {
-    ...s,
+    ...rest,
     rating: toNumber(s.rating) ?? 0,
     responseRate: toNumber(s.responseRate),
     mainProducts: s.mainProducts ?? [],
     certifications: s.certifications ?? [],
     createdAt: s.createdAt.toISOString(),
     verifiedAt: s.verifiedAt ? s.verifiedAt.toISOString() : null,
+    businessEmailOtpExpiresAt: s.businessEmailOtpExpiresAt
+      ? s.businessEmailOtpExpiresAt.toISOString()
+      : null,
   };
 }
 

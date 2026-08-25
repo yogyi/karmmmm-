@@ -190,12 +190,7 @@ export function SellerLeadsPage() {
   }
 
   if (!isLoaded || !isLoggedIn) {
-    return (
-      <div className="min-h-[40vh] flex flex-col items-center justify-center gap-3 px-4">
-        <Loader2 className="animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Redirecting to sign in…</p>
-      </div>
-    );
+    return null;
   }
 
   return (

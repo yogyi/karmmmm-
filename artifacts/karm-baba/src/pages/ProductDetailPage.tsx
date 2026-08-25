@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getListReviewsQueryKey } from "@workspace/api-client-react";
 import { useShortlist } from "@/hooks/useShortlist";
 import { ProductImage, resolveProductImageUrl } from "@/components/ProductImage";
+import { invalidateRfqQueries } from "@/lib/rfqQueries";
 
 export function ProductDetailPage({ params }: { params: { id: string } }) {
   const [, navigate] = useLocation();
@@ -89,7 +90,10 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
           productId: product?.id,
           productName: product?.name ?? "",
           categoryId: product?.categoryId,
-          supplierId: product?.supplierId,
+          supplierId:
+            product?.supplierId && product.supplierId > 0
+              ? product.supplierId
+              : undefined,
           buyerName: rfqForm.buyerName,
           buyerEmail: rfqForm.buyerEmail,
           quantity: Number(rfqForm.quantity),
@@ -98,10 +102,10 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
           description: rfqForm.description || undefined,
         },
       });
-      await qc.invalidateQueries({ queryKey: ["/api/rfq"] });
       if (created?.id) {
         qc.setQueryData(getGetRfqQueryKey(created.id), created);
       }
+      await invalidateRfqQueries(qc, { rfqId: created?.id });
       setRfqSuccess(true);
     } catch (err) {
       const msg =

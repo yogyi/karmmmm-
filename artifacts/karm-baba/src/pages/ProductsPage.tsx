@@ -533,7 +533,7 @@ export function ProductsPage() {
                       <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 md:group-hover:opacity-100 transition-opacity pointer-events-none hidden md:block" />
                       <div className="absolute bottom-2 left-2 right-2 opacity-0 md:group-hover:opacity-100 transition-all translate-y-2 md:group-hover:translate-y-0 pointer-events-none hidden md:block">
                         <span className="bg-white text-primary text-[10px] font-bold px-2 py-1 rounded-full shadow-lg w-full inline-block text-center">
-                          Get Quote →
+                          Request quote →
                         </span>
                       </div>
                     </div>
@@ -545,7 +545,7 @@ export function ProductsPage() {
                       </div>
                       <div className="text-xs text-muted-foreground mb-1 sm:mb-2 hidden sm:block">MOQ: {product.minOrder} {product.unit}</div>
                       <span className="mt-1.5 mb-1 md:hidden inline-flex items-center justify-center w-full min-h-11 rounded-xl bg-primary/10 text-primary text-xs font-bold">
-                        Get Quote →
+                        Request quote →
                       </span>
                       {product.rating && <div className="hidden sm:block"><StarRating rating={product.rating} reviewCount={product.reviewCount} size={11} /></div>}
                       <div className="mt-1 sm:mt-2 flex items-center gap-1 text-xs text-muted-foreground">

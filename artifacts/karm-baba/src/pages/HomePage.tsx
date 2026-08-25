@@ -45,8 +45,8 @@ export function HomePage() {
   const [, navigate] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { data: featuredProducts, isLoading: loadingProducts } = useGetFeaturedProducts();
-  const { data: featuredSuppliers, isLoading: loadingSuppliers } = useGetFeaturedSuppliers();
+  const { data: featuredProducts, isLoading: loadingProducts, isError: featuredProductsError, refetch: refetchFeaturedProducts } = useGetFeaturedProducts();
+  const { data: featuredSuppliers, isLoading: loadingSuppliers, isError: featuredSuppliersError, refetch: refetchFeaturedSuppliers } = useGetFeaturedSuppliers();
   const { data: catalog } = useListProducts({ limit: 8, page: 1, sort: "newest" } as any);
   const { data: supplierCatalog } = useListSuppliers({ limit: 4, page: 1, verified: true } as any);
   const { data: categories } = useListCategories();
@@ -115,14 +115,16 @@ export function HomePage() {
             <div className="flex items-center bg-white rounded-2xl overflow-hidden shadow-2xl ring-4 ring-white/20 min-w-0">
               <Search size={20} className="ml-5 text-muted-foreground flex-shrink-0" />
               <input
-                type="text"
+                type="search"
                 placeholder="Search products, suppliers, categories..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
+                aria-label="Search products, suppliers, and categories"
                 className="flex-1 min-w-0 px-4 py-4 text-foreground outline-none text-base placeholder:text-muted-foreground"
               />
               <button
                 type="submit"
+                aria-label="Search"
                 className="bg-primary hover:bg-primary/90 text-white px-6 py-4 font-semibold text-base transition-all flex-shrink-0 flex items-center gap-2 rounded-r-2xl min-h-11"
               >
                 <Search size={16} />
@@ -245,6 +247,8 @@ export function HomePage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {loadingProducts && products.length === 0
               ? Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)
+              : featuredProductsError && products.length === 0
+                ? null
               : products.map((product, i) => (
                 <motion.button
                   key={product.id}
@@ -273,7 +277,7 @@ export function HomePage() {
                     <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 md:group-hover:opacity-100 transition-opacity hidden md:block" />
                     <div className="absolute bottom-2 left-2 right-2 opacity-0 md:group-hover:opacity-100 transition-all translate-y-2 md:group-hover:translate-y-0 hidden md:block">
                       <span className="bg-white text-primary text-[10px] font-bold px-2.5 py-1 rounded-full shadow-lg w-full inline-block text-center">
-                        Get Best Price →
+                        Request quote →
                       </span>
                     </div>
                   </div>
@@ -282,7 +286,7 @@ export function HomePage() {
                     <div className="text-primary font-bold text-sm">₹{product.minPrice}–{product.maxPrice}</div>
                     <div className="text-[11px] text-muted-foreground">per {product.unit} · MOQ {product.minOrder}</div>
                     <span className="mt-2 md:hidden inline-flex items-center justify-center w-full min-h-11 rounded-xl bg-primary/10 text-primary text-xs font-bold">
-                      Get Quote →
+                      Request quote →
                     </span>
                     {product.rating && <div className="mt-1.5"><StarRating rating={product.rating} size={10} /></div>}
                     {product.supplierName && (
@@ -292,7 +296,19 @@ export function HomePage() {
                 </motion.button>
               ))}
           </div>
-          {!loadingProducts && products.length === 0 && (
+          {featuredProductsError && products.length === 0 && (
+            <div className="text-center py-10 text-sm border border-red-100 bg-red-50 rounded-2xl space-y-3">
+              <p className="text-red-800">Couldn’t load featured products.</p>
+              <button
+                type="button"
+                className="text-primary font-semibold"
+                onClick={() => void refetchFeaturedProducts()}
+              >
+                Try again
+              </button>
+            </div>
+          )}
+          {!loadingProducts && !featuredProductsError && products.length === 0 && (
             <div className="text-center py-10 text-sm text-muted-foreground border border-dashed border-border rounded-2xl">
               No featured products yet.{" "}
               <button className="text-primary font-semibold" onClick={() => navigate("/products")}>Browse catalog →</button>
@@ -328,6 +344,8 @@ export function HomePage() {
                   <div className="h-3 bg-muted rounded-full w-2/3" />
                 </div>
               ))
+              : featuredSuppliersError && suppliers.length === 0
+                ? null
               : suppliers.map((supplier, i) => (
                 <motion.button
                   key={supplier.id}
@@ -367,13 +385,25 @@ export function HomePage() {
                       View Profile <ArrowRight size={11} />
                     </span>
                     <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
-                      Get Best Price
+                      Request quote
                     </span>
                   </div>
                 </motion.button>
               ))}
           </div>
-          {!loadingSuppliers && suppliers.length === 0 && (
+          {featuredSuppliersError && suppliers.length === 0 && (
+            <div className="text-center py-10 text-sm border border-red-100 bg-red-50 rounded-2xl space-y-3">
+              <p className="text-red-800">Couldn’t load featured suppliers.</p>
+              <button
+                type="button"
+                className="text-primary font-semibold"
+                onClick={() => void refetchFeaturedSuppliers()}
+              >
+                Try again
+              </button>
+            </div>
+          )}
+          {!loadingSuppliers && !featuredSuppliersError && suppliers.length === 0 && (
             <div className="text-center py-10 text-sm text-muted-foreground border border-dashed border-border rounded-2xl">
               No suppliers yet.{" "}
               <button className="text-primary font-semibold" onClick={() => navigate("/suppliers")}>Browse directory →</button>
@@ -385,9 +415,9 @@ export function HomePage() {
         <section className="grid sm:grid-cols-3 gap-4">
           {[
             {
-              title: "Get Best Price",
+              title: "Request a quote",
               desc: "Post your requirement once — suppliers compete with quotes.",
-              cta: "Post RFQ",
+              cta: "Request quote",
               path: "/rfq/new",
               tone: "bg-orange-50 border-orange-100 text-orange-900",
             },

@@ -16,12 +16,13 @@ import { useAuth as useClerkAuth } from "@clerk/react";
 import { useAuth } from "@/context/AuthContext";
 import { ProductFormModal } from "@/components/ProductFormModal";
 import { ProductImage } from "@/components/ProductImage";
+import { subscribeRfqBroadcast } from "@/lib/rfqQueries";
 
 const statusConfig = {
-  pending: { label: "Pending", color: "bg-yellow-100 text-yellow-700", icon: <Clock size={12} /> },
-  responded: { label: "Responded", color: "bg-blue-100 text-blue-700", icon: <MessageSquare size={12} /> },
-  accepted: { label: "Accepted", color: "bg-green-100 text-green-700", icon: <CheckCircle size={12} /> },
-  rejected: { label: "Rejected", color: "bg-red-100 text-red-600", icon: <XCircle size={12} /> },
+  pending: { label: "Open", color: "bg-yellow-100 text-yellow-700", icon: <Clock size={12} /> },
+  responded: { label: "Quotes in", color: "bg-blue-100 text-blue-700", icon: <MessageSquare size={12} /> },
+  accepted: { label: "Deal closed", color: "bg-green-100 text-green-700", icon: <CheckCircle size={12} /> },
+  rejected: { label: "Cancelled", color: "bg-red-100 text-red-600", icon: <XCircle size={12} /> },
 };
 
 function StatCard({ icon, label, value, sub, color }: { icon: React.ReactNode; label: string; value: string | number; sub?: string; color: string }) {
@@ -167,15 +168,21 @@ export function DashboardPage() {
           slug?: string | null;
           shareUrl?: string | null;
         };
-        // Shop exists → Seller Central is usable (list products, reply to RFQs).
-        // Verified badge is separate; draft shops can still operate.
-        setNeedsVerify(false);
-        setShopReady(true);
+        const status =
+          typeof s.verificationStatus === "string" ? s.verificationStatus : "draft";
+        setVerificationStatus(status);
         setShopVerified(s.verified === true);
         setShareSlug(s.slug ?? null);
-        setVerificationStatus(
-          typeof s.verificationStatus === "string" ? s.verificationStatus : "draft",
-        );
+
+        // Free plan still requires GST verification flow (pending review or verified).
+        const kycDone = s.verified === true || status === "pending" || status === "verified";
+        if (!kycDone) {
+          setNeedsVerify(true);
+          setShopReady(false);
+          return;
+        }
+        setNeedsVerify(false);
+        setShopReady(true);
       } catch {
         if (!cancelled) {
           setShopLoadError("Could not load your shop. Check your connection.");
@@ -213,20 +220,26 @@ export function DashboardPage() {
   const { data: supplierDash } = useGetSupplierDashboard(supplierId ?? 0, {
     query: { enabled: isSupplier && hasLinkedShop && shopReady } as any,
   });
-  const { data: inboxRfqs } = useListRfqs(
-    hasLinkedShop && supplierId != null
+  const { data: inboxRfqs, refetch: refetchInboxRfqs } = useListRfqs(
+    isSupplier && hasLinkedShop && supplierId != null
       ? { supplierId }
-      : user && user.id > 0
-        ? { buyerId: user.id }
-        : undefined,
+      : isSupplier
+        ? undefined
+        : user && user.id > 0
+          ? { buyerId: user.id }
+          : undefined,
     {
       query: {
         enabled: !!user && user.id > 0,
         refetchOnMount: "always",
+        refetchOnWindowFocus: true,
+        refetchInterval: isSupplier ? 5_000 : 12_000,
         staleTime: 0,
       } as any,
     },
   );
+
+  useEffect(() => subscribeRfqBroadcast(() => void refetchInboxRfqs()), [refetchInboxRfqs]);
 
   const { data: supplierProductsData, refetch: refetchProducts } = useListProducts(
     { supplierId: supplierId ?? undefined },
@@ -363,18 +376,19 @@ export function DashboardPage() {
       return (
         <div className="max-w-lg mx-auto px-4 py-16 text-center">
           <BadgeCheck className="mx-auto text-primary mb-4" size={40} />
-          <h2 className="text-xl font-bold mb-2">Create your shop</h2>
+          <h2 className="text-xl font-bold mb-2">Complete seller verification</h2>
           <p className="text-sm text-muted-foreground mb-6">
-            Activate a Free shop to unlock Seller Central, product listing, and RFQ quotes.
-            GST verification is optional for the verified badge.
+            Free plan includes shop setup with GST and company KYC. Finish verification to unlock
+            Seller Central, product listing, and RFQ quotes. Your verified badge appears after
+            review.
           </p>
           <div className="flex flex-wrap gap-3 justify-center">
             <button
               type="button"
-              onClick={() => navigate("/seller/plans")}
+              onClick={() => navigate("/seller/verify")}
               className="bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90"
             >
-              Open Free shop
+              Continue verification
             </button>
             <button
               type="button"
@@ -466,19 +480,18 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {isSupplier && !shopVerified && (
+      {isSupplier && !shopVerified && verificationStatus === "pending" && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <p>
-            {verificationStatus === "pending"
-              ? "Your GSTIN is under review. You can list products and quote RFQs meanwhile — the verified badge appears after approval."
-              : "Finish GST verification when you can to earn the verified badge. Product listing and RFQs already work."}
+            Your GSTIN is under review. You can list products and quote RFQs — the verified badge
+            appears after Karm Baba approval.
           </p>
           <button
             type="button"
             onClick={() => navigate("/seller/verify")}
             className="shrink-0 font-semibold text-amber-900 underline underline-offset-2"
           >
-            {verificationStatus === "pending" ? "View status" : "Continue verification"}
+            View status
           </button>
         </div>
       )}

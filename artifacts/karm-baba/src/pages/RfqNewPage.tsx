@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { useCreateRfq, getGetRfqQueryKey, useListCategories } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
+import { invalidateRfqQueries } from "@/lib/rfqQueries";
 
 export function RfqNewPage() {
   const [, navigate] = useLocation();
@@ -75,7 +76,7 @@ export function RfqNewPage() {
               ? defaultProductId
               : undefined,
           supplierId:
-            defaultSupplierId && Number.isFinite(defaultSupplierId)
+            defaultSupplierId && Number.isFinite(defaultSupplierId) && defaultSupplierId > 0
               ? defaultSupplierId
               : undefined,
           buyerName: form.buyerName.trim(),
@@ -86,10 +87,10 @@ export function RfqNewPage() {
           description: form.description.trim() || undefined,
         },
       });
-      await qc.invalidateQueries({ queryKey: ["/api/rfq"] });
       if (created?.id) {
         qc.setQueryData(getGetRfqQueryKey(created.id), created);
       }
+      await invalidateRfqQueries(qc, { rfqId: created?.id });
       setSuccessId(created.id);
     } catch (err) {
       const msg =

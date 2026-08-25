@@ -1,14 +1,16 @@
+import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { FileText, Clock, CheckCircle, XCircle, MessageSquare, Plus, Package, LogIn } from "lucide-react";
 import { motion } from "framer-motion";
 import { useListRfqs } from "@workspace/api-client-react";
 import { useAuth } from "@/context/AuthContext";
+import { subscribeRfqBroadcast } from "@/lib/rfqQueries";
 
 const statusConfig = {
-  pending: { label: "Awaiting quote", color: "bg-yellow-100 text-yellow-700 border-yellow-200", icon: <Clock size={12} /> },
-  responded: { label: "Quoted", color: "bg-blue-100 text-blue-700 border-blue-200", icon: <MessageSquare size={12} /> },
-  accepted: { label: "Accepted", color: "bg-green-100 text-green-700 border-green-200", icon: <CheckCircle size={12} /> },
-  rejected: { label: "Closed", color: "bg-red-100 text-red-600 border-red-200", icon: <XCircle size={12} /> },
+  pending: { label: "Open for quotes", color: "bg-yellow-100 text-yellow-700 border-yellow-200", icon: <Clock size={12} /> },
+  responded: { label: "Quotes in", color: "bg-blue-100 text-blue-700 border-blue-200", icon: <MessageSquare size={12} /> },
+  accepted: { label: "Deal closed", color: "bg-green-100 text-green-700 border-green-200", icon: <CheckCircle size={12} /> },
+  rejected: { label: "Cancelled", color: "bg-red-100 text-red-600 border-red-200", icon: <XCircle size={12} /> },
 };
 
 export function RfqListPage() {
@@ -17,14 +19,15 @@ export function RfqListPage() {
   const isSeller = user?.role === "seller" || user?.role === "admin";
   const hasShop = typeof user?.supplierId === "number" && user.supplierId > 0;
 
+  // Sellers: ask for supplier inbox (or bare list so API uses seller scope).
   // Buyers: force buyerId so list is "my RFQs".
-  // Sellers with a shop: filter by supplierId (API also includes open marketplace RFQs).
-  // Let API auth-scope handle the rest.
   const listParams =
     user && user.id > 0
       ? isSeller && hasShop
         ? { supplierId: user.supplierId! }
-        : { buyerId: user.id }
+        : isSeller
+          ? undefined
+          : { buyerId: user.id }
       : undefined;
 
   const { data: rfqs, isLoading, isFetching, refetch, isError, error } = useListRfqs(listParams, {
@@ -32,10 +35,23 @@ export function RfqListPage() {
       enabled: !!user && user.id > 0 && profileReady,
       refetchOnMount: "always",
       refetchOnWindowFocus: true,
-      refetchInterval: 15_000,
+      refetchOnReconnect: true,
+      refetchInterval: isSeller ? 5_000 : 12_000,
       staleTime: 0,
     } as any,
   });
+
+  useEffect(() => subscribeRfqBroadcast(() => void refetch()), [refetch]);
+
+  // Sellers: highest target price first (matches API). Buyers keep API newest-first order.
+  const sortedRfqs = isSeller
+    ? [...(rfqs ?? [])].sort((a, b) => {
+        const ap = a.targetPrice != null ? Number(a.targetPrice) : -1;
+        const bp = b.targetPrice != null ? Number(b.targetPrice) : -1;
+        if (bp !== ap) return bp - ap;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      })
+    : rfqs;
 
   if (isLoaded && !isLoggedIn) {
     return (
@@ -78,7 +94,7 @@ export function RfqListPage() {
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">
             {isSeller
-              ? "Quote requests for your shop and open marketplace inquiries"
+              ? "Highest target-price inquiries first · open marketplace + your shop"
               : "Track and manage your quotation requests"}
           </p>
         </div>
@@ -131,7 +147,7 @@ export function RfqListPage() {
             </div>
           ))}
         </div>
-      ) : rfqs?.length === 0 ? (
+      ) : sortedRfqs?.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-2xl border border-border shadow-sm">
           <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
             <FileText size={28} className="text-muted-foreground" />
@@ -164,7 +180,7 @@ export function RfqListPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {rfqs?.map((rfq, i) => {
+          {sortedRfqs?.map((rfq, i) => {
             const status =
               statusConfig[rfq.status as keyof typeof statusConfig] ?? statusConfig.pending;
             return (

@@ -19,6 +19,21 @@ import {
   parseLinkedSupplierId,
 } from "../lib/authorize";
 import { GST_STATE_CODES, validateGstin } from "../lib/gstin";
+import { isIndiaCountry, isValidContactPhone } from "../lib/country";
+import { validateBusinessEmail } from "../lib/businessEmail";
+import {
+  canonicalState,
+  firstCompanyProfileError,
+} from "../lib/companyProfile";
+import {
+  generateEmailOtp,
+  hashEmailOtp,
+  otpExpiresAt,
+  otpResendAllowed,
+  verifyEmailOtpHash,
+} from "../lib/emailOtp";
+import { sendMail } from "../lib/mail";
+import { rateLimit } from "../lib/rateLimit";
 import {
   ensureFreeSubscription,
   ensureUniqueSupplierSlug,
@@ -164,8 +179,11 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
     existing.gstVerified ||
     existing.verificationStatus === "pending";
   const incomingGst = readTrimmed(body.gstin);
+  const countryUpdate = readTrimmed(body.country);
+  const effectiveCountry = countryUpdate ?? existing.country ?? "India";
+  const india = isIndiaCountry(effectiveCountry);
 
-  if (incomingGst) {
+  if (incomingGst && india) {
     const gst = validateGstin(incomingGst);
     if (!gst.ok) {
       res.status(400).json({ error: gst.error });
@@ -194,16 +212,27 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
   if (state !== undefined) patch.state = state || null;
   const pincode = readTrimmed(body.pincode);
   if (pincode !== undefined) patch.pincode = pincode || null;
-  const country = readTrimmed(body.country);
-  if (country) patch.country = country;
+  if (countryUpdate) {
+    patch.country = countryUpdate;
+    if (!isIndiaCountry(countryUpdate) && isIndiaCountry(existing.country)) {
+      // Left India — drop GSTIN/PAN so foreign rules apply.
+      patch.gstin = null;
+      patch.pan = null;
+      patch.gstVerified = false;
+    }
+  }
   const description = readTrimmed(body.description);
   if (description !== undefined) patch.description = description || null;
   const contactPerson = readTrimmed(body.contactPerson);
   if (contactPerson !== undefined) patch.contactPerson = contactPerson || null;
   const contactPhone = readTrimmed(body.contactPhone);
   if (contactPhone !== undefined) {
-    if (contactPhone && !/^[6-9]\d{9}$/.test(contactPhone)) {
-      res.status(400).json({ error: "Enter a valid 10-digit Indian mobile number" });
+    if (contactPhone && !isValidContactPhone(contactPhone, effectiveCountry)) {
+      res.status(400).json({
+        error: india
+          ? "Enter a valid 10-digit Indian mobile number"
+          : "Enter a valid international phone (8–15 digits, + allowed)",
+      });
       return;
     }
     patch.contactPhone = contactPhone || null;
@@ -217,9 +246,17 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
   const bankIfsc = readTrimmed(body.bankIfsc);
   if (bankIfsc !== undefined) {
     const ifsc = bankIfsc.toUpperCase();
-    if (ifsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
-      res.status(400).json({ error: "Valid IFSC code is required (e.g. HDFC0001234)" });
-      return;
+    if (ifsc) {
+      if (india && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
+        res.status(400).json({ error: "Valid IFSC code is required (e.g. HDFC0001234)" });
+        return;
+      }
+      if (!india && !/^[A-Z0-9]{8,11}$/.test(ifsc.replace(/\s/g, ""))) {
+        res.status(400).json({
+          error: "Bank code should look like a SWIFT/BIC (8–11 characters) if provided",
+        });
+        return;
+      }
     }
     patch.bankIfsc = ifsc || null;
   }
@@ -246,17 +283,22 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
   }
 
   if (incomingGst && !gstLocked) {
-    const gst = validateGstin(incomingGst);
-    if (gst.ok) {
-      const clash = await prisma.supplier.findFirst({
-        where: { gstin: gst.gstin, NOT: { id: supplierId } },
-      });
-      if (clash) {
-        res.status(409).json({ error: "This GSTIN is already registered to another seller" });
-        return;
+    if (india) {
+      const gst = validateGstin(incomingGst);
+      if (gst.ok) {
+        const clash = await prisma.supplier.findFirst({
+          where: { gstin: gst.gstin, NOT: { id: supplierId } },
+        });
+        if (clash) {
+          res.status(409).json({ error: "This GSTIN is already registered to another seller" });
+          return;
+        }
+        patch.gstin = gst.gstin;
+        patch.pan = gst.pan;
       }
-      patch.gstin = gst.gstin;
-      patch.pan = gst.pan;
+    } else {
+      patch.gstin = incomingGst.slice(0, 32) || null;
+      patch.pan = null;
     }
   }
 
@@ -396,35 +438,42 @@ router.post(
       const businessAddress =
         typeof data.businessAddress === "string" ? data.businessAddress.trim() : "";
       const city = typeof data.city === "string" ? data.city.trim() : "";
-      const state = typeof data.state === "string" ? data.state.trim() : "";
+      const stateRaw = typeof data.state === "string" ? data.state.trim() : "";
       const legalName =
         typeof data.legalName === "string" ? data.legalName.trim() : "";
-      if (!companyName || !(location || city)) {
-        res.status(400).json({ error: "Company name and city / location are required" });
+      const nextCountry =
+        typeof data.country === "string" ? data.country.trim() || "India" : "India";
+      const pincode =
+        typeof data.pincode === "string" ? data.pincode.trim() : "";
+
+      const profileErr = firstCompanyProfileError({
+        companyName,
+        legalName,
+        businessAddress,
+        city: city || location.split(",")[0]?.trim() || "",
+        state: stateRaw,
+        pincode,
+        country: nextCountry,
+        location,
+        yearsInBusiness:
+          data.yearsInBusiness != null && data.yearsInBusiness !== ""
+            ? String(data.yearsInBusiness)
+            : undefined,
+      });
+      if (profileErr) {
+        res.status(400).json({ error: profileErr });
         return;
       }
-      if (!businessAddress) {
-        res.status(400).json({ error: "Registered business address is required" });
-        return;
-      }
-      if (!state) {
-        res.status(400).json({ error: "State is required" });
-        return;
-      }
-      if (!legalName) {
-        res.status(400).json({ error: "Legal entity name is required" });
-        return;
-      }
+      const state = canonicalState(stateRaw, nextCountry);
       const created = await prisma.supplier.create({
         data: {
           companyName,
           legalName,
           location: location || [city, state].filter(Boolean).join(", "),
-          country:
-            typeof data.country === "string" ? data.country.trim() || "India" : "India",
+          country: nextCountry,
           city: city || null,
           state,
-          pincode: typeof data.pincode === "string" ? data.pincode.trim() || null : null,
+          pincode: pincode || null,
           businessAddress,
           description:
             typeof data.description === "string" ? data.description.trim() || null : null,
@@ -494,40 +543,47 @@ router.post(
       const businessAddress =
         typeof data.businessAddress === "string" ? data.businessAddress.trim() : "";
       const city = typeof data.city === "string" ? data.city.trim() : "";
-      const state = typeof data.state === "string" ? data.state.trim() : "";
-      if (!companyName) {
-        res.status(400).json({ error: "Company name is required" });
-        return;
-      }
-      if (!businessAddress) {
-        res.status(400).json({ error: "Registered business address is required" });
-        return;
-      }
-      if (!city && !location) {
-        res.status(400).json({ error: "City / location is required" });
-        return;
-      }
-      if (!state) {
-        res.status(400).json({ error: "State is required" });
-        return;
-      }
-      patch.companyName = companyName;
-      if (typeof data.legalName === "string") {
-        const legal = data.legalName.trim();
-        if (!legal) {
-          res.status(400).json({ error: "Legal entity name is required" });
-          return;
-        }
-        patch.legalName = legal;
-      } else if (!existing.legalName) {
-        res.status(400).json({ error: "Legal entity name is required" });
-        return;
-      }
-      patch.location = location || [city, state].filter(Boolean).join(", ");
-      patch.country =
+      const stateRaw = typeof data.state === "string" ? data.state.trim() : "";
+      const pincode =
+        typeof data.pincode === "string" ? data.pincode.trim() : existing.pincode ?? "";
+      const nextCountry =
         typeof data.country === "string" && data.country.trim()
           ? data.country.trim()
           : "India";
+      const legalName =
+        typeof data.legalName === "string"
+          ? data.legalName.trim()
+          : existing.legalName ?? "";
+
+      const profileErr = firstCompanyProfileError({
+        companyName,
+        legalName,
+        businessAddress,
+        city: city || location.split(",")[0]?.trim() || "",
+        state: stateRaw,
+        pincode: typeof pincode === "string" ? pincode : "",
+        country: nextCountry,
+        location,
+        yearsInBusiness:
+          data.yearsInBusiness != null && data.yearsInBusiness !== ""
+            ? String(data.yearsInBusiness)
+            : undefined,
+      });
+      if (profileErr) {
+        res.status(400).json({ error: profileErr });
+        return;
+      }
+
+      const state = canonicalState(stateRaw, nextCountry);
+      patch.companyName = companyName;
+      patch.legalName = legalName;
+      patch.location = location || [city, state].filter(Boolean).join(", ");
+      patch.country = nextCountry;
+      if (!isIndiaCountry(nextCountry) && isIndiaCountry(existing.country)) {
+        patch.gstin = null;
+        patch.pan = null;
+        patch.gstVerified = false;
+      }
       patch.city = city || null;
       patch.state = state;
       patch.pincode =
@@ -560,41 +616,89 @@ router.post(
         res.status(400).json({ error: "Contact person is required" });
         return;
       }
-      if (!/^[6-9]\d{9}$/.test(contactPhone)) {
-        res.status(400).json({ error: "Enter a valid 10-digit Indian mobile number" });
+      const countryForPhone =
+        (typeof patch.country === "string" ? patch.country : null) ??
+        existing.country ??
+        "India";
+      if (!isValidContactPhone(contactPhone, countryForPhone)) {
+        res.status(400).json({
+          error: isIndiaCountry(countryForPhone)
+            ? "Enter a valid 10-digit Indian mobile number"
+            : "Enter a valid international phone (8–15 digits, + allowed)",
+        });
         return;
       }
       if (!contactEmail.includes("@")) {
         res.status(400).json({ error: "Valid contact email is required" });
         return;
       }
+      const countryForEmail = countryForPhone;
+      const site =
+        typeof data.website === "string"
+          ? data.website.trim() || null
+          : existing.website;
+      if (typeof data.website === "string") {
+        patch.website = site;
+      }
+      if (!isIndiaCountry(countryForEmail)) {
+        const biz = validateBusinessEmail(contactEmail, site);
+        if (!biz.ok) {
+          res.status(400).json({ error: biz.error });
+          return;
+        }
+        patch.contactEmail = biz.email;
+        if (existing.contactEmail?.toLowerCase() !== biz.email) {
+          patch.businessEmailVerified = false;
+          patch.businessEmailOtpHash = null;
+          patch.businessEmailOtpExpiresAt = null;
+        }
+      } else {
+        patch.contactEmail = contactEmail;
+      }
       patch.contactPerson = contactPerson;
       patch.contactPhone = contactPhone;
-      patch.contactEmail = contactEmail;
-      if (typeof data.website === "string") {
-        patch.website = data.website.trim() || null;
-      }
     }
 
     if (step === 3) {
-      const gst = validateGstin(String(data.gstin ?? ""));
-      if (!gst.ok) {
-        res.status(400).json({ error: gst.error });
-        return;
+      const country =
+        (typeof patch.country === "string" ? patch.country : null) ??
+        existing.country ??
+        "India";
+      if (isIndiaCountry(country)) {
+        const gst = validateGstin(String(data.gstin ?? ""));
+        if (!gst.ok) {
+          res.status(400).json({ error: gst.error });
+          return;
+        }
+        const clash = await prisma.supplier.findFirst({
+          where: { gstin: gst.gstin, NOT: { id: supplierId } },
+        });
+        if (clash) {
+          res.status(409).json({
+            error: "This GSTIN is already registered to another seller",
+          });
+          return;
+        }
+        patch.gstin = gst.gstin;
+        patch.pan = gst.pan;
+        patch.gstVerified = false;
+        const stateName = GST_STATE_CODES[gst.stateCode];
+        if (stateName && !existing.state) patch.state = stateName;
+      } else {
+        // Overseas: company-domain email OTP replaces GST. Tax ID optional.
+        if (!existing.businessEmailVerified) {
+          res.status(400).json({
+            error:
+              "Verify your company-domain email with the OTP we sent before continuing",
+          });
+          return;
+        }
+        const taxId =
+          typeof data.gstin === "string" ? data.gstin.trim().slice(0, 32) : "";
+        patch.gstin = taxId || null;
+        patch.pan = null;
+        patch.gstVerified = false;
       }
-      const clash = await prisma.supplier.findFirst({
-        where: { gstin: gst.gstin, NOT: { id: supplierId } },
-      });
-      if (clash) {
-        res.status(409).json({ error: "This GSTIN is already registered to another seller" });
-        return;
-      }
-      patch.gstin = gst.gstin;
-      patch.pan = gst.pan;
-      // Format/checksum OK only — not government-verified.
-      patch.gstVerified = false;
-      const stateName = GST_STATE_CODES[gst.stateCode];
-      if (stateName && !existing.state) patch.state = stateName;
     }
 
     if (step === 4) {
@@ -606,12 +710,29 @@ router.post(
         res.status(400).json({ error: "Account holder name is required" });
         return;
       }
-      if (!bankIfsc || !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankIfsc)) {
-        res.status(400).json({ error: "Valid IFSC code is required (e.g. HDFC0001234)" });
-        return;
+      const country =
+        (typeof patch.country === "string" ? patch.country : null) ??
+        existing.country ??
+        "India";
+      if (isIndiaCountry(country)) {
+        if (!bankIfsc || !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankIfsc)) {
+          res.status(400).json({
+            error: "Valid IFSC code is required (e.g. HDFC0001234)",
+          });
+          return;
+        }
+        patch.bankIfsc = bankIfsc;
+      } else {
+        // SWIFT/BIC optional for foreign sellers
+        if (bankIfsc && !/^[A-Z0-9]{8,11}$/.test(bankIfsc.replace(/\s/g, ""))) {
+          res.status(400).json({
+            error: "Bank code should look like a SWIFT/BIC (8–11 characters) if provided",
+          });
+          return;
+        }
+        patch.bankIfsc = bankIfsc || null;
       }
       patch.bankAccountName = bankAccountName;
-      patch.bankIfsc = bankIfsc;
       if (Array.isArray(data.certifications)) {
         patch.certifications = data.certifications.filter(
           (x): x is string => typeof x === "string" && x.trim().length > 0,
@@ -620,19 +741,6 @@ router.post(
     }
 
     if (submit || step === 5) {
-      // Final gate: require GST + company + contact
-      const preview = { ...existing, ...Object.fromEntries(
-        Object.entries(patch).map(([k, v]) => [k, v]),
-      ) } as typeof existing;
-
-      const gstin = (patch.gstin as string | undefined) ?? existing.gstin;
-      const gst = validateGstin(gstin ?? "");
-      if (!gst.ok) {
-        res.status(400).json({
-          error: "Valid GSTIN is required before verification. Complete the GST step.",
-        });
-        return;
-      }
       const contactPerson =
         (patch.contactPerson as string | null | undefined) ?? existing.contactPerson;
       const contactPhone =
@@ -643,11 +751,33 @@ router.post(
         });
         return;
       }
-      void preview;
-      patch.gstin = gst.gstin;
-      patch.pan = gst.pan;
-      // Queue for manual / API GST verification — never auto-verify from checksum.
-      patch.gstVerified = false;
+
+      const country =
+        (typeof patch.country === "string" ? patch.country : null) ??
+        existing.country ??
+        "India";
+      if (isIndiaCountry(country)) {
+        const gstin = (patch.gstin as string | undefined) ?? existing.gstin;
+        const gst = validateGstin(gstin ?? "");
+        if (!gst.ok) {
+          res.status(400).json({
+            error: "Valid GSTIN is required before verification. Complete the GST step.",
+          });
+          return;
+        }
+        patch.gstin = gst.gstin;
+        patch.pan = gst.pan;
+      } else {
+        if (!existing.businessEmailVerified) {
+          res.status(400).json({
+            error:
+              "Verify your company-domain email with OTP before submitting (overseas KYC).",
+          });
+          return;
+        }
+        patch.gstVerified = false;
+      }
+
       patch.verified = false;
       patch.verificationStatus = "pending";
       patch.verificationStep = 5;
@@ -669,6 +799,7 @@ router.post(
       await ensureFreeSubscription(updated.id);
     }
 
+    const indiaSeller = isIndiaCountry(updated.country);
     res.json({
       supplier: mapOwnerSupplier(updated),
       nextStep: updated.verificationStatus === "pending" || updated.verified ? 5 : updated.verificationStep,
@@ -677,8 +808,187 @@ router.post(
       shareUrl: updated.slug ? `/s/${updated.slug}` : null,
       message:
         updated.verificationStatus === "pending"
-          ? "Profile submitted. Verified badge appears after Karm Baba reviews your GSTIN."
+          ? indiaSeller
+            ? "Profile submitted. Verified badge appears after Karm Baba reviews your GSTIN."
+            : "Profile submitted. Company email verified. Verified badge appears after Karm Baba reviews your company details."
           : undefined,
+    });
+  },
+);
+
+/** Overseas: send OTP to company-domain business email (GST substitute). */
+router.post(
+  "/suppliers/me/verification/email-otp",
+  requireClerkAuth,
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 8,
+    key: (req) => {
+      const ip =
+        (typeof req.headers["x-forwarded-for"] === "string"
+          ? req.headers["x-forwarded-for"].split(",")[0]?.trim()
+          : undefined) ||
+        req.ip ||
+        "unknown";
+      return `email-otp:${ip}`;
+    },
+  }),
+  async (req, res): Promise<void> => {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (!isSellerOrAdmin(dbUser)) {
+      res.status(403).json({ error: "Forbidden — sellers only" });
+      return;
+    }
+    const supplierId = parseLinkedSupplierId(dbUser);
+    if (supplierId == null) {
+      res.status(404).json({ error: "No supplier profile linked yet" });
+      return;
+    }
+    const existing = await prisma.supplier.findUnique({ where: { id: supplierId } });
+    if (!existing) {
+      res.status(404).json({ error: "Supplier not found" });
+      return;
+    }
+    if (isIndiaCountry(existing.country)) {
+      res.status(400).json({
+        error: "Company-email OTP is for overseas sellers. Indian sellers use GSTIN.",
+      });
+      return;
+    }
+    if (!otpResendAllowed(existing.businessEmailOtpExpiresAt)) {
+      res.status(429).json({
+        error: "Wait about a minute before requesting another code",
+      });
+      return;
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawEmail =
+      (typeof body.email === "string" && body.email.trim()) ||
+      existing.contactEmail ||
+      "";
+    const biz = validateBusinessEmail(rawEmail, existing.website);
+    if (!biz.ok) {
+      res.status(400).json({ error: biz.error });
+      return;
+    }
+
+    const code = generateEmailOtp();
+    const hash = hashEmailOtp(code, biz.email);
+    const expires = otpExpiresAt();
+
+    await prisma.supplier.update({
+      where: { id: supplierId },
+      data: {
+        contactEmail: biz.email,
+        businessEmailVerified: false,
+        businessEmailOtpHash: hash,
+        businessEmailOtpExpiresAt: expires,
+      },
+    });
+
+    const sent = await sendMail({
+      to: biz.email,
+      subject: "Your Karm Baba verification code",
+      text: `Your Karm Baba seller verification code is ${code}.\n\nIt expires in 15 minutes.\n\nIf you did not request this, ignore this email.`,
+      html: `<p>Your Karm Baba seller verification code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p><p>It expires in 15 minutes.</p>`,
+    });
+    if (!sent.ok) {
+      res.status(502).json({ error: sent.error });
+      return;
+    }
+
+    res.json({
+      sent: true,
+      email: biz.email,
+      expiresAt: expires.toISOString(),
+      ...(sent.mode === "dev-log" ? { previewCode: code } : {}),
+      message:
+        sent.mode === "dev-log"
+          ? "Dev mode: OTP logged on server (and returned as previewCode)"
+          : `Code sent to ${biz.email}`,
+    });
+  },
+);
+
+/** Overseas: confirm OTP for company-domain email. */
+router.post(
+  "/suppliers/me/verification/email-otp/confirm",
+  requireClerkAuth,
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    key: (req) => {
+      const ip =
+        (typeof req.headers["x-forwarded-for"] === "string"
+          ? req.headers["x-forwarded-for"].split(",")[0]?.trim()
+          : undefined) ||
+        req.ip ||
+        "unknown";
+      return `email-otp-confirm:${ip}`;
+    },
+  }),
+  async (req, res): Promise<void> => {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (!isSellerOrAdmin(dbUser)) {
+      res.status(403).json({ error: "Forbidden — sellers only" });
+      return;
+    }
+    const supplierId = parseLinkedSupplierId(dbUser);
+    if (supplierId == null) {
+      res.status(404).json({ error: "No supplier profile linked yet" });
+      return;
+    }
+    const existing = await prisma.supplier.findUnique({ where: { id: supplierId } });
+    if (!existing) {
+      res.status(404).json({ error: "Supplier not found" });
+      return;
+    }
+    if (isIndiaCountry(existing.country)) {
+      res.status(400).json({ error: "Company-email OTP is for overseas sellers only" });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const code = typeof body.code === "string" ? body.code.trim() : "";
+    if (!/^\d{6}$/.test(code)) {
+      res.status(400).json({ error: "Enter the 6-digit code from your email" });
+      return;
+    }
+    if (
+      !existing.businessEmailOtpExpiresAt ||
+      existing.businessEmailOtpExpiresAt.getTime() < Date.now()
+    ) {
+      res.status(400).json({ error: "Code expired — request a new one" });
+      return;
+    }
+    const email = existing.contactEmail ?? "";
+    if (!verifyEmailOtpHash(code, email, existing.businessEmailOtpHash)) {
+      res.status(400).json({ error: "Incorrect code — check your email and try again" });
+      return;
+    }
+
+    const updated = await prisma.supplier.update({
+      where: { id: supplierId },
+      data: {
+        businessEmailVerified: true,
+        businessEmailOtpHash: null,
+        businessEmailOtpExpiresAt: null,
+      },
+    });
+
+    res.json({
+      verified: true,
+      email: updated.contactEmail,
+      supplier: mapOwnerSupplier(updated),
+      message: "Company email verified",
     });
   },
 );
@@ -705,19 +1015,19 @@ router.post(
       return;
     }
     const gst = validateGstin(existing.gstin ?? "");
-    if (!gst.ok) {
+    if (isIndiaCountry(existing.country) && !gst.ok) {
       res.status(400).json({ error: "Supplier has no valid GSTIN on file" });
       return;
     }
     const updated = await prisma.supplier.update({
       where: { id },
       data: {
-        gstVerified: true,
+        gstVerified: isIndiaCountry(existing.country) ? true : existing.gstVerified,
         verified: true,
         verificationStatus: "verified",
         verificationStep: 5,
         verifiedAt: new Date(),
-        pan: existing.pan || gst.pan,
+        pan: existing.pan || (gst.ok ? gst.pan : existing.pan),
       },
     });
     await ensureFreeSubscription(updated.id);

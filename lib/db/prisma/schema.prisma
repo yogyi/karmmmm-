@@ -91,6 +91,7 @@ model Supplier {
   users        User[]
   products     Product[]
   rfqs         Rfq[]
+  rfqQuotes    RfqQuote[]
   reviews      Review[]
   subscription ShopSubscription?
   leads        Lead[]
@@ -125,34 +126,70 @@ model Product {
   @@map("products")
 }
 
+/// RFQ lifecycle: pending (open for quotes) → responded (≥1 quote) → accepted (deal closed) | rejected (cancelled).
 model Rfq {
-  id            Int       @id @default(autoincrement())
-  productId     Int?      @map("product_id")
-  productName   String    @map("product_name")
-  categoryId    Int?      @map("category_id")
-  categoryName  String?   @map("category_name")
-  supplierId    Int?      @map("supplier_id")
-  supplierName  String?   @map("supplier_name")
-  buyerId       Int?      @map("buyer_id")
-  buyerName     String    @map("buyer_name")
-  buyerEmail    String    @map("buyer_email")
-  quantity      Int
-  unit          String
-  targetPrice   Decimal?  @map("target_price") @db.Decimal(12, 2)
-  description   String?
-  status        String    @default("pending")
-  quotedPrice   Decimal?  @map("quoted_price") @db.Decimal(12, 2)
-  sellerMessage String?   @map("seller_message")
-  quotedAt      DateTime? @map("quoted_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
+  id              Int       @id @default(autoincrement())
+  productId       Int?      @map("product_id")
+  productName     String    @map("product_name")
+  categoryId      Int?      @map("category_id")
+  categoryName    String?   @map("category_name")
+  /// Directed RFQ, or winning supplier after award. Null = open marketplace.
+  supplierId      Int?      @map("supplier_id")
+  supplierName    String?   @map("supplier_name")
+  buyerId         Int?      @map("buyer_id")
+  buyerName       String    @map("buyer_name")
+  buyerEmail      String    @map("buyer_email")
+  quantity        Int
+  unit            String
+  targetPrice     Decimal?  @map("target_price") @db.Decimal(12, 2)
+  description     String?
+  status          String    @default("pending")
+  /// Denormalized winning / latest quote for list views.
+  quotedPrice     Decimal?  @map("quoted_price") @db.Decimal(12, 2)
+  sellerMessage   String?   @map("seller_message")
+  quotedAt        DateTime? @map("quoted_at")
+  awardedQuoteId  Int?      @map("awarded_quote_id")
+  closedAt        DateTime? @map("closed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
-  product  Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  buyer    User?     @relation("RfqBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
-  lead     Lead?
+  product       Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  category      Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  supplier      Supplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  buyer         User?      @relation("RfqBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  lead          Lead?
+  quotes        RfqQuote[]
+  awardedQuote  RfqQuote?  @relation("RfqAwardedQuote", fields: [awardedQuoteId], references: [id], onDelete: SetNull)
 
   @@map("rfq")
+}
+
+/// One competitive quote per supplier per RFQ. Buyer awards exactly one to close the deal.
+model RfqQuote {
+  id            Int       @id @default(autoincrement())
+  rfqId         Int       @map("rfq_id")
+  supplierId    Int       @map("supplier_id")
+  supplierName  String    @map("supplier_name")
+  unitPrice     Decimal   @map("unit_price") @db.Decimal(12, 2)
+  currency      String    @default("INR")
+  quantity      Int
+  unit          String
+  leadTimeDays  Int?      @map("lead_time_days")
+  validDays     Int?      @map("valid_days")
+  paymentTerms  String?   @map("payment_terms")
+  message       String?
+  /// active | withdrawn | awarded | declined
+  status        String    @default("active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  rfq      Rfq      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  awardedOn Rfq[]   @relation("RfqAwardedQuote")
+
+  @@unique([rfqId, supplierId])
+  @@index([rfqId, status])
+  @@index([supplierId])
+  @@map("rfq_quotes")
 }
 
 model Review {

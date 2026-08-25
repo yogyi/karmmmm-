@@ -4,6 +4,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  type Context,
   type ReactNode,
 } from "react";
 import {
@@ -36,7 +37,23 @@ interface AuthContextType {
   refreshProfile: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+const AUTH_CONTEXT_KEY = "__karmbaba_auth_context__";
+
+/**
+ * Keep a single Context identity across Vite HMR. Otherwise AuthProvider can
+ * publish on an old Context while useAuth reads a newly created one → null crash.
+ */
+function getAuthContext(): Context<AuthContextType | null> {
+  const g = globalThis as typeof globalThis & {
+    [AUTH_CONTEXT_KEY]?: Context<AuthContextType | null>;
+  };
+  if (!g[AUTH_CONTEXT_KEY]) {
+    g[AUTH_CONTEXT_KEY] = createContext<AuthContextType | null>(null);
+  }
+  return g[AUTH_CONTEXT_KEY];
+}
+
+const AuthContext = getAuthContext();
 
 /** Exported for soft reads (e.g. OnboardingGate) during Vite HMR context splits. */
 export { AuthContext };
@@ -60,6 +77,16 @@ async function syncProfile(getToken: () => Promise<string | null>): Promise<Auth
 
   return (await res.json()) as AuthUser;
 }
+
+const guestAuth: AuthContextType = {
+  user: null,
+  login: () => undefined,
+  logout: () => undefined,
+  isLoggedIn: false,
+  isLoaded: false,
+  profileReady: false,
+  refreshProfile: async () => undefined,
+};
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { isSignedIn, isLoaded, getToken, userId } = useClerkAuth();
@@ -143,13 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  // Soft fallback: Vite HMR can briefly desync Context identity before full reload.
+  if (!ctx) return guestAuth;
   return ctx;
-}
-
-// Auth context identity must not survive HMR — consumers would see a null context.
-if (import.meta.hot) {
-  import.meta.hot.accept(() => {
-    import.meta.hot?.invalidate();
-  });
 }

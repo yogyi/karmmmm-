@@ -41,8 +41,16 @@ export function ShortlistPage() {
         {count > 0 && (
           <button
             type="button"
-            onClick={clear}
-            className="text-sm text-muted-foreground hover:text-destructive border border-border rounded-xl px-3 py-2"
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Clear all ${count} shortlisted product${count === 1 ? "" : "s"}? This cannot be undone.`,
+                )
+              ) {
+                clear();
+              }
+            }}
+            className="text-sm text-muted-foreground hover:text-destructive border border-border rounded-xl px-3 py-2 min-h-11"
           >
             Clear all
           </button>
@@ -109,7 +117,7 @@ export function ShortlistPage() {
                     onClick={() => navigate(`/products/${product.id}`)}
                     className="flex-1 bg-primary text-white text-sm font-semibold min-h-11 rounded-xl"
                   >
-                    Get Best Price
+                    Request quote
                   </button>
                   <button
                     type="button"

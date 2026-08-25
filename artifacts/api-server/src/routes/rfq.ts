@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { prisma, toNumber, type Prisma } from "@workspace/db";
+import { prisma, type Prisma } from "@workspace/db";
 import {
   CreateRfqBody,
   UpdateRfqBody,
@@ -18,44 +18,75 @@ import {
   parseLinkedSupplierId,
 } from "../lib/authorize";
 import { redactRfqForViewer } from "../lib/redact";
-import { sellerInboxWhere } from "../lib/rfqScope";
+import { sellerInboxWhere, sellerOpenMarketplaceWhere, sortRfqsForSellerInbox } from "../lib/rfqScope";
+import {
+  awardRfqQuote,
+  closeRfqWithoutAward,
+  formatRfqDeal,
+  isRfqClosed,
+  isRfqOpenForQuotes,
+  loadRfqWithQuotes,
+  submitSellerQuote,
+  syncLeadAfterDeal,
+  syncLeadAfterQuote,
+  type RfqWithQuotes,
+} from "../lib/rfqDeal";
 
 const router: IRouter = Router();
 
-function formatRfq(r: Prisma.RfqGetPayload<object>) {
-  return {
-    ...r,
-    targetPrice: toNumber(r.targetPrice),
-    quotedPrice: toNumber(r.quotedPrice),
-    sellerMessage: r.sellerMessage ?? null,
-    quotedAt: r.quotedAt ? r.quotedAt.toISOString() : null,
-    createdAt: r.createdAt.toISOString(),
-  };
+function httpErrorStatus(err: unknown): number {
+  if (err && typeof err === "object" && "status" in err) {
+    const s = Number((err as { status?: number }).status);
+    if (Number.isFinite(s) && s >= 400 && s < 600) return s;
+  }
+  return 500;
 }
 
-function formatRfqForViewer(
-  r: Prisma.RfqGetPayload<object>,
+function formatForViewer(
+  r: RfqWithQuotes,
   viewer: NonNullable<Awaited<ReturnType<typeof getAuthenticatedDbUser>>>,
 ) {
-  return redactRfqForViewer(formatRfq(r), viewer);
+  return redactRfqForViewer(formatRfqDeal(r), viewer);
 }
 
-function canViewRfq(user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedDbUser>>>, rfq: {
-  buyerId: number | null;
-  supplierId: number | null;
-}): boolean {
+function canViewRfq(
+  user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedDbUser>>>,
+  rfq: {
+    buyerId: number | null;
+    supplierId: number | null;
+    status?: string | null;
+    quotes?: { supplierId: number }[];
+  },
+): boolean {
   if (isAdmin(user)) return true;
   if (rfq.buyerId != null && rfq.buyerId === user.id) return true;
   if (isRfqSupplierParty(user, rfq.supplierId)) return true;
-  // Sellers with a linked shop can open marketplace (unassigned) RFQs to quote them.
+
+  const linked = parseLinkedSupplierId(user);
+  if (linked != null && rfq.quotes?.some((q) => q.supplierId === linked)) return true;
+
+  // Open marketplace RFQs while still collecting quotes
   if (
     rfq.supplierId == null &&
-    parseLinkedSupplierId(user) != null &&
+    isRfqOpenForQuotes(rfq.status ?? "pending") &&
     (user.role === "seller" || user.role === "admin")
   ) {
     return true;
   }
   return false;
+}
+
+function canSellerQuote(
+  user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedDbUser>>>,
+  rfq: { supplierId: number | null; status: string },
+): boolean {
+  if (!isRfqOpenForQuotes(rfq.status)) return false;
+  const linked = parseLinkedSupplierId(user);
+  if (linked == null) return false;
+  if (isAdmin(user)) return true;
+  if (user.role !== "seller" && user.role !== "admin") return false;
+  if (rfq.supplierId == null) return true; // open marketplace
+  return rfq.supplierId === linked;
 }
 
 router.get("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
@@ -75,9 +106,17 @@ router.get("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
   const where: Prisma.RfqWhereInput = {};
   if (status != null) where.status = status;
 
+  let sellerInbox = false;
+
   if (isAdmin(dbUser)) {
     if (buyerId != null) where.buyerId = buyerId;
-    if (supplierId != null) where.supplierId = supplierId;
+    if (supplierId != null) {
+      Object.assign(where, sellerInboxWhere(supplierId, status));
+      delete where.status;
+      sellerInbox = true;
+    } else if (buyerId == null) {
+      sellerInbox = true;
+    }
   } else {
     const linkedSupplierId = parseLinkedSupplierId(dbUser);
 
@@ -91,37 +130,31 @@ router.get("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
     }
 
     if (buyerId != null) {
-      // Explicit "my requests" filter
       where.buyerId = dbUser.id;
     } else if (supplierId != null && linkedSupplierId === supplierId) {
       Object.assign(where, sellerInboxWhere(linkedSupplierId, status));
       delete where.status;
-    } else if (linkedSupplierId != null && (dbUser.role === "seller" || dbUser.role === "admin")) {
-      // Default seller view: own buyer RFQs + assigned + open pending
-      where.OR = [
-        { buyerId: dbUser.id },
-        { supplierId: linkedSupplierId },
-        { supplierId: null, status: "pending" },
-      ];
-      if (status != null) {
-        delete where.status;
-        where.OR = [
-          { buyerId: dbUser.id, status },
-          { supplierId: linkedSupplierId, status },
-          { supplierId: null, status },
-        ];
-      }
+      sellerInbox = true;
+    } else if (linkedSupplierId != null && dbUser.role === "seller") {
+      Object.assign(where, sellerInboxWhere(linkedSupplierId, status));
+      delete where.status;
+      sellerInbox = true;
+    } else if (dbUser.role === "seller") {
+      Object.assign(where, sellerOpenMarketplaceWhere(dbUser.id, status));
+      delete where.status;
+      sellerInbox = true;
     } else {
-      // Buyer (or seller without a linked shop): only own RFQs
       where.buyerId = dbUser.id;
     }
   }
 
   const items = await prisma.rfq.findMany({
     where,
+    include: { quotes: true },
     orderBy: { createdAt: "desc" },
   });
-  res.json(ListRfqsResponse.parse(items.map((r) => formatRfqForViewer(r, dbUser))));
+  const ordered = sellerInbox ? sortRfqsForSellerInbox(items) : items;
+  res.json(ListRfqsResponse.parse(ordered.map((r) => formatForViewer(r, dbUser))));
 });
 
 router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
@@ -187,7 +220,6 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
       return;
     }
     productId = product.id;
-    // Prefer product's shop when client didn't attach a supplier
     if (supplierId == null && product.supplierId != null) {
       supplierId = product.supplierId;
       const supplier = await prisma.supplier.findUnique({
@@ -208,7 +240,6 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  // Never trust client-supplied buyer identity — bind to the authenticated user.
   const rfq = await prisma.rfq.create({
     data: {
       productId,
@@ -226,6 +257,7 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
       description: input.description?.trim() || null,
       status: "pending",
     },
+    include: { quotes: true },
   });
 
   try {
@@ -235,7 +267,7 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
     console.warn("Failed to create CRM lead from RFQ", err);
   }
 
-  res.status(201).json(GetRfqResponse.parse(formatRfqForViewer(rfq, dbUser)));
+  res.status(201).json(GetRfqResponse.parse(formatForViewer(rfq, dbUser)));
 });
 
 router.get("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
@@ -252,7 +284,7 @@ router.get("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const rfq = await prisma.rfq.findUnique({ where: { id: params.data.id } });
+  const rfq = await loadRfqWithQuotes(params.data.id);
   if (!rfq) {
     res.status(404).json({ error: "RFQ not found" });
     return;
@@ -262,7 +294,117 @@ router.get("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(GetRfqResponse.parse(formatRfqForViewer(rfq, dbUser)));
+  res.json(GetRfqResponse.parse(formatForViewer(rfq, dbUser)));
+});
+
+/** Seller submits / updates a competitive quote (does not claim open RFQs). */
+router.post("/rfq/:id/quotes", requireClerkAuth, async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const rfqId = parseInt(String(rawId), 10);
+  if (!Number.isFinite(rfqId)) {
+    res.status(400).json({ error: "Invalid RFQ id" });
+    return;
+  }
+
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const existing = await prisma.rfq.findUnique({ where: { id: rfqId } });
+  if (!existing) {
+    res.status(404).json({ error: "RFQ not found" });
+    return;
+  }
+  if (!canSellerQuote(dbUser, existing) && !isAdmin(dbUser)) {
+    res.status(403).json({ error: "Forbidden — you cannot quote this RFQ" });
+    return;
+  }
+
+  const linkedSupplierId = parseLinkedSupplierId(dbUser);
+  if (linkedSupplierId == null) {
+    res.status(400).json({ error: "Link a supplier shop before sending quotes" });
+    return;
+  }
+
+  const shop = await prisma.supplier.findUnique({
+    where: { id: linkedSupplierId },
+    select: { companyName: true },
+  });
+  if (!shop) {
+    res.status(400).json({ error: "Supplier shop not found" });
+    return;
+  }
+
+  const body = req.body as Record<string, unknown>;
+  try {
+    const updated = await submitSellerQuote({
+      rfqId,
+      supplierId: linkedSupplierId,
+      supplierName: shop.companyName,
+      input: {
+        unitPrice: Number(body.unitPrice),
+        currency: typeof body.currency === "string" ? body.currency : "INR",
+        quantity: Number(body.quantity ?? existing.quantity),
+        unit: typeof body.unit === "string" ? body.unit : existing.unit,
+        leadTimeDays: body.leadTimeDays != null ? Number(body.leadTimeDays) : null,
+        validDays: body.validDays != null ? Number(body.validDays) : null,
+        paymentTerms: typeof body.paymentTerms === "string" ? body.paymentTerms : null,
+        message: typeof body.message === "string" ? body.message : null,
+      },
+    });
+    try {
+      await syncLeadAfterQuote(updated, linkedSupplierId);
+    } catch (err) {
+      console.warn("Lead sync after quote failed", err);
+    }
+    res.status(200).json(GetRfqResponse.parse(formatForViewer(updated, dbUser)));
+  } catch (err) {
+    res.status(httpErrorStatus(err)).json({
+      error: err instanceof Error ? err.message : "Failed to submit quote",
+    });
+  }
+});
+
+/** Buyer awards one quote → deal closed. */
+router.post("/rfq/:id/award", requireClerkAuth, async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const rfqId = parseInt(String(rawId), 10);
+  if (!Number.isFinite(rfqId)) {
+    res.status(400).json({ error: "Invalid RFQ id" });
+    return;
+  }
+
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const quoteId = Number((req.body as { quoteId?: number })?.quoteId);
+  if (!Number.isFinite(quoteId) || quoteId < 1) {
+    res.status(400).json({ error: "quoteId is required" });
+    return;
+  }
+
+  try {
+    const updated = await awardRfqQuote({
+      rfqId,
+      quoteId,
+      buyerId: dbUser.id,
+    });
+    try {
+      await syncLeadAfterDeal(updated);
+    } catch (err) {
+      console.warn("Lead sync after award failed", err);
+    }
+    res.json(GetRfqResponse.parse(formatForViewer(updated, dbUser)));
+  } catch (err) {
+    res.status(httpErrorStatus(err)).json({
+      error: err instanceof Error ? err.message : "Failed to award quote",
+    });
+  }
 });
 
 router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
@@ -285,7 +427,7 @@ router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const existing = await prisma.rfq.findUnique({ where: { id: params.data.id } });
+  const existing = await loadRfqWithQuotes(params.data.id);
   if (!existing) {
     res.status(404).json({ error: "RFQ not found" });
     return;
@@ -293,157 +435,178 @@ router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
 
   const isBuyer = existing.buyerId === dbUser.id;
   const linkedSupplierId = parseLinkedSupplierId(dbUser);
-  // Open RFQs (supplierId null) have no seller party yet — sellers with a shop may claim them.
-  const isSupplierParty = isRfqSupplierParty(dbUser, existing.supplierId);
-  const canClaimOpen =
-    existing.supplierId == null &&
-    linkedSupplierId != null &&
-    (dbUser.role === "seller" || dbUser.role === "admin");
   const admin = isAdmin(dbUser);
-
-  if (!admin && !isBuyer && !isSupplierParty && !canClaimOpen) {
-    res.status(403).json({ error: "Forbidden — you cannot update this RFQ" });
-    return;
-  }
-
   const body = parsed.data as {
     status?: "pending" | "responded" | "accepted" | "rejected";
     supplierName?: string;
     sellerMessage?: string;
     quotedPrice?: number;
+    awardQuoteId?: number;
   };
 
-  const updates: Prisma.RfqUpdateInput = {};
-
-  // Seller quotes / supplier responses
-  if (body.quotedPrice != null || body.sellerMessage != null || body.supplierName != null) {
-    if (existing.supplierId == null) {
-      if (!admin && !canClaimOpen) {
-        res.status(403).json({
-          error: "Forbidden — this RFQ has no assigned supplier yet",
-        });
-        return;
-      }
-      // Claim the open RFQ for this seller's shop so it persists in their inbox.
-      if (linkedSupplierId != null) {
-        const shop = await prisma.supplier.findUnique({
-          where: { id: linkedSupplierId },
-          select: { companyName: true },
-        });
-        const claimData: Prisma.RfqUpdateManyMutationInput = {
-          supplierName: shop?.companyName ?? body.supplierName ?? null,
-        };
-        if (body.sellerMessage != null) claimData.sellerMessage = body.sellerMessage;
-        if (body.quotedPrice != null) {
-          claimData.quotedPrice = body.quotedPrice;
-          claimData.quotedAt = new Date();
-          claimData.status = body.status ?? "responded";
-        } else if (body.status != null && (admin || body.status === "responded" || body.status === "rejected")) {
-          claimData.status = body.status;
-        }
-
-        const claimed = await prisma.rfq.updateMany({
-          where: { id: params.data.id, supplierId: null },
-          data: {
-            ...claimData,
-            supplierId: linkedSupplierId,
-          },
-        });
-        if (claimed.count === 0) {
-          res.status(409).json({
-            error: "This RFQ was just claimed by another supplier",
-          });
-          return;
-        }
-
-        const rfq = await prisma.rfq.findUnique({ where: { id: params.data.id } });
-        if (!rfq) {
-          res.status(404).json({ error: "RFQ not found" });
-          return;
-        }
-        try {
-          const { upsertLeadFromRfq } = await import("./leads");
-          await upsertLeadFromRfq(rfq.id);
-        } catch (err) {
-          console.warn("Lead mirror after RFQ claim failed", err);
-        }
-        res.json(UpdateRfqResponse.parse(formatRfqForViewer(rfq, dbUser)));
-        return;
-      }
-    } else if (!admin && !isSupplierParty) {
-      res.status(403).json({ error: "Forbidden — only the assigned supplier can quote this RFQ" });
+  // Prefer explicit award
+  if (body.awardQuoteId != null) {
+    if (!admin && !isBuyer) {
+      res.status(403).json({ error: "Only the buyer can award a quote" });
       return;
     }
-    if (body.supplierName != null) {
-      updates.supplierName = body.supplierName;
+    try {
+      const updated = await awardRfqQuote({
+        rfqId: existing.id,
+        quoteId: body.awardQuoteId,
+        buyerId: existing.buyerId ?? dbUser.id,
+      });
+      try {
+        await syncLeadAfterDeal(updated);
+      } catch (err) {
+        console.warn("Lead sync after award failed", err);
+      }
+      res.json(UpdateRfqResponse.parse(formatForViewer(updated, dbUser)));
+    } catch (err) {
+      res.status(httpErrorStatus(err)).json({
+        error: err instanceof Error ? err.message : "Failed to award quote",
+      });
     }
-    if (body.sellerMessage != null) updates.sellerMessage = body.sellerMessage;
-    if (body.quotedPrice != null) {
-      updates.quotedPrice = body.quotedPrice;
-      updates.quotedAt = new Date();
-      if (body.status == null) updates.status = "responded";
+    return;
+  }
+
+  // Legacy seller quote via PATCH → route through multi-quote upsert
+  if (body.quotedPrice != null || body.sellerMessage != null) {
+    if (!canSellerQuote(dbUser, existing) && !admin) {
+      res.status(403).json({ error: "Forbidden — you cannot quote this RFQ" });
+      return;
     }
+    if (linkedSupplierId == null) {
+      res.status(400).json({ error: "Link a supplier shop before sending quotes" });
+      return;
+    }
+    const shop = await prisma.supplier.findUnique({
+      where: { id: linkedSupplierId },
+      select: { companyName: true },
+    });
+    try {
+      const updated = await submitSellerQuote({
+        rfqId: existing.id,
+        supplierId: linkedSupplierId,
+        supplierName: shop?.companyName ?? body.supplierName ?? "Supplier",
+        input: {
+          unitPrice: Number(body.quotedPrice ?? existing.quotedPrice ?? 0),
+          quantity: existing.quantity,
+          unit: existing.unit,
+          message: body.sellerMessage ?? null,
+        },
+      });
+      try {
+        await syncLeadAfterQuote(updated, linkedSupplierId);
+      } catch (err) {
+        console.warn("Lead sync after quote failed", err);
+      }
+      res.json(UpdateRfqResponse.parse(formatForViewer(updated, dbUser)));
+    } catch (err) {
+      res.status(httpErrorStatus(err)).json({
+        error: err instanceof Error ? err.message : "Failed to submit quote",
+      });
+    }
+    return;
   }
 
   // Status transitions
   if (body.status != null) {
     if (admin) {
-      updates.status = body.status;
-    } else if (
-      (isSupplierParty || canClaimOpen) &&
-      (body.status === "responded" || body.status === "rejected")
-    ) {
-      if (canClaimOpen && linkedSupplierId != null && existing.supplierId == null) {
-        const claimed = await prisma.rfq.updateMany({
-          where: { id: params.data.id, supplierId: null },
-          data: {
-            supplierId: linkedSupplierId,
-            status: body.status,
-          },
-        });
-        if (claimed.count === 0) {
-          res.status(409).json({
-            error: "This RFQ was just claimed by another supplier",
-          });
-          return;
-        }
-        const rfq = await prisma.rfq.findUnique({ where: { id: params.data.id } });
-        if (!rfq) {
-          res.status(404).json({ error: "RFQ not found" });
-          return;
-        }
+      if (body.status === "accepted" && existing.quotes.length === 1) {
         try {
-          const { upsertLeadFromRfq } = await import("./leads");
-          await upsertLeadFromRfq(rfq.id);
+          const updated = await awardRfqQuote({
+            rfqId: existing.id,
+            quoteId: existing.quotes[0]!.id,
+            buyerId: existing.buyerId ?? dbUser.id,
+          });
+          res.json(UpdateRfqResponse.parse(formatForViewer(updated, dbUser)));
         } catch (err) {
-          console.warn("Lead mirror after RFQ claim failed", err);
+          res.status(httpErrorStatus(err)).json({
+            error: err instanceof Error ? err.message : "Failed to accept",
+          });
         }
-        res.json(UpdateRfqResponse.parse(formatRfqForViewer(rfq, dbUser)));
         return;
       }
-      updates.status = body.status;
-    } else if (isBuyer && (body.status === "accepted" || body.status === "rejected")) {
-      updates.status = body.status;
-    } else {
-      res.status(403).json({ error: "Forbidden — invalid status change for your role" });
+      if (body.status === "rejected") {
+        try {
+          const updated = await closeRfqWithoutAward({
+            rfqId: existing.id,
+            buyerId: existing.buyerId ?? dbUser.id,
+          });
+          res.json(UpdateRfqResponse.parse(formatForViewer(updated, dbUser)));
+        } catch (err) {
+          res.status(httpErrorStatus(err)).json({
+            error: err instanceof Error ? err.message : "Failed to close",
+          });
+        }
+        return;
+      }
+      if (isRfqClosed(existing.status) && body.status !== existing.status) {
+        res.status(409).json({ error: "Closed deals cannot be reopened via status change" });
+        return;
+      }
+      const rfq = await prisma.rfq.update({
+        where: { id: existing.id },
+        data: { status: body.status },
+        include: { quotes: true },
+      });
+      res.json(UpdateRfqResponse.parse(formatForViewer(rfq, dbUser)));
       return;
     }
+
+    if (isBuyer && body.status === "accepted") {
+      const active = existing.quotes.filter((q) => q.status === "active");
+      if (active.length === 0) {
+        res.status(400).json({ error: "No quotes to accept — wait for a seller reply" });
+        return;
+      }
+      if (active.length > 1) {
+        res.status(400).json({
+          error: "Multiple quotes received — award a specific quote",
+        });
+        return;
+      }
+      try {
+        const updated = await awardRfqQuote({
+          rfqId: existing.id,
+          quoteId: active[0]!.id,
+          buyerId: dbUser.id,
+        });
+        try {
+          await syncLeadAfterDeal(updated);
+        } catch (err) {
+          console.warn("Lead sync after award failed", err);
+        }
+        res.json(UpdateRfqResponse.parse(formatForViewer(updated, dbUser)));
+      } catch (err) {
+        res.status(httpErrorStatus(err)).json({
+          error: err instanceof Error ? err.message : "Failed to accept quote",
+        });
+      }
+      return;
+    }
+
+    if (isBuyer && body.status === "rejected") {
+      try {
+        const updated = await closeRfqWithoutAward({
+          rfqId: existing.id,
+          buyerId: dbUser.id,
+        });
+        res.json(UpdateRfqResponse.parse(formatForViewer(updated, dbUser)));
+      } catch (err) {
+        res.status(httpErrorStatus(err)).json({
+          error: err instanceof Error ? err.message : "Failed to close RFQ",
+        });
+      }
+      return;
+    }
+
+    res.status(403).json({ error: "Forbidden — invalid status change for your role" });
+    return;
   }
 
-  const rfq = await prisma.rfq.update({
-    where: { id: params.data.id },
-    data: updates,
-  });
-
-  // Mirror to CRM after claim / quote
-  try {
-    const { upsertLeadFromRfq } = await import("./leads");
-    await upsertLeadFromRfq(rfq.id);
-  } catch (err) {
-    console.warn("Failed to sync CRM lead after RFQ update", err);
-  }
-
-  res.json(UpdateRfqResponse.parse(formatRfqForViewer(rfq, dbUser)));
+  res.status(400).json({ error: "No valid update fields provided" });
 });
 
 export default router;

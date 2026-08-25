@@ -14,12 +14,13 @@ import {
 import { useListRfqs, useGetFeaturedProducts } from "@workspace/api-client-react";
 import { useAuth } from "@/context/AuthContext";
 import { useShortlist } from "@/hooks/useShortlist";
+import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
 
 const statusLabel: Record<string, { label: string; className: string }> = {
-  pending: { label: "Awaiting quote", className: "bg-yellow-100 text-yellow-800" },
-  responded: { label: "Seller replied", className: "bg-blue-100 text-blue-800" },
-  accepted: { label: "Accepted", className: "bg-green-100 text-green-800" },
-  rejected: { label: "Closed", className: "bg-red-100 text-red-700" },
+  pending: { label: "Open for quotes", className: "bg-yellow-100 text-yellow-800" },
+  responded: { label: "Quotes in", className: "bg-blue-100 text-blue-800" },
+  accepted: { label: "Deal closed", className: "bg-green-100 text-green-800" },
+  rejected: { label: "Cancelled", className: "bg-red-100 text-red-700" },
 };
 
 /**
@@ -29,6 +30,7 @@ export function BuyerCentralPage() {
   const [, navigate] = useLocation();
   const { user, isLoggedIn, isLoaded, profileReady } = useAuth();
   const { count: shortlistCount } = useShortlist();
+  const { switchTo, switching } = useSwitchAccountRole();
   const listParams =
     user && user.id > 0
       ? user.role === "seller" && typeof user.supplierId === "number"
@@ -165,8 +167,8 @@ export function BuyerCentralPage() {
             {[
               { step: "1", title: "Find products", desc: "Browse categories & suppliers" },
               { step: "2", title: "Send RFQ", desc: "Ask for price & MOQ" },
-              { step: "3", title: "Compare quotes", desc: "Review seller replies" },
-              { step: "4", title: "Deal offline", desc: "Confirm with your supplier" },
+              { step: "3", title: "Compare quotes", desc: "Review competing seller offers" },
+              { step: "4", title: "Accept & close", desc: "Award one quote to lock the deal" },
             ].map((s) => (
               <div key={s.step} className="rounded-xl bg-muted/40 p-4">
                 <div className="w-7 h-7 rounded-full bg-primary text-white text-xs font-bold flex items-center justify-center mb-2">
@@ -312,10 +314,11 @@ export function BuyerCentralPage() {
           Want to sell instead?{" "}
           <button
             type="button"
-            onClick={() => navigate("/onboarding?change=1")}
-            className="text-primary font-medium hover:underline"
+            disabled={switching}
+            onClick={() => void switchTo("seller")}
+            className="text-primary font-medium hover:underline disabled:opacity-50"
           >
-            Switch to Seller Central
+            {switching ? "Switching…" : "Switch to Seller Central"}
           </button>
         </p>
       </div>

@@ -18,12 +18,14 @@ import {
 } from "lucide-react";
 import { useListCategories } from "@workspace/api-client-react";
 import { useAuth } from "@/context/AuthContext";
+import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
 import logoUrl from "@assets/logo_1780688383558.png";
 
 export function Header() {
   const [location, navigate] = useLocation();
   const searchString = useSearch();
   const { user, logout, isLoggedIn } = useAuth();
+  const { switchTo, switching } = useSwitchAccountRole();
   const [searchQuery, setSearchQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -126,6 +128,7 @@ export function Header() {
   const shell = "max-w-7xl mx-auto w-full px-4";
 
   return (
+    <>
     <header className="bg-white border-b border-border sticky top-0 z-50 shadow-sm">
       {/* Top bar — Alibaba-style buyer / seller entry */}
       <div
@@ -288,7 +291,7 @@ export function Header() {
                 className="hidden md:inline-flex items-center gap-1.5 bg-primary text-white hover:bg-primary/90 border border-primary transition-all px-3.5 min-h-11 rounded-xl text-sm font-semibold shadow-sm"
               >
                 <IndianRupee size={15} />
-                Get Best Price
+                Request quote
               </button>
             </>
           )}
@@ -386,11 +389,12 @@ export function Header() {
                     {isBuyer && (
                       <button
                         type="button"
+                        disabled={switching}
                         onClick={() => {
-                          navigate("/onboarding?change=1");
                           setUserMenuOpen(false);
+                          void switchTo("seller");
                         }}
-                        className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
+                        className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors disabled:opacity-50"
                       >
                         <Building2 size={15} className="text-muted-foreground" /> Sell on
                         Karm Baba
@@ -399,11 +403,12 @@ export function Header() {
                     {user?.role === "seller" && (
                       <button
                         type="button"
+                        disabled={switching}
                         onClick={() => {
-                          navigate("/onboarding?change=1");
                           setUserMenuOpen(false);
+                          void switchTo("buyer");
                         }}
-                        className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
+                        className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors disabled:opacity-50"
                       >
                         <User size={15} className="text-muted-foreground" /> Switch to
                         buyer
@@ -574,7 +579,7 @@ export function Header() {
                 : [
                     { label: "All Products", path: "/products" },
                     { label: "Suppliers", path: "/suppliers" },
-                    { label: "Post RFQ", path: "/rfq/new" },
+                    { label: "Request quote", path: "/rfq/new" },
                     { label: "Shortlist", path: "/shortlist" },
                   ]
             ).map((item) => (
@@ -635,5 +640,6 @@ export function Header() {
         </div>
       )}
     </header>
+    </>
   );
 }

@@ -280,6 +280,17 @@
     backdrop-filter: blur(12px);
     border: 1px solid rgba(255,255,255,0.15);
   }
+
+  /* Hide native number spinners (quote / quantity fields) */
+  .no-spinner {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .no-spinner::-webkit-outer-spin-button,
+  .no-spinner::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
 }
 
 /* Stronger keyboard focus for interactive controls */

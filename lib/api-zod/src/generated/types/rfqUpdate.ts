@@ -12,4 +12,6 @@ export interface RfqUpdate {
   quotedPrice?: number;
   sellerMessage?: string;
   supplierName?: string;
+  /** Buyer awards this quote and closes the deal */
+  awardQuoteId?: number;
 }

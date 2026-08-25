@@ -10,21 +10,16 @@ import {
 } from "@/lib/authMode";
 import { consumeAuthRedirect } from "@/lib/authRedirect";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  applyAccountRole,
+  useSwitchAccountRole,
+} from "@/components/SwitchRoleDialog";
 import logoUrl from "@assets/logo_1780688383558.png";
 
 export function OnboardingPage() {
   const { user, isLoggedIn, isLoaded, profileReady, refreshProfile } = useAuth();
   const { getToken } = useClerkAuth();
   const [, navigate] = useLocation();
+  const { switchTo, switching } = useSwitchAccountRole();
   const changing =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("change");
@@ -34,7 +29,7 @@ export function OnboardingPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoTried, setAutoTried] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [switchTried, setSwitchTried] = useState(false);
 
   async function applyRole(role: AuthMode, companyName?: string) {
     const token = await getToken();
@@ -63,13 +58,34 @@ export function OnboardingPage() {
     }
     clearStoredAuthMode();
     await refreshProfile();
-    // Sellers open a Free shop via plans first; GST verification is optional next.
     if (role === "seller") {
-      navigate("/seller/plans");
+      navigate("/seller/verify");
       return;
     }
     navigate(consumeAuthRedirect("/buyer"));
   }
+
+  // Existing account: switch immediately — no form, no confirm.
+  useEffect(() => {
+    if (!isLoaded || !profileReady || !isLoggedIn || !user || user.id <= 0) return;
+    if (!changing || !user.onboardingCompleted || switchTried || switching) return;
+    if (user.role === "admin") {
+      navigate(consumeAuthRedirect("/"));
+      return;
+    }
+    setSwitchTried(true);
+    void switchTo(user.role === "seller" ? "buyer" : "seller");
+  }, [
+    isLoaded,
+    profileReady,
+    isLoggedIn,
+    user,
+    changing,
+    switchTried,
+    switching,
+    switchTo,
+    navigate,
+  ]);
 
   // Alibaba-style: mode chosen on login/register → apply automatically after Clerk.
   useEffect(() => {
@@ -84,16 +100,25 @@ export function OnboardingPage() {
       );
       return;
     }
+    if (changing) return;
     const pending = getStoredAuthMode();
-    if (!pending || autoTried || changing) return;
+    if (!pending || autoTried) return;
     setAutoTried(true);
     setSaving(true);
-    void applyRole(pending).catch((e) => {
-      setChoice(pending);
-      setError(e instanceof Error ? e.message : "Something went wrong");
-      setSaving(false);
-    });
-  }, [isLoaded, profileReady, isLoggedIn, user, changing, autoTried, navigate]);
+    void applyAccountRole(pending, getToken, refreshProfile)
+      .then(() => {
+        if (pending === "seller") {
+          navigate("/seller/verify");
+          return;
+        }
+        navigate(consumeAuthRedirect("/buyer"));
+      })
+      .catch((e) => {
+        setChoice(pending);
+        setError(e instanceof Error ? e.message : "Something went wrong");
+        setSaving(false);
+      });
+  }, [isLoaded, profileReady, isLoggedIn, user, changing, autoTried, navigate, getToken, refreshProfile]);
 
   if (!isLoaded || !profileReady) {
     return (
@@ -112,6 +137,15 @@ export function OnboardingPage() {
     return null;
   }
 
+  if (changing && user?.onboardingCompleted) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f9f8f6] gap-3 px-4">
+        <Loader2 className="animate-spin text-primary" size={28} />
+        <p className="text-sm text-muted-foreground">Switching account…</p>
+      </div>
+    );
+  }
+
   if (user?.onboardingCompleted && !changing) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#f9f8f6]">
@@ -120,7 +154,7 @@ export function OnboardingPage() {
     );
   }
 
-  if (saving && !changing && getStoredAuthMode()) {
+  if (saving && getStoredAuthMode()) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#f9f8f6] gap-3">
         <Loader2 className="animate-spin text-primary" size={28} />
@@ -131,16 +165,8 @@ export function OnboardingPage() {
     );
   }
 
-  const switchingRole =
-    Boolean(changing) &&
-    Boolean(user?.onboardingCompleted) &&
-    (user?.role as string | undefined) !== "admin" &&
-    Boolean(choice) &&
-    choice !== user?.role;
-
   async function saveRole() {
     if (!choice) return;
-    setConfirmOpen(false);
     setSaving(true);
     setError(null);
     try {
@@ -154,10 +180,6 @@ export function OnboardingPage() {
   function submit() {
     if (!choice) {
       setError("Choose how you want to use Karm Baba.");
-      return;
-    }
-    if (switchingRole) {
-      setConfirmOpen(true);
       return;
     }
     void saveRole();
@@ -177,12 +199,10 @@ export function OnboardingPage() {
       <main className="flex-1 flex items-start justify-center px-4 pb-16">
         <div className="w-full max-w-2xl">
           <h1 className="font-heading text-3xl font-bold text-foreground mb-2 text-center">
-            {changing ? "Switch account type" : "How will you use Karm Baba?"}
+            How will you use Karm Baba?
           </h1>
           <p className="text-muted-foreground text-center mb-10 max-w-lg mx-auto">
-            {changing
-              ? "Confirm your new account type. Switching changes menus, RFQs, and seller tools."
-              : "Pick buyer or seller — same idea as Alibaba's buyer / seller sign-in."}
+            Pick buyer or seller — same idea as Alibaba&apos;s buyer / seller sign-in.
           </p>
 
           <div className="grid sm:grid-cols-2 gap-4 mb-8">
@@ -262,31 +282,6 @@ export function OnboardingPage() {
           </button>
         </div>
       </main>
-
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent className="max-w-[min(100%-2rem,26rem)] rounded-2xl border-border bg-white p-6 gap-5 sm:rounded-2xl">
-          <AlertDialogHeader className="text-left space-y-2">
-            <AlertDialogTitle className="font-heading text-xl font-semibold text-foreground">
-              Switch from {user?.role} to {choice}?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm leading-relaxed text-muted-foreground">
-              Your dashboard and navigation will change. Sellers may need to
-              re-verify.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2 sm:space-x-0">
-            <AlertDialogCancel className="mt-0 rounded-xl px-4 py-2.5">
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="rounded-xl bg-primary px-4 py-2.5 font-semibold text-white hover:bg-primary/90"
-              onClick={() => void saveRole()}
-            >
-              Switch to {choice === "seller" ? "seller" : "buyer"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

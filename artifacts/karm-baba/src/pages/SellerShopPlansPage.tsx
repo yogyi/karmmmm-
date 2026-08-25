@@ -37,18 +37,18 @@ type Subscription = {
 };
 
 /**
- * Subscription-based shop setup — Free → Pro Trade → Business → Enterprise.
- * Opening Free creates the shop + subscription without waiting on GST.
+ * Subscription plans for an existing verified/pending shop.
+ * Free shop + GST KYC are created via /seller/verify — not skipped here.
  */
 export function SellerShopPlansPage() {
   const [, navigate] = useLocation();
-  const { user, isLoaded, isLoggedIn, profileReady, refreshProfile } = useAuth();
+  const { user, isLoaded, isLoggedIn, profileReady } = useAuth();
   const { getToken } = useClerkAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [sub, setSub] = useState<Subscription | null>(null);
   const [slug, setSlug] = useState<string | null>(null);
   const [hasShop, setHasShop] = useState(false);
-  const [companyName, setCompanyName] = useState("");
+  const [kycDone, setKycDone] = useState(false);
   const [region, setRegion] = useState<"inr" | "usd">("inr");
   const [loading, setLoading] = useState(true);
   const [upgrading, setUpgrading] = useState<string | null>(null);
@@ -78,22 +78,27 @@ export function SellerShopPlansPage() {
       const me = (await meRes.json()) as {
         slug?: string | null;
         companyName?: string;
+        verified?: boolean;
+        verificationStatus?: string;
       };
       setSlug(me.slug ?? null);
       setHasShop(true);
-      if (me.companyName) setCompanyName(me.companyName);
+      const status = me.verificationStatus ?? "draft";
+      setKycDone(
+        me.verified === true || status === "pending" || status === "verified",
+      );
       const subRes = await fetch("/api/shop/subscription", { headers });
       if (subRes.ok) {
         setSub((await subRes.json()) as Subscription);
       }
     } else {
       setHasShop(false);
+      setKycDone(false);
       setSub(null);
       setSlug(null);
-      if (user?.company) setCompanyName(user.company);
     }
     setLoading(false);
-  }, [authHeaders, user?.company]);
+  }, [authHeaders]);
 
   useEffect(() => {
     if (!isLoaded || !profileReady) return;
@@ -108,47 +113,9 @@ export function SellerShopPlansPage() {
     void load();
   }, [isLoaded, profileReady, isLoggedIn, user?.role, load, navigate]);
 
-  async function startFreeShop() {
-    const name = companyName.trim();
-    if (name.length < 2) {
-      setMessage("Enter your company / shop name to start on Free.");
-      return;
-    }
-    setMessage(null);
-    setUpgrading("free");
-    try {
-      const headers = await authHeaders();
-      const res = await fetch("/api/shop/setup", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ companyName: name, planCode: "free", region }),
-      });
-      const data = (await res.json()) as {
-        error?: string;
-        slug?: string | null;
-        message?: string;
-      };
-      if (!res.ok) {
-        setMessage(data.error || "Could not open shop");
-        return;
-      }
-      await refreshProfile();
-      setMessage(data.message || "Free shop is active.");
-      if (data.slug) setSlug(data.slug);
-      setHasShop(true);
-      await load();
-    } finally {
-      setUpgrading(null);
-    }
-  }
-
   async function selectPlan(planCode: string) {
-    if (!hasShop) {
-      if (planCode === "free") {
-        await startFreeShop();
-        return;
-      }
-      setMessage("Open a Free shop first, then contact sales for paid plans.");
+    if (!hasShop || !kycDone) {
+      navigate("/seller/verify");
       return;
     }
     if (planCode !== "free") {
@@ -247,47 +214,30 @@ export function SellerShopPlansPage() {
             <ArrowLeft size={14} /> {hasShop ? "Seller Central" : "Home"}
           </button>
           <h1 className="font-heading text-2xl sm:text-3xl font-bold flex items-center gap-2">
-            <Sparkles size={24} /> {hasShop ? "Shop & plans" : "Open your shop"}
+            <Sparkles size={24} /> Shop & plans
           </h1>
           <p className="text-white/65 text-sm mt-1 max-w-xl">
-            {hasShop
-              ? "Manage your subscription tier for product limits, lead quota, and shareable profile cards."
-              : "Start on Free — list products and answer RFQs now. Upgrade later when billing is live."}
+            Free plan includes seller verification (GST for India; tax ID optional abroad). Manage
+            product limits, lead quota, and shareable profile cards after KYC.
           </p>
         </div>
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
-        {!hasShop && (
-          <div className="bg-white rounded-xl border border-border p-5 space-y-4">
-            <h2 className="font-semibold">Start Free shop</h2>
-            <p className="text-sm text-muted-foreground">
-              Company name becomes your public shop title. You can finish GST verification
-              anytime for the verified badge.
+        {(!hasShop || !kycDone) && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 space-y-3">
+            <h2 className="font-semibold text-amber-950">Verification required</h2>
+            <p className="text-sm text-amber-950/80">
+              Complete company profile and verification to activate your Free shop. Requirements
+              adapt if your business is registered outside India (no GST). Seller Central unlocks
+              after you submit KYC (verified badge follows admin review).
             </p>
-            <label className="block text-sm font-medium">
-              Company / shop name
-              <input
-                type="text"
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                placeholder="e.g. Gujarat Textile Mills"
-                className="mt-1.5 w-full max-w-md px-3 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary"
-              />
-            </label>
             <button
               type="button"
-              disabled={upgrading === "free"}
-              onClick={() => void startFreeShop()}
-              className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 disabled:opacity-60"
+              onClick={() => navigate("/seller/verify")}
+              className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90"
             >
-              {upgrading === "free" ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" /> Opening…
-                </>
-              ) : (
-                "Activate Free shop"
-              )}
+              Continue verification
             </button>
           </div>
         )}
@@ -323,7 +273,7 @@ export function SellerShopPlansPage() {
               </>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No active shop yet — activate Free above to start listing.
+                No active Free subscription yet — finish verification to activate your shop.
               </p>
             )}
           </div>
@@ -357,11 +307,11 @@ export function SellerShopPlansPage() {
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  {hasShop
+                  {kycDone
                     ? "Create your public profile card so buyers can inquire without logging in."
-                    : "Available after you activate a Free shop."}
+                    : "Available after you complete seller verification."}
                 </p>
-                {hasShop && (
+                {kycDone && (
                   <button
                     type="button"
                     onClick={() => void createShareLink()}
@@ -448,7 +398,9 @@ export function SellerShopPlansPage() {
                   className={`w-full py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60 ${
                     current
                       ? "bg-muted text-muted-foreground"
-                      : "bg-primary text-white hover:bg-primary/90"
+                      : plan.code === "free"
+                        ? "bg-primary text-white hover:bg-primary/90"
+                        : "border border-border bg-white text-foreground hover:bg-muted"
                   }`}
                 >
                   {upgrading === plan.code
@@ -456,25 +408,25 @@ export function SellerShopPlansPage() {
                     : current
                       ? "Current plan"
                       : plan.code === "free"
-                        ? hasShop
-                          ? "Stay on Free"
-                          : "Start Free shop"
-                        : "Contact sales"}
+                        ? !kycDone
+                          ? "Verify to activate Free"
+                          : "Stay on Free"
+                        : "Contact sales (checkout soon)"}
                 </button>
               </div>
             );
           })}
         </div>
 
-        {hasShop && (
+        {hasShop && kycDone && (
           <p className="text-center text-sm text-muted-foreground">
-            Want the verified badge?{" "}
+            Need the verified badge?{" "}
             <button
               type="button"
               className="font-semibold text-primary underline underline-offset-2"
               onClick={() => navigate("/seller/verify")}
             >
-              Continue GST verification
+              Check verification status
             </button>
           </p>
         )}

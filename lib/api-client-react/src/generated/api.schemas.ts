@@ -153,6 +153,39 @@ export const RfqStatus = {
   rejected: 'rejected',
 } as const;
 
+export type RfqQuoteStatus = typeof RfqQuoteStatus[keyof typeof RfqQuoteStatus];
+
+
+export const RfqQuoteStatus = {
+  active: 'active',
+  withdrawn: 'withdrawn',
+  awarded: 'awarded',
+  declined: 'declined',
+} as const;
+
+export interface RfqQuote {
+  id: number;
+  rfqId: number;
+  supplierId: number;
+  supplierName: string;
+  unitPrice: number;
+  currency: string;
+  quantity: number;
+  unit: string;
+  /** @nullable */
+  leadTimeDays?: number | null;
+  /** @nullable */
+  validDays?: number | null;
+  /** @nullable */
+  paymentTerms?: string | null;
+  /** @nullable */
+  message?: string | null;
+  status: RfqQuoteStatus;
+  lineTotal?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Rfq {
   id: number;
   /** @nullable */
@@ -177,7 +210,39 @@ export interface Rfq {
   /** @nullable */
   description?: string | null;
   status: RfqStatus;
+  /**
+     * Winning or latest unit price (denormalized for lists)
+     * @nullable
+     */
+  quotedPrice?: number | null;
+  /** @nullable */
+  sellerMessage?: string | null;
+  /** @nullable */
+  quotedAt?: string | null;
+  /** @nullable */
+  awardedQuoteId?: number | null;
+  /** @nullable */
+  closedAt?: string | null;
+  /** Number of active/awarded quotes on this RFQ */
+  quoteCount?: number;
+  quotes?: RfqQuote[];
   createdAt: string;
+}
+
+export interface RfqQuoteInput {
+  unitPrice: number;
+  currency?: string;
+  quantity: number;
+  unit: string;
+  leadTimeDays?: number;
+  validDays?: number;
+  paymentTerms?: string;
+  message?: string;
+}
+
+export interface RfqAwardInput {
+  /** Quote the buyer awards to close the deal */
+  quoteId: number;
 }
 
 export interface RfqInput {
@@ -209,6 +274,8 @@ export interface RfqUpdate {
   quotedPrice?: number;
   sellerMessage?: string;
   supplierName?: string;
+  /** Buyer awards this quote and closes the deal */
+  awardQuoteId?: number;
 }
 
 export type UserRole = typeof UserRole[keyof typeof UserRole];
@@ -526,6 +593,21 @@ supplierId?: number | null;
  * @nullable
  */
 status?: string | null;
+};
+
+export type SetupShopBodyRegion = typeof SetupShopBodyRegion[keyof typeof SetupShopBodyRegion];
+
+
+export const SetupShopBodyRegion = {
+  inr: 'inr',
+  usd: 'usd',
+} as const;
+
+export type SetupShopBody = {
+  companyName: string;
+  location?: string;
+  region?: SetupShopBodyRegion;
+  planCode?: string;
 };
 
 export type ListLeadsParams = {

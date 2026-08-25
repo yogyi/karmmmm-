@@ -390,6 +390,62 @@ paths:
               schema:
                 $ref: "#/components/schemas/Rfq"
 
+  /rfq/{id}/quotes:
+    post:
+      operationId: submitRfqQuote
+      tags: [rfq]
+      summary: Submit or update a seller quote on an open RFQ
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RfqQuoteInput"
+      responses:
+        "200":
+          description: Updated RFQ with quotes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+        "201":
+          description: Created quote on RFQ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+
+  /rfq/{id}/award:
+    post:
+      operationId: awardRfqQuote
+      tags: [rfq]
+      summary: Buyer awards one quote and closes the deal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RfqAwardInput"
+      responses:
+        "200":
+          description: Deal closed with awarded quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+
   /users:
     post:
       operationId: createUser
@@ -1147,8 +1203,94 @@ components:
         status:
           type: string
           enum: [pending, responded, accepted, rejected]
+        quotedPrice:
+          type: ["number", "null"]
+          description: Winning or latest unit price (denormalized for lists)
+        sellerMessage:
+          type: ["string", "null"]
+        quotedAt:
+          type: ["string", "null"]
+        awardedQuoteId:
+          type: ["integer", "null"]
+        closedAt:
+          type: ["string", "null"]
+        quoteCount:
+          type: integer
+          description: Number of active/awarded quotes on this RFQ
+        quotes:
+          type: array
+          items:
+            $ref: "#/components/schemas/RfqQuote"
         createdAt:
           type: string
+
+    RfqQuote:
+      type: object
+      required:
+        [id, rfqId, supplierId, supplierName, unitPrice, currency, quantity, unit, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        rfqId:
+          type: integer
+        supplierId:
+          type: integer
+        supplierName:
+          type: string
+        unitPrice:
+          type: number
+        currency:
+          type: string
+        quantity:
+          type: integer
+        unit:
+          type: string
+        leadTimeDays:
+          type: ["integer", "null"]
+        validDays:
+          type: ["integer", "null"]
+        paymentTerms:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [active, withdrawn, awarded, declined]
+        lineTotal:
+          type: number
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    RfqQuoteInput:
+      type: object
+      required: [unitPrice, quantity, unit]
+      properties:
+        unitPrice:
+          type: number
+        currency:
+          type: string
+        quantity:
+          type: integer
+        unit:
+          type: string
+        leadTimeDays:
+          type: integer
+        validDays:
+          type: integer
+        paymentTerms:
+          type: string
+        message:
+          type: string
+
+    RfqAwardInput:
+      type: object
+      required: [quoteId]
+      properties:
+        quoteId:
+          type: integer
+          description: Quote the buyer awards to close the deal
 
     RfqInput:
       type: object
@@ -1189,6 +1331,9 @@ components:
           type: string
         supplierName:
           type: string
+        awardQuoteId:
+          type: integer
+          description: Buyer awards this quote and closes the deal
 
     User:
       type: object
