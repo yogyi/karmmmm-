@@ -32,11 +32,7 @@ export function BuyerCentralPage() {
   const { count: shortlistCount } = useShortlist();
   const { switchTo, switching } = useSwitchAccountRole();
   const listParams =
-    user && user.id > 0
-      ? user.role === "seller" && typeof user.supplierId === "number"
-        ? { supplierId: user.supplierId }
-        : { buyerId: user.id }
-      : undefined;
+    user && user.id > 0 ? { buyerId: user.id } : undefined;
   const {
     data: rfqs,
     isLoading: loadingRfqs,

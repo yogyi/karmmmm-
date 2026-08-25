@@ -13,7 +13,7 @@ import {
   parseLinkedSupplierId,
 } from "../lib/authorize";
 import { redactRfqForViewer } from "../lib/redact";
-import { sellerInboxWhere, sortRfqsForSellerInbox } from "../lib/rfqScope";
+import { sellerInboxWhere, sellerOpenMarketplaceWhere, sortRfqsForSellerInbox } from "../lib/rfqScope";
 
 const router: IRouter = Router();
 
@@ -62,16 +62,14 @@ router.get("/dashboard/stats", async (req, res): Promise<void> => {
   let recentRfqs: ReturnType<typeof mapRfqRow>[] = [];
 
   if (dbUser) {
+    const linked = parseLinkedSupplierId(dbUser);
     const where: Prisma.RfqWhereInput = isAdmin(dbUser)
       ? {}
-      : {
-          OR: [
-            { buyerId: dbUser.id },
-            ...(parseLinkedSupplierId(dbUser) != null
-              ? [{ supplierId: parseLinkedSupplierId(dbUser)! }]
-              : []),
-          ],
-        };
+      : dbUser.role === "seller"
+        ? linked != null
+          ? sellerInboxWhere(linked, undefined, dbUser.id)
+          : sellerOpenMarketplaceWhere()
+        : { buyerId: dbUser.id };
 
     const rows = await prisma.rfq.findMany({
       where,
@@ -79,7 +77,8 @@ router.get("/dashboard/stats", async (req, res): Promise<void> => {
       take: 5,
     });
 
-    recentRfqs = rows
+    recentRfqs = (dbUser.role === "seller" ? sortRfqsForSellerInbox(rows) : rows)
+      .slice(0, 5)
       .map(mapRfqRow)
       .map((r) => redactRfqForViewer(r, dbUser));
   }
@@ -125,8 +124,8 @@ router.get("/dashboard/supplier/:id", requireClerkAuth, async (req, res): Promis
     return;
   }
 
-  const inbox = sellerInboxWhere(params.data.id);
-  const pendingInbox = sellerInboxWhere(params.data.id, "pending");
+  const inbox = sellerInboxWhere(params.data.id, undefined, dbUser.id);
+  const pendingInbox = sellerInboxWhere(params.data.id, "pending", dbUser.id);
 
   const [productCount, rfqCount, pendingRfqs, recentRfqsRaw] = await Promise.all([
     prisma.product.count({ where: { supplierId: params.data.id } }),

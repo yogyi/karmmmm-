@@ -51,6 +51,13 @@ export function RfqNewPage() {
     }));
   }, [user?.id, user?.name, user?.email]);
 
+  useEffect(() => {
+    if (!isLoaded || !profileReady) return;
+    if (isLoggedIn && user?.role === "seller") {
+      navigate("/rfq");
+    }
+  }, [isLoaded, profileReady, isLoggedIn, user?.role, navigate]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");

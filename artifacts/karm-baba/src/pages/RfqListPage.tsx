@@ -17,17 +17,16 @@ export function RfqListPage() {
   const [, navigate] = useLocation();
   const { user, isLoggedIn, isLoaded, profileReady } = useAuth();
   const isSeller = user?.role === "seller" || user?.role === "admin";
-  const hasShop = typeof user?.supplierId === "number" && user.supplierId > 0;
 
   // Sellers: ask for supplier inbox (or bare list so API uses seller scope).
   // Buyers: force buyerId so list is "my RFQs".
   const listParams =
     user && user.id > 0
-      ? isSeller && hasShop
-        ? { supplierId: user.supplierId! }
-        : isSeller
-          ? undefined
-          : { buyerId: user.id }
+      ? user.role === "seller" || user.role === "admin"
+        ? typeof user.supplierId === "number" && user.supplierId > 0
+          ? { supplierId: user.supplierId }
+          : undefined
+        : { buyerId: user.id }
       : undefined;
 
   const { data: rfqs, isLoading, isFetching, refetch, isError, error } = useListRfqs(listParams, {
@@ -43,15 +42,20 @@ export function RfqListPage() {
 
   useEffect(() => subscribeRfqBroadcast(() => void refetch()), [refetch]);
 
+  // Defense-in-depth: never show the viewer's own RFQs in seller inbox UI.
+  const roleFilteredRfqs = (rfqs ?? []).filter((r) =>
+    isSeller ? r.buyerId !== user?.id : r.buyerId === user?.id,
+  );
+
   // Sellers: highest target price first (matches API). Buyers keep API newest-first order.
   const sortedRfqs = isSeller
-    ? [...(rfqs ?? [])].sort((a, b) => {
+    ? [...roleFilteredRfqs].sort((a, b) => {
         const ap = a.targetPrice != null ? Number(a.targetPrice) : -1;
         const bp = b.targetPrice != null ? Number(b.targetPrice) : -1;
         if (bp !== ap) return bp - ap;
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       })
-    : rfqs;
+    : roleFilteredRfqs;
 
   if (isLoaded && !isLoggedIn) {
     return (

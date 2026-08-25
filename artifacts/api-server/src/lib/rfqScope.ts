@@ -1,7 +1,7 @@
 import type { Prisma } from "@workspace/db";
 
 /**
- * Seller RFQ inbox:
+ * Seller RFQ inbox — opportunities only (never the viewer's own buyer RFQs):
  * - Directed / awarded RFQs for this shop
  * - Open marketplace RFQs still collecting quotes (pending | responded)
  * - RFQs this shop already quoted on
@@ -9,51 +9,52 @@ import type { Prisma } from "@workspace/db";
 export function sellerInboxWhere(
   supplierId: number,
   status?: string | null,
+  viewerUserId?: number | null,
 ): Prisma.RfqWhereInput {
-  const openCollecting: Prisma.RfqWhereInput = {
-    supplierId: null,
-    status: status
-      ? status
-      : { in: ["pending", "responded"] },
-  };
+  const openCollecting: Prisma.RfqWhereInput = status
+    ? { supplierId: null, status }
+    : { supplierId: null, status: { in: ["pending", "responded"] } };
 
-  const baseOr: Prisma.RfqWhereInput[] = [
-    { supplierId },
-    openCollecting,
-    { quotes: { some: { supplierId } } },
-  ];
+  const opportunityOr: Prisma.RfqWhereInput = status
+    ? {
+        OR: [
+          { supplierId, status },
+          // Status-filtered open RFQs this shop quoted (not every open RFQ with that status)
+          { supplierId: null, status, quotes: { some: { supplierId } } },
+          { status, quotes: { some: { supplierId } } },
+        ],
+      }
+    : {
+        OR: [
+          { supplierId },
+          openCollecting,
+          { quotes: { some: { supplierId } } },
+        ],
+      };
 
-  if (status) {
+  if (viewerUserId != null && viewerUserId > 0) {
     return {
-      OR: [
-        { supplierId, status },
-        { supplierId: null, status },
-        { status, quotes: { some: { supplierId } } },
-      ],
+      AND: [{ NOT: { buyerId: viewerUserId } }, opportunityOr],
     };
   }
-
-  return { OR: baseOr };
+  return opportunityOr;
 }
 
-/** Sellers without a linked shop still see open marketplace RFQs (+ their own buyer RFQs). */
+/**
+ * Sellers without a linked shop — open marketplace RFQs only.
+ * Never mix in the viewer's own buyer RFQs (those belong in buyer mode).
+ */
 export function sellerOpenMarketplaceWhere(
-  buyerUserId: number,
   status?: string | null,
 ): Prisma.RfqWhereInput {
-  if (status) {
-    return {
-      OR: [
-        { buyerId: buyerUserId, status },
-        { supplierId: null, status },
-      ],
-    };
+  const openStatuses = ["pending", "responded"] as const;
+  if (status != null && status !== "pending" && status !== "responded") {
+    // Closed RFQs are not opportunities for shop-less sellers
+    return { id: { in: [] } };
   }
   return {
-    OR: [
-      { buyerId: buyerUserId },
-      { supplierId: null, status: { in: ["pending", "responded"] } },
-    ],
+    supplierId: null,
+    status: status ?? { in: [...openStatuses] },
   };
 }
 

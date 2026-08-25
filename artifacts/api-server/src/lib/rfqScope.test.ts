@@ -16,24 +16,42 @@ describe("sellerInboxWhere", () => {
     });
   });
 
-  it("applies status filter across inbox branches", () => {
-    expect(sellerInboxWhere(7, "responded")).toEqual({
-      OR: [
-        { supplierId: 7, status: "responded" },
-        { supplierId: null, status: "responded" },
-        { status: "responded", quotes: { some: { supplierId: 7 } } },
+  it("excludes the viewer's own buyer RFQs when viewerUserId is set", () => {
+    expect(sellerInboxWhere(7, undefined, 42)).toEqual({
+      AND: [
+        { NOT: { buyerId: 42 } },
+        {
+          OR: [
+            { supplierId: 7 },
+            { supplierId: null, status: { in: ["pending", "responded"] } },
+            { quotes: { some: { supplierId: 7 } } },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("applies status filter without listing unrelated open RFQs", () => {
+    expect(sellerInboxWhere(7, "responded", 42)).toEqual({
+      AND: [
+        { NOT: { buyerId: 42 } },
+        {
+          OR: [
+            { supplierId: 7, status: "responded" },
+            { supplierId: null, status: "responded", quotes: { some: { supplierId: 7 } } },
+            { status: "responded", quotes: { some: { supplierId: 7 } } },
+          ],
+        },
       ],
     });
   });
 });
 
 describe("sellerOpenMarketplaceWhere", () => {
-  it("lets sellers without a shop still see open collecting RFQs", () => {
-    expect(sellerOpenMarketplaceWhere(42)).toEqual({
-      OR: [
-        { buyerId: 42 },
-        { supplierId: null, status: { in: ["pending", "responded"] } },
-      ],
+  it("only returns open marketplace RFQs — never the viewer's buyer RFQs", () => {
+    expect(sellerOpenMarketplaceWhere()).toEqual({
+      supplierId: null,
+      status: { in: ["pending", "responded"] },
     });
   });
 });

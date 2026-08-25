@@ -246,7 +246,14 @@ export function DashboardPage() {
     { query: { enabled: isSupplier && hasLinkedShop && shopReady } as any }
   );
   const supplierProducts = supplierProductsData?.items ?? [];
-  const recentRfqs = (inboxRfqs ?? supplierDash?.recentRfqs ?? platformStats?.recentRfqs ?? []).slice(0, 5);
+  const recentRfqs = (
+    inboxRfqs ??
+    (isSupplier ? supplierDash?.recentRfqs : undefined) ??
+    (isSupplier ? undefined : platformStats?.recentRfqs) ??
+    []
+  )
+    .filter((r) => (isSupplier ? r.buyerId !== user?.id : r.buyerId === user?.id))
+    .slice(0, 5);
 
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();

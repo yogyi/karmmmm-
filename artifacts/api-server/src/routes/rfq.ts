@@ -59,17 +59,24 @@ function canViewRfq(
   },
 ): boolean {
   if (isAdmin(user)) return true;
-  if (rfq.buyerId != null && rfq.buyerId === user.id) return true;
+
+  // Own RFQs belong in buyer mode — sellers must switch role to manage them.
+  if (rfq.buyerId != null && rfq.buyerId === user.id) {
+    return user.role !== "seller";
+  }
+
   if (isRfqSupplierParty(user, rfq.supplierId)) return true;
 
   const linked = parseLinkedSupplierId(user);
-  if (linked != null && rfq.quotes?.some((q) => q.supplierId === linked)) return true;
+  if (linked != null && rfq.quotes?.some((q) => q.supplierId === linked)) {
+    return user.role === "seller" || user.role === "admin";
+  }
 
-  // Open marketplace RFQs while still collecting quotes
+  // Open marketplace RFQs while still collecting quotes — seller mode only
   if (
     rfq.supplierId == null &&
     isRfqOpenForQuotes(rfq.status ?? "pending") &&
-    (user.role === "seller" || user.role === "admin")
+    user.role === "seller"
   ) {
     return true;
   }
@@ -78,9 +85,11 @@ function canViewRfq(
 
 function canSellerQuote(
   user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedDbUser>>>,
-  rfq: { supplierId: number | null; status: string },
+  rfq: { buyerId: number | null; supplierId: number | null; status: string },
 ): boolean {
   if (!isRfqOpenForQuotes(rfq.status)) return false;
+  // Never quote on your own buyer RFQ
+  if (rfq.buyerId != null && rfq.buyerId === user.id) return false;
   const linked = parseLinkedSupplierId(user);
   if (linked == null) return false;
   if (isAdmin(user)) return true;
@@ -111,7 +120,7 @@ router.get("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
   if (isAdmin(dbUser)) {
     if (buyerId != null) where.buyerId = buyerId;
     if (supplierId != null) {
-      Object.assign(where, sellerInboxWhere(supplierId, status));
+      Object.assign(where, sellerInboxWhere(supplierId, status, null));
       delete where.status;
       sellerInbox = true;
     } else if (buyerId == null) {
@@ -129,20 +138,17 @@ router.get("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
       return;
     }
 
-    if (buyerId != null) {
-      where.buyerId = dbUser.id;
-    } else if (supplierId != null && linkedSupplierId === supplierId) {
-      Object.assign(where, sellerInboxWhere(linkedSupplierId, status));
-      delete where.status;
-      sellerInbox = true;
-    } else if (linkedSupplierId != null && dbUser.role === "seller") {
-      Object.assign(where, sellerInboxWhere(linkedSupplierId, status));
-      delete where.status;
-      sellerInbox = true;
-    } else if (dbUser.role === "seller") {
-      Object.assign(where, sellerOpenMarketplaceWhere(dbUser.id, status));
-      delete where.status;
-      sellerInbox = true;
+    // Role-strict listing: buyer mode → own RFQs only; seller mode → inbox only.
+    if (dbUser.role === "seller") {
+      if (linkedSupplierId != null) {
+        Object.assign(where, sellerInboxWhere(linkedSupplierId, status, dbUser.id));
+        delete where.status;
+        sellerInbox = true;
+      } else {
+        Object.assign(where, sellerOpenMarketplaceWhere(status));
+        delete where.status;
+        sellerInbox = true;
+      }
     } else {
       where.buyerId = dbUser.id;
     }
@@ -167,6 +173,12 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
   const dbUser = await getAuthenticatedDbUser(req);
   if (!dbUser) {
     res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (dbUser.role === "seller") {
+    res.status(403).json({
+      error: "Switch to buyer mode to post RFQs. Seller mode is for incoming quotes only.",
+    });
     return;
   }
 
@@ -379,6 +391,12 @@ router.post("/rfq/:id/award", requireClerkAuth, async (req, res): Promise<void> 
   const dbUser = await getAuthenticatedDbUser(req);
   if (!dbUser) {
     res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (dbUser.role === "seller") {
+    res.status(403).json({
+      error: "Switch to buyer mode to award quotes.",
+    });
     return;
   }
 

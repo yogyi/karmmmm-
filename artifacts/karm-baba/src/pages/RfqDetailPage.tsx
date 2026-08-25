@@ -158,19 +158,26 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
     !!user && user.role === "seller" && typeof user.supplierId === "number" && user.supplierId > 0;
 
   const isOpenForQuotes = !!rfq && (rfq.status === "pending" || rfq.status === "responded");
+  const isOwnBuyerRfq = !!user && !!rfq && user.id === rfq.buyerId;
   const canSendQuote =
     !!user &&
     !!rfq &&
     isOpenForQuotes &&
+    !isOwnBuyerRfq &&
     (user.role === "admin" ||
       (linkedShop && (rfq.supplierId == null || rfq.supplierId === user.supplierId)));
 
   const myQuote = useMemo(() => {
-    if (!rfq || !user?.supplierId) return null;
+    if (!rfq || !user?.supplierId || user.role !== "seller") return null;
     return (rfq.quotes ?? []).find((q) => q.supplierId === user.supplierId) ?? null;
-  }, [rfq, user?.supplierId]);
+  }, [rfq, user?.supplierId, user?.role]);
 
-  const isBuyer = !!user && user.id === rfq?.buyerId;
+  // Buyer tools (award / cancel) only in buyer mode — not while acting as seller.
+  const isBuyer =
+    !!user &&
+    !!rfq &&
+    user.id === rfq.buyerId &&
+    user.role !== "seller";
   const quotes = (rfq?.quotes ?? []) as RfqQuote[];
   const activeQuotes = quotes.filter((q) => q.status === "active" || q.status === "awarded");
   const dealClosed = rfq?.status === "accepted" || rfq?.status === "rejected";
@@ -280,23 +287,32 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   }
 
   if (!rfq) {
+    const forbidden = isError && httpStatus(loadError) === 403;
+    const sellerBlockedOwn =
+      forbidden && user?.role === "seller";
     return (
       <div className="max-w-3xl mx-auto px-4 py-20 text-center">
         <Package className="mx-auto mb-3 text-muted-foreground" />
-        <h2 className="font-heading font-bold text-xl mb-2">RFQ not found</h2>
+        <h2 className="font-heading font-bold text-xl mb-2">
+          {sellerBlockedOwn ? "Switch to buyer mode" : "RFQ not found"}
+        </h2>
+        <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
+          {sellerBlockedOwn
+            ? "This is your own request. Seller mode only shows incoming RFQs from buyers. Switch to buyer mode to manage your quotes."
+            : "This RFQ is private or no longer available."}
+        </p>
         <button
           type="button"
-          onClick={() => navigate("/rfq")}
+          onClick={() => navigate(sellerBlockedOwn ? "/buyer" : "/rfq")}
           className="text-primary text-sm font-medium"
         >
-          ← Back to My RFQs
+          {sellerBlockedOwn ? "Go to Buyer Central →" : "← Back to RFQs"}
         </button>
       </div>
     );
   }
 
   const status = statusConfig[rfq.status as keyof typeof statusConfig] ?? statusConfig.pending;
-  const symbol = currencySymbol(currency);
   const fieldClass =
     "mt-1 w-full border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 bg-white";
   const busy = submitQuote.isPending || awardQuote.isPending || updateRfq.isPending;
@@ -505,79 +521,79 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground">Currency</label>
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground">Unit price</label>
+            <div className="mt-1 flex rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10">
               <select
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
-                className={fieldClass}
+                aria-label="Currency"
+                title="Currency"
+                className="appearance-none cursor-pointer bg-muted/50 text-sm font-semibold text-foreground border-0 border-r border-border pl-3 pr-6 py-2.5 outline-none hover:bg-muted focus:bg-muted"
+                style={{
+                  backgroundImage:
+                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")",
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "right 0.45rem center",
+                }}
               >
                 {CURRENCIES.map((c) => (
                   <option key={c.code} value={c.code}>
-                    {c.label}
+                    {c.symbol}
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground">Unit price</label>
-              <div className="mt-1 flex rounded-xl border border-border overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10">
-                <span className="inline-flex items-center px-3 bg-muted/50 text-sm font-semibold text-foreground border-r border-border select-none">
-                  {symbol}
-                </span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="any"
-                  value={quotePrice}
-                  onChange={(e) => setQuotePrice(e.target.value)}
-                  className="no-spinner flex-1 min-w-0 px-3 py-2.5 text-sm outline-none border-0"
-                  placeholder="e.g. 185"
-                  required
-                />
-                <span className="inline-flex items-center px-3 bg-muted/30 text-xs text-muted-foreground border-l border-border whitespace-nowrap">
-                  / {quoteUnit}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground">Offer quantity</label>
               <input
                 type="number"
-                inputMode="numeric"
-                min="1"
-                step="1"
-                value={quoteQty}
-                onChange={(e) => setQuoteQty(e.target.value)}
-                className={`${fieldClass} no-spinner`}
+                inputMode="decimal"
+                min="0"
+                step="any"
+                value={quotePrice}
+                onChange={(e) => setQuotePrice(e.target.value)}
+                className="no-spinner flex-1 min-w-0 px-3 py-2.5 text-sm outline-none border-0"
+                placeholder="e.g. 185"
                 required
               />
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Buyer asked for {rfq.quantity} {rfq.unit}.
-              </p>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground">Unit</label>
               <select
                 value={quoteUnit}
                 onChange={(e) => setQuoteUnit(e.target.value)}
-                className={fieldClass}
+                aria-label="Unit"
+                title="Unit"
+                className="appearance-none cursor-pointer bg-muted/30 text-xs text-muted-foreground border-0 border-l border-border pl-2.5 pr-6 py-2.5 outline-none hover:bg-muted/50 focus:bg-muted/50 max-w-[7.5rem]"
+                style={{
+                  backgroundImage:
+                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")",
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "right 0.4rem center",
+                }}
               >
                 {!UNITS.includes(quoteUnit as (typeof UNITS)[number]) && (
-                  <option value={quoteUnit}>{quoteUnit}</option>
+                  <option value={quoteUnit}>/ {quoteUnit}</option>
                 )}
                 {UNITS.map((u) => (
                   <option key={u} value={u}>
-                    {u}
+                    / {u}
                   </option>
                 ))}
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground">Offer quantity</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              min="1"
+              step="1"
+              value={quoteQty}
+              onChange={(e) => setQuoteQty(e.target.value)}
+              className={`${fieldClass} no-spinner`}
+              required
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Buyer asked for {rfq.quantity} {rfq.unit}.
+            </p>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
