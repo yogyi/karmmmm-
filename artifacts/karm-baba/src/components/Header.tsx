@@ -54,12 +54,14 @@ export function Header() {
 
   const isSeller = user?.role === "seller" || user?.role === "admin";
   const isBuyer = user?.role === "buyer";
+  /** Pure sellers stay in Seller Central chrome everywhere (no marketplace shell). */
+  const showSellerOpsNav = user?.role === "seller";
   const inSellerCentral =
     location.startsWith("/seller") || location.startsWith("/dashboard");
   const inBuyerCentral = location.startsWith("/buyer");
-  const workspaceLabel = inSellerCentral
+  const workspaceLabel = showSellerOpsNav || inSellerCentral
     ? "Seller Central"
-    : inBuyerCentral
+    : inBuyerCentral || isBuyer
       ? "Buyer Central"
       : "Karm Baba";
   const nameInitials = (user?.name ?? "U")
@@ -108,11 +110,12 @@ export function Header() {
   }
 
   const sellerBoardActive =
-    !!isSeller &&
-    (inSellerCentral ||
-      currentPath === "/rfq" ||
-      currentPath.startsWith("/rfq/") ||
-      currentPath === "/account");
+    !!showSellerOpsNav ||
+    (!!isSeller &&
+      (inSellerCentral ||
+        currentPath === "/rfq" ||
+        currentPath.startsWith("/rfq/") ||
+        currentPath === "/account"));
   const buyerBoardActive =
     !!isBuyer &&
     (inBuyerCentral ||
@@ -123,7 +126,8 @@ export function Header() {
       currentPath.startsWith("/products/") ||
       currentPath === "/suppliers" ||
       currentPath.startsWith("/suppliers/") ||
-      currentPath === "/account");
+      currentPath === "/account" ||
+      currentPath === "/");
 
   const pageTitle = resolvePageTitle();
   const boardLabel = sellerBoardActive
@@ -269,10 +273,10 @@ export function Header() {
         </button>
 
         {/* Mobile: spacer so avatar + menu sit on the right when seller nav is hidden */}
-        {isSeller && inSellerCentral ? <div className="flex-1 md:hidden" aria-hidden /> : null}
+        {showSellerOpsNav ? <div className="flex-1 md:hidden" aria-hidden /> : null}
 
-        {/* Sellers in Seller Central: ops nav (desktop); mobile uses hamburger */}
-        {isSeller && inSellerCentral ? (
+        {/* Sellers: ops nav only (no marketplace search / browse) */}
+        {showSellerOpsNav ? (
           <nav
             className="hidden md:flex flex-1 items-center gap-1 overflow-x-auto text-sm min-w-0"
             aria-label="Seller Central"
@@ -284,7 +288,6 @@ export function Header() {
               { label: "Plans", path: "/seller/plans" },
               { label: "Verification", path: "/seller/verify" },
               { label: "RFQs", path: "/rfq" },
-              { label: "Marketplace", path: "/" },
             ].map((item) => {
               const active = isNavActive(item.path);
               return (
@@ -331,7 +334,7 @@ export function Header() {
         )}
 
         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0 ml-auto md:ml-0">
-          {(!isSeller || !inSellerCentral) && (
+          {(!showSellerOpsNav) && (
             <>
               <button
                 type="button"
@@ -532,7 +535,7 @@ export function Header() {
         </div>
         </div>
 
-        {!(isSeller && inSellerCentral) && (
+        {!showSellerOpsNav && (
           <form onSubmit={handleSearch} className="md:hidden mt-2.5" role="search">
             <div className="flex w-full border border-border rounded-xl overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 shadow-sm">
               <input
@@ -555,8 +558,8 @@ export function Header() {
         )}
       </div>
 
-      {/* Marketplace nav — hide on Seller Central (has its own ops nav) */}
-      {!(isSeller && inSellerCentral) && (
+      {/* Buyer / guest marketplace nav — hidden for sellers in seller mode */}
+      {!showSellerOpsNav && (
         <nav className="border-t border-border bg-white hidden md:block" aria-label="Categories">
           <div className={shell}>
             <div className="flex items-center gap-0.5 py-1.5 text-sm overflow-x-auto">
@@ -631,7 +634,6 @@ export function Header() {
                     { label: "Plans", path: "/seller/plans" },
                     { label: "Verification", path: "/seller/verify" },
                     { label: "RFQs", path: "/rfq" },
-                    { label: "Marketplace", path: "/" },
                   ]
                 : [
                     { label: "All Products", path: "/products" },

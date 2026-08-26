@@ -98,7 +98,7 @@ export function RfqListPage() {
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">
             {isSeller
-              ? "Highest target-price inquiries first · open marketplace + your shop"
+              ? "Highest target-price inquiries first · directed + open RFQs for your shop"
               : "Track and manage your quotation requests"}
           </p>
         </div>

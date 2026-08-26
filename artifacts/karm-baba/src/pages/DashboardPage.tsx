@@ -370,10 +370,10 @@ export function DashboardPage() {
             </button>
             <button
               type="button"
-              onClick={() => navigate("/products")}
+              onClick={() => navigate("/account")}
               className="border border-border px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-muted"
             >
-              Browse marketplace
+              Account
             </button>
           </div>
         </div>
@@ -399,10 +399,10 @@ export function DashboardPage() {
             </button>
             <button
               type="button"
-              onClick={() => navigate("/products")}
+              onClick={() => navigate("/account")}
               className="border border-border px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-muted"
             >
-              Browse marketplace
+              Account
             </button>
           </div>
         </div>
@@ -710,15 +710,16 @@ export function DashboardPage() {
                       </button>
                     )}
                     {[
-                      { label: "Browse Products", path: "/products", icon: <Package size={14} /> },
-                      { label: "Find Suppliers", path: "/suppliers", icon: <TrendingUp size={14} /> },
                       ...(isSupplier
                         ? [
                             { label: "Incoming RFQs", path: "/rfq", icon: <Clock size={14} /> },
                             { label: "CRM Leads", path: "/seller/leads", icon: <MessageSquare size={14} /> },
                             { label: "Share profile card", path: "/seller/plans", icon: <Share2 size={14} /> },
+                            { label: "Plans & KYC", path: "/seller/verify", icon: <BadgeCheck size={14} /> },
                           ]
                         : [
+                            { label: "Browse Products", path: "/products", icon: <Package size={14} /> },
+                            { label: "Find Suppliers", path: "/suppliers", icon: <TrendingUp size={14} /> },
                             { label: "Post RFQ", path: "/rfq/new", icon: <FileText size={14} /> },
                             { label: "My RFQs", path: "/rfq", icon: <Clock size={14} /> },
                           ]),

@@ -5,11 +5,28 @@ import { rememberAuthRedirect } from "@/lib/authRedirect";
 
 const AUTH_PAGES = ["/onboarding", "/login", "/register", "/seller/verify"];
 
+/** Buyer-only surfaces — sellers in seller mode are redirected to Seller Central. */
+const BUYER_MARKETPLACE_PATHS = [
+  "/",
+  "/products",
+  "/suppliers",
+  "/shortlist",
+  "/buyer",
+  "/rfq/new",
+];
+
+function isBuyerMarketplacePath(location: string): boolean {
+  const path = location.split("?")[0] || "/";
+  if (BUYER_MARKETPLACE_PATHS.includes(path)) return true;
+  if (path.startsWith("/products/")) return true;
+  if (path.startsWith("/suppliers/")) return true;
+  return false;
+}
+
 /**
  * Incomplete onboarding → /onboarding.
- * Does NOT force completed users off `/` — marketplace browsing must stay reachable
- * (Seller Central "Marketplace", logo, etc.). Portals are reached via onboarding
- * completion and explicit Buyer/Seller Central links.
+ * Active sellers are kept on seller ops pages (no marketplace / buyer browse).
+ * Buyers keep marketplace + buyer central.
  */
 export function OnboardingGate() {
   // Soft-read so Vite HMR cannot crash the app if this module remounts against a
@@ -28,6 +45,11 @@ export function OnboardingGate() {
     if (!user.onboardingCompleted) {
       rememberAuthRedirect(location);
       navigate("/onboarding");
+      return;
+    }
+
+    if (user.role === "seller" && isBuyerMarketplacePath(location)) {
+      navigate("/seller");
     }
   }, [auth, location, navigate]);
 

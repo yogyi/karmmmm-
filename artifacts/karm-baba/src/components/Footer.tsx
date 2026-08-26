@@ -2,9 +2,13 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import logoUrl from "@assets/logo_1780688383558.png";
 import { Mail, Phone, MapPin, ArrowRight } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 export function Footer() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const isSeller = user?.role === "seller";
+  const isBuyer = user?.role === "buyer";
   const [email, setEmail] = useState("");
   const [newsletterMsg, setNewsletterMsg] = useState<string | null>(null);
 
@@ -97,6 +101,7 @@ export function Footer() {
             </div>
           </div>
 
+          {!isSeller && (
           <nav aria-label="For buyers" className="min-w-0">
             <h4 className="font-heading font-bold mb-4 text-white/90 text-sm uppercase tracking-wider">
               For Buyers
@@ -120,7 +125,9 @@ export function Footer() {
               ))}
             </ul>
           </nav>
+          )}
 
+          {!isBuyer && (
           <nav aria-label="For sellers" className="min-w-0">
             <h4 className="font-heading font-bold mb-4 text-white/90 text-sm uppercase tracking-wider">
               For Sellers
@@ -131,6 +138,9 @@ export function Footer() {
                 { label: "Verification", path: "/seller/verify" },
                 { label: "CRM Leads", path: "/seller/leads" },
                 { label: "Shop Plans", path: "/seller/plans" },
+                ...(isSeller
+                  ? [{ label: "Incoming RFQs", path: "/rfq" }]
+                  : []),
               ].map((link) => (
                 <li key={link.path}>
                   <button
@@ -144,6 +154,7 @@ export function Footer() {
               ))}
             </ul>
           </nav>
+          )}
 
           <div className="min-w-0">
             <h4 className="font-heading font-bold mb-4 text-white/90 text-sm uppercase tracking-wider">
