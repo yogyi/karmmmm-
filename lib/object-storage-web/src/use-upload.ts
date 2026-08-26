@@ -12,6 +12,8 @@ interface UploadResponse {
   uploadURL: string;
   objectPath: string;
   metadata: UploadMetadata;
+  /** Durable CDN URL when using Vercel Blob (prefer over /api/storage proxy). */
+  publicUrl?: string;
 }
 
 export interface UseUploadOptions {
@@ -201,9 +203,20 @@ export function useUpload(options: UseUploadOptions = {}) {
           throw new Error(await readErrorMessage(finalizeRes, "Failed to finalize upload"));
         }
 
+        let publicUrl: string | undefined;
+        try {
+          const finalized = (await finalizeRes.json()) as { publicUrl?: string };
+          if (typeof finalized.publicUrl === "string" && finalized.publicUrl.length > 0) {
+            publicUrl = finalized.publicUrl;
+          }
+        } catch {
+          // Older APIs may return empty body — keep proxy path.
+        }
+
         setProgress(100);
-        options.onSuccess?.(uploadResponse);
-        return uploadResponse;
+        const result: UploadResponse = { ...uploadResponse, publicUrl };
+        options.onSuccess?.(result);
+        return result;
       } catch (err) {
         const error = err instanceof Error ? err : new Error("Upload failed");
         setError(error);

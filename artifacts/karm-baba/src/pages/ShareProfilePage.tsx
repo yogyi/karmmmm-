@@ -19,6 +19,7 @@ import { useAuth as useClerkAuth } from "@clerk/react";
 import { useUpload } from "@workspace/object-storage-web";
 import { useAuth } from "@/context/AuthContext";
 import { rememberAuthRedirect } from "@/lib/authRedirect";
+import { mediaUrlFromUpload } from "@/lib/mediaUrl";
 
 interface ShareProduct {
   id: number;
@@ -231,7 +232,7 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
     );
     try {
       const uploaded = await uploadFile(file);
-      const nextUrl = `/api/storage${uploaded.objectPath}`;
+      const nextUrl = mediaUrlFromUpload(uploaded);
       await saveShopMedia(field, nextUrl);
       setMediaMsg(field === "cover" ? "Cover updated" : "Logo updated");
       window.setTimeout(() => setMediaMsg(null), 2500);

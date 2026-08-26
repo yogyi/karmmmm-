@@ -19,13 +19,16 @@ import {
 import { useListCategories } from "@workspace/api-client-react";
 import { useAuth } from "@/context/AuthContext";
 import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
+import { UserAvatar } from "@/components/UserAvatar";
 import logoUrl from "@assets/logo_1780688383558.png";
 import { workspaceHomePath } from "@/lib/workspaceHome";
+import { useUser } from "@clerk/react";
 
 export function Header() {
   const [location, navigate] = useLocation();
   const searchString = useSearch();
   const { user, logout, isLoggedIn } = useAuth();
+  const { user: clerkUser } = useUser();
   const { switchTo, switching } = useSwitchAccountRole();
   const [searchQuery, setSearchQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -67,13 +70,6 @@ export function Header() {
     : inBuyerCentral || isBuyer
       ? "Buyer Central"
       : "Karm Baba";
-  const nameInitials = (user?.name ?? "U")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0] ?? "")
-    .join("")
-    .toUpperCase() || "U";
 
   const currentPath = location.split("?")[0];
   const currentSearch = new URLSearchParams(
@@ -397,18 +393,12 @@ export function Header() {
                 aria-label="Account menu"
                 className="flex items-center gap-2 text-sm font-medium hover:bg-muted rounded-xl px-1.5 sm:px-2 min-h-11 transition-colors"
               >
-                {user?.avatarUrl ? (
-                  <img
-                    src={user.avatarUrl}
-                    alt=""
-                    className="w-8 h-8 rounded-full object-cover border border-border flex-shrink-0"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <span className="w-8 h-8 rounded-full bg-primary text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">
-                    {nameInitials}
-                  </span>
-                )}
+                <UserAvatar
+                  src={user?.avatarUrl}
+                  fallbackSrc={clerkUser?.imageUrl}
+                  name={user?.name}
+                  className="w-8 h-8"
+                />
                 <span className="max-w-[140px] truncate hidden sm:inline">{user?.name}</span>
                 <ChevronDown
                   size={14}
@@ -420,18 +410,12 @@ export function Header() {
                   <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
                   <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-border py-2 z-50 overflow-hidden">
                     <div className="px-4 py-2.5 border-b border-border mb-1 flex items-center gap-3">
-                      {user?.avatarUrl ? (
-                        <img
-                          src={user.avatarUrl}
-                          alt=""
-                          className="w-10 h-10 rounded-full object-cover border border-border flex-shrink-0"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <span className="w-10 h-10 rounded-full bg-primary text-white text-sm font-semibold flex items-center justify-center flex-shrink-0">
-                          {nameInitials}
-                        </span>
-                      )}
+                      <UserAvatar
+                        src={user?.avatarUrl}
+                        fallbackSrc={clerkUser?.imageUrl}
+                        name={user?.name}
+                        className="w-10 h-10 text-sm"
+                      />
                       <div className="min-w-0">
                         <div className="font-semibold text-sm text-foreground truncate">
                           {user?.name}

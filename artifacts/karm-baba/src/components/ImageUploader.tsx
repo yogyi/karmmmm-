@@ -4,6 +4,7 @@ import { useAuth as useClerkAuth } from "@clerk/react";
 import { Camera, ImageIcon, Loader2, Upload, X } from "lucide-react";
 import { ImageSourcePicker } from "@/components/ImageSourcePicker";
 import { normalizeProductImageFile } from "@/lib/normalizeProductImage";
+import { mediaUrlFromUpload } from "@/lib/mediaUrl";
 
 interface ImageUploaderProps {
   images: string[];
@@ -60,7 +61,7 @@ export function ImageUploader({ images, onChange, maxImages = 5 }: ImageUploader
       }
 
       const uploaded = await uploadFile(toUpload);
-      const servingUrl = `/api/storage${uploaded.objectPath}`;
+      const servingUrl = mediaUrlFromUpload(uploaded);
       onChange([...imagesRef.current, servingUrl]);
       setUploadError(null);
     } catch (err) {

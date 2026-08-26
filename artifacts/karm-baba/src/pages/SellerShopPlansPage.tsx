@@ -15,6 +15,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { useAppDialog } from "@/components/AppDialog";
 import { PageHero } from "@/components/PageHero";
+import { mediaUrlFromUpload } from "@/lib/mediaUrl";
 
 type Plan = {
   code: string;
@@ -248,7 +249,7 @@ export function SellerShopPlansPage() {
     else setCoverUrl(preview);
     try {
       const uploaded = await uploadFile(file);
-      const nextUrl = `/api/storage${uploaded.objectPath}`;
+      const nextUrl = mediaUrlFromUpload(uploaded);
       await saveCardImage(field, nextUrl);
       setMessage(field === "logo" ? "Card logo updated." : "Card cover updated.");
     } catch (err) {

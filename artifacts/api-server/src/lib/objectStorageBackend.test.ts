@@ -52,6 +52,13 @@ describe("resolveObjectStorageDriver", () => {
     expect(resolveObjectStorageDriver()).toBe("blob");
   });
 
+  it("forces blob on Vercel production even when OBJECT_STORAGE_DRIVER=local", () => {
+    process.env.NODE_ENV = "production";
+    process.env.VERCEL = "1";
+    process.env.OBJECT_STORAGE_DRIVER = "local";
+    expect(resolveObjectStorageDriver()).toBe("blob");
+  });
+
   it("auto-selects blob when BLOB_READ_WRITE_TOKEN is present", () => {
     process.env.BLOB_READ_WRITE_TOKEN = "vercel_blob_rw_test";
     expect(resolveObjectStorageDriver()).toBe("blob");

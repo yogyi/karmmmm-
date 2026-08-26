@@ -5,6 +5,7 @@ import { useAuth as useClerkAuth, useUser } from "@clerk/react";
 import { useUpload } from "@workspace/object-storage-web";
 import { useAuth } from "@/context/AuthContext";
 import { ImageSourcePicker } from "@/components/ImageSourcePicker";
+import { mediaUrlFromUpload } from "@/lib/mediaUrl";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,6 +69,7 @@ export function ProfilePage() {
   const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
   const [pendingAvatarRemoved, setPendingAvatarRemoved] = useState(false);
   const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [shop, setShop] = useState<ShopProfile | null>(null);
   const [hasShop, setHasShop] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -114,6 +116,7 @@ export function ProfilePage() {
       const nextAvatar = user?.avatarUrl ?? null;
       setAvatarUrl(nextAvatar);
       setSavedAvatarUrl(nextAvatar);
+      setAvatarLoadFailed(false);
       if (!isSeller) {
         setHasShop(false);
         setShop(null);
@@ -198,6 +201,7 @@ export function ProfilePage() {
     });
     setPendingAvatarFile(file);
     setPendingAvatarRemoved(false);
+    setAvatarLoadFailed(false);
     setAvatarUrl(preview);
   }
 
@@ -210,6 +214,7 @@ export function ProfilePage() {
     });
     setPendingAvatarFile(null);
     setPendingAvatarRemoved(true);
+    setAvatarLoadFailed(false);
     setAvatarUrl(null);
   }
 
@@ -240,7 +245,7 @@ export function ProfilePage() {
         if (!uploaded?.objectPath) {
           throw new Error("Upload failed — try again");
         }
-        nextAvatarUrl = `/api/storage${uploaded.objectPath}`;
+        nextAvatarUrl = mediaUrlFromUpload(uploaded);
         clerkFile = pendingAvatarFile;
       }
 
@@ -307,6 +312,7 @@ export function ProfilePage() {
 
       setSavedAvatarUrl(nextAvatarUrl);
       setAvatarUrl(nextAvatarUrl);
+      setAvatarLoadFailed(false);
       clearPendingPreview();
       await refreshProfile();
       setSaved(true);
@@ -388,12 +394,13 @@ export function ProfilePage() {
                 className="relative w-20 h-20 rounded-full overflow-hidden border border-border bg-primary text-white shrink-0 group disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 aria-label="Change profile photo"
               >
-                {avatarUrl ? (
+                {avatarUrl && !avatarLoadFailed ? (
                   <img
                     src={avatarUrl}
                     alt=""
                     className="w-full h-full object-cover"
                     key={avatarUrl}
+                    onError={() => setAvatarLoadFailed(true)}
                   />
                 ) : (
                   <span className="w-full h-full flex items-center justify-center text-xl font-semibold">

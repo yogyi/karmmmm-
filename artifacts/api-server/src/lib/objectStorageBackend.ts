@@ -34,6 +34,21 @@ export interface StoredObject {
 
 export function resolveObjectStorageDriver(): ObjectStorageDriver {
   const explicit = (process.env.OBJECT_STORAGE_DRIVER || "").toLowerCase();
+  const onVercel = Boolean(process.env.VERCEL);
+
+  // Vercel production has no durable local disk — never use "local" there.
+  // (vercel dev sets VERCEL=1 with NODE_ENV=development — keep disk for that.)
+  if (
+    onVercel &&
+    process.env.NODE_ENV === "production" &&
+    (explicit === "local" || explicit === "")
+  ) {
+    if (isBlobConfigured()) return "blob";
+    // Prefer blob so request-url returns a clear "link Blob store" error
+    // instead of writing to /tmp and 404ing on the next request.
+    return "blob";
+  }
+
   if (
     explicit === "gcs" ||
     explicit === "s3" ||
@@ -70,7 +85,7 @@ export function resolveObjectStorageDriver(): ObjectStorageDriver {
     return "local";
   }
   // Production on Vercel without a Blob token: select blob so upload fails with a clear setup error.
-  if (process.env.VERCEL) {
+  if (onVercel) {
     return "blob";
   }
   return "local";

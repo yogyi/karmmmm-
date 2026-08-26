@@ -337,7 +337,21 @@ router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, 
         visibility: parsed.visibility,
       },
     );
-    res.json({ objectPath, visibility: parsed.visibility });
+
+    let publicUrl: string | null = null;
+    try {
+      if (parsed.visibility === "public" && typeof objectFile.getPublicUrl === "function") {
+        publicUrl = (await objectFile.getPublicUrl()) ?? null;
+      }
+    } catch {
+      // Best-effort — clients can still use /api/storage{objectPath}
+    }
+
+    res.json({
+      objectPath,
+      visibility: parsed.visibility,
+      ...(publicUrl ? { publicUrl } : {}),
+    });
   } catch (error) {
     if (error instanceof ObjectNotFoundError) {
       res.status(404).json({ error: "Object not found — upload may not have completed" });
