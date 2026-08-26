@@ -89,6 +89,14 @@ function publicApiOrigin(req: Request): string {
 
 function toAbsoluteUploadUrl(req: Request, uploadURL: string): string {
   if (/^https?:\/\//i.test(uploadURL)) return uploadURL;
+  // Keep same-app upload routes relative so the SPA + @vercel/blob client
+  // never cross-origin (VERCEL_URL ≠ production alias → CORS "Failed to fetch").
+  if (
+    uploadURL.startsWith("/api/storage/uploads/blob-client/") ||
+    uploadURL.startsWith("/api/storage/uploads/put/")
+  ) {
+    return uploadURL;
+  }
   const path = uploadURL.startsWith("/") ? uploadURL : `/${uploadURL}`;
   return `${publicApiOrigin(req)}${path}`;
 }

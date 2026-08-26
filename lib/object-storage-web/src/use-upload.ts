@@ -219,9 +219,14 @@ export function useUpload(options: UseUploadOptions = {}) {
         return result;
       } catch (err) {
         const error = err instanceof Error ? err : new Error("Upload failed");
-        setError(error);
-        options.onError?.(error);
-        throw error;
+        const message =
+          error.message === "Failed to fetch"
+            ? "Upload could not reach storage (network/CORS). Refresh and try again — if this persists, redeploy after Blob + APP_URL are set."
+            : error.message;
+        const wrapped = new Error(message);
+        setError(wrapped);
+        options.onError?.(wrapped);
+        throw wrapped;
       } finally {
         setIsUploading(false);
       }
