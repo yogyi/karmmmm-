@@ -118,11 +118,10 @@ export function DashboardPage() {
 
   const isSupplier = user?.role === "seller" || user?.role === "admin";
   // Never default to another shop — missing link must not become supplier #1 (IDOR).
-  const supplierId =
+  const authSupplierId =
     typeof user?.supplierId === "number" && user.supplierId > 0
       ? user.supplierId
       : null;
-  const hasLinkedShop = supplierId != null;
 
   const [shopVerified, setShopVerified] = useState<boolean | null>(
     user?.role === "admin" ? true : null,
@@ -134,6 +133,11 @@ export function DashboardPage() {
   const [shopLoadError, setShopLoadError] = useState<string | null>(null);
   const [shareSlug, setShareSlug] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  /** Shop id from /suppliers/me — fills gaps when auth profile lacks supplierId. */
+  const [shopSupplierId, setShopSupplierId] = useState<number | null>(null);
+
+  const supplierId = authSupplierId ?? shopSupplierId;
+  const hasLinkedShop = supplierId != null;
 
   useEffect(() => {
     if (!isLoaded || !user || user.role === "buyer" || user.role === "admin") return;
@@ -163,6 +167,7 @@ export function DashboardPage() {
           return;
         }
         const s = (await res.json()) as {
+          id?: number;
           verified?: boolean;
           verificationStatus?: string;
           slug?: string | null;
@@ -173,6 +178,9 @@ export function DashboardPage() {
         setVerificationStatus(status);
         setShopVerified(s.verified === true);
         setShareSlug(s.slug ?? null);
+        if (typeof s.id === "number" && s.id > 0) {
+          setShopSupplierId(s.id);
+        }
 
         // Free plan still requires GST verification flow (pending review or verified).
         const kycDone = s.verified === true || status === "pending" || status === "verified";
@@ -216,7 +224,9 @@ export function DashboardPage() {
     setTimeout(() => setShareCopied(false), 2000);
   }
 
-  const { data: platformStats } = useGetDashboardStats();
+  const { data: platformStats } = useGetDashboardStats({
+    query: { enabled: !isSupplier } as any,
+  });
   const { data: supplierDash } = useGetSupplierDashboard(supplierId ?? 0, {
     query: { enabled: isSupplier && hasLinkedShop && shopReady } as any,
   });
@@ -230,7 +240,7 @@ export function DashboardPage() {
           : undefined,
     {
       query: {
-        enabled: !!user && user.id > 0,
+        enabled: !!user && user.id > 0 && (!isSupplier || shopReady),
         refetchOnMount: "always",
         refetchOnWindowFocus: true,
         refetchInterval: isSupplier ? 5_000 : 12_000,
@@ -241,19 +251,29 @@ export function DashboardPage() {
 
   useEffect(() => subscribeRfqBroadcast(() => void refetchInboxRfqs()), [refetchInboxRfqs]);
 
+  // Refresh share slug when shop is ready (upgrades legacy name-{id} links).
+  useEffect(() => {
+    if (!shopReady || !isSupplier) return;
+    void ensureShareLink();
+  }, [shopReady, isSupplier]);
+
   const { data: supplierProductsData, refetch: refetchProducts } = useListProducts(
     { supplierId: supplierId ?? undefined },
     { query: { enabled: isSupplier && hasLinkedShop && shopReady } as any }
   );
   const supplierProducts = supplierProductsData?.items ?? [];
+
+  // Same filter as Incoming RFQs — never mix platform totals into seller cards.
+  const sellerIncomingRfqs = (inboxRfqs ?? []).filter((r) => r.buyerId !== user?.id);
+  const incomingRfqCount = sellerIncomingRfqs.length;
+  const openRfqCount = sellerIncomingRfqs.filter(
+    (r) => r.status === "pending" || r.status === "responded",
+  ).length;
   const recentRfqs = (
-    inboxRfqs ??
-    (isSupplier ? supplierDash?.recentRfqs : undefined) ??
-    (isSupplier ? undefined : platformStats?.recentRfqs) ??
-    []
-  )
-    .filter((r) => (isSupplier ? r.buyerId !== user?.id : r.buyerId === user?.id))
-    .slice(0, 5);
+    isSupplier
+      ? sellerIncomingRfqs
+      : inboxRfqs ?? platformStats?.recentRfqs ?? []
+  ).slice(0, 5);
 
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
@@ -530,23 +550,40 @@ export function DashboardPage() {
           <motion.div key="overview" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             {/* Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              {isSupplier && supplierDash ? (
+              {isSupplier ? (
                 <>
                   <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
-                    <StatCard icon={<Package size={20} />} label="Your Products" value={supplierDash.productCount} color="bg-primary/10 text-primary" />
+                    <StatCard
+                      icon={<Package size={20} />}
+                      label="Your Products"
+                      value={supplierDash?.productCount ?? supplierProducts.length}
+                      color="bg-primary/10 text-primary"
+                    />
                   </motion.div>
                   <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06 }}>
-                    <StatCard icon={<FileText size={20} />} label="Total RFQs" value={supplierDash.rfqCount} color="bg-blue-100 text-blue-600" />
+                    <StatCard
+                      icon={<FileText size={20} />}
+                      label="Incoming RFQs"
+                      value={incomingRfqCount}
+                      sub="Same as RFQs inbox"
+                      color="bg-blue-100 text-blue-600"
+                    />
                   </motion.div>
                   <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
-                    <StatCard icon={<Clock size={20} />} label="Pending RFQs" value={supplierDash.pendingRfqs} sub="Awaiting response" color="bg-yellow-100 text-yellow-600" />
+                    <StatCard
+                      icon={<Clock size={20} />}
+                      label="Open RFQs"
+                      value={openRfqCount}
+                      sub="Awaiting your quote"
+                      color="bg-yellow-100 text-yellow-600"
+                    />
                   </motion.div>
                   <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
                     <StatCard
                       icon={<TrendingUp size={20} />}
                       label="Response Rate"
                       value={
-                        supplierDash.supplier.responseRate != null
+                        supplierDash?.supplier.responseRate != null
                           ? `${Math.round(Number(supplierDash.supplier.responseRate))}%`
                           : "—"
                       }
@@ -641,7 +678,9 @@ export function DashboardPage() {
               {/* RFQ table */}
               <div className="lg:col-span-2 bg-white rounded-xl border border-border overflow-hidden">
                 <div className="flex items-center justify-between p-5 border-b border-border">
-                  <h2 className="font-bold text-foreground">Recent RFQs</h2>
+                  <h2 className="font-bold text-foreground">
+                    {isSupplier ? "Incoming RFQs" : "Recent RFQs"}
+                  </h2>
                   <button onClick={() => navigate("/rfq")} className="text-sm text-primary hover:underline">View All</button>
                 </div>
                 <div className="divide-y divide-border">
@@ -676,7 +715,7 @@ export function DashboardPage() {
 
               {/* Category breakdown / quick actions */}
               <div className="space-y-4">
-                {platformStats?.categoryBreakdown && (
+                {!isSupplier && platformStats?.categoryBreakdown && (
                   <div className="bg-white rounded-xl border border-border overflow-hidden">
                     <div className="p-4 border-b border-border">
                       <h2 className="font-bold text-foreground">Categories</h2>
