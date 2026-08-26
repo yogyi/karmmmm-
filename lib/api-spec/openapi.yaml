@@ -425,7 +425,7 @@ paths:
     post:
       operationId: awardRfqQuote
       tags: [rfq]
-      summary: Buyer awards one quote and closes the deal
+      summary: Buyer accepts a quote — waits for seller confirmation
       parameters:
         - name: id
           in: path
@@ -440,7 +440,45 @@ paths:
               $ref: "#/components/schemas/RfqAwardInput"
       responses:
         "200":
-          description: Deal closed with awarded quote
+          description: Quote accepted; status pending_confirm until seller confirms
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+
+  /rfq/{id}/confirm:
+    post:
+      operationId: confirmRfqDeal
+      tags: [rfq]
+      summary: Selected seller confirms the buyer's acceptance and closes the deal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deal closed (accepted)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+
+  /rfq/{id}/decline-confirm:
+    post:
+      operationId: declineRfqConfirm
+      tags: [rfq]
+      summary: Seller declines or buyer withdraws a pending mutual confirmation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Handshake cancelled; RFQ reopened for quotes
           content:
             application/json:
               schema:
@@ -1149,6 +1187,8 @@ components:
         logoUrl:
           type: string
         coverUrl:
+          type: string
+        shareImageUrl:
           type: string
         verified:
           type: boolean

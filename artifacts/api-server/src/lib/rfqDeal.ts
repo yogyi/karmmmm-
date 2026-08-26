@@ -147,18 +147,6 @@ export async function submitSellerQuote(opts: {
   input: QuoteInput;
 }): Promise<RfqWithQuotes> {
   const { rfqId, supplierId, supplierName, input } = opts;
-  const rfq = await prisma.rfq.findUnique({ where: { id: rfqId } });
-  if (!rfq) throw Object.assign(new Error("RFQ not found"), { status: 404 });
-  if (isRfqClosed(rfq.status)) {
-    throw Object.assign(new Error("This RFQ is closed — quotes are no longer accepted"), {
-      status: 409,
-    });
-  }
-  if (rfq.supplierId != null && rfq.supplierId !== supplierId) {
-    throw Object.assign(new Error("Only the assigned supplier can quote this RFQ"), {
-      status: 403,
-    });
-  }
 
   const unitPrice = Number(input.unitPrice);
   const quantity = Math.floor(Number(input.quantity));
@@ -170,7 +158,7 @@ export async function submitSellerQuote(opts: {
   }
 
   const currency = (input.currency || "INR").trim().toUpperCase() || "INR";
-  const unit = (input.unit || rfq.unit).trim() || "piece";
+  const unit = (input.unit || "piece").trim() || "piece";
   const message = input.message?.trim() || null;
   const paymentTerms = input.paymentTerms?.trim() || null;
   const leadTimeDays =
@@ -182,49 +170,79 @@ export async function submitSellerQuote(opts: {
       ? Math.max(1, Math.floor(Number(input.validDays)))
       : null;
 
-  await prisma.rfqQuote.upsert({
-    where: { rfqId_supplierId: { rfqId, supplierId } },
-    create: {
-      rfqId,
-      supplierId,
-      supplierName,
-      unitPrice,
-      currency,
-      quantity,
-      unit,
-      leadTimeDays,
-      validDays,
-      paymentTerms,
-      message,
-      status: "active",
-    },
-    update: {
-      supplierName,
-      unitPrice,
-      currency,
-      quantity,
-      unit,
-      leadTimeDays,
-      validDays,
-      paymentTerms,
-      message,
-      status: "active",
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM rfq WHERE id = ${rfqId} FOR UPDATE`;
+    const rfq = await tx.rfq.findUnique({ where: { id: rfqId } });
+    if (!rfq) throw Object.assign(new Error("RFQ not found"), { status: 404 });
+    if (isRfqClosed(rfq.status)) {
+      throw Object.assign(new Error("This RFQ is closed — quotes are no longer accepted"), {
+        status: 409,
+      });
+    }
+    if (isRfqAwaitingSellerConfirm(rfq.status)) {
+      throw Object.assign(
+        new Error("Buyer already accepted a quote — wait for confirmation or reopen"),
+        { status: 409 },
+      );
+    }
+    if (!isRfqOpenForQuotes(rfq.status)) {
+      throw Object.assign(new Error("This RFQ is not open for quotes"), { status: 409 });
+    }
+    if (rfq.supplierId != null && rfq.supplierId !== supplierId) {
+      throw Object.assign(new Error("Only the assigned supplier can quote this RFQ"), {
+        status: 403,
+      });
+    }
 
-  await prisma.rfq.update({
-    where: { id: rfqId },
-    data: {
-      status: "responded",
-      quotedPrice: unitPrice,
-      sellerMessage: message,
-      quotedAt: new Date(),
-    },
-  });
+    const quoteUnit = (input.unit || rfq.unit).trim() || unit;
 
-  const loaded = await loadRfqWithQuotes(rfqId);
-  if (!loaded) throw Object.assign(new Error("RFQ not found"), { status: 404 });
-  return loaded;
+    await tx.rfqQuote.upsert({
+      where: { rfqId_supplierId: { rfqId, supplierId } },
+      create: {
+        rfqId,
+        supplierId,
+        supplierName,
+        unitPrice,
+        currency,
+        quantity,
+        unit: quoteUnit,
+        leadTimeDays,
+        validDays,
+        paymentTerms,
+        message,
+        status: "active",
+      },
+      update: {
+        supplierName,
+        unitPrice,
+        currency,
+        quantity,
+        unit: quoteUnit,
+        leadTimeDays,
+        validDays,
+        paymentTerms,
+        message,
+        status: "active",
+      },
+    });
+
+    await tx.rfq.update({
+      where: { id: rfqId },
+      data: {
+        status: "responded",
+        quotedPrice: unitPrice,
+        sellerMessage: message,
+        quotedAt: new Date(),
+      },
+    });
+
+    const loaded = await tx.rfq.findUnique({
+      where: { id: rfqId },
+      include: { quotes: { orderBy: { unitPrice: "asc" } } },
+    });
+    if (!loaded) throw Object.assign(new Error("RFQ not found"), { status: 404 });
+    return loaded;
+  });
 }
 
 /**
@@ -239,6 +257,7 @@ export async function awardRfqQuote(opts: {
   const { rfqId, quoteId, buyerId } = opts;
 
   return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM rfq WHERE id = ${rfqId} FOR UPDATE`;
     const rfq = await tx.rfq.findUnique({ where: { id: rfqId } });
     if (!rfq) throw Object.assign(new Error("RFQ not found"), { status: 404 });
     if (rfq.buyerId !== buyerId) {
@@ -246,6 +265,9 @@ export async function awardRfqQuote(opts: {
     }
     if (isRfqClosed(rfq.status)) {
       throw Object.assign(new Error("This RFQ is already closed"), { status: 409 });
+    }
+    if (!isRfqOpenForQuotes(rfq.status) && !isRfqAwaitingSellerConfirm(rfq.status)) {
+      throw Object.assign(new Error("This RFQ cannot accept a quote right now"), { status: 409 });
     }
 
     const quote = await tx.rfqQuote.findFirst({
@@ -305,6 +327,7 @@ export async function confirmRfqDeal(opts: {
   const { rfqId, supplierId } = opts;
 
   return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM rfq WHERE id = ${rfqId} FOR UPDATE`;
     const rfq = await tx.rfq.findUnique({ where: { id: rfqId } });
     if (!rfq) throw Object.assign(new Error("RFQ not found"), { status: 404 });
     if (!isRfqAwaitingSellerConfirm(rfq.status) || rfq.awardedQuoteId == null) {
@@ -369,6 +392,7 @@ export async function declinePendingRfqConfirm(opts: {
   const { rfqId, actor } = opts;
 
   return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM rfq WHERE id = ${rfqId} FOR UPDATE`;
     const rfq = await tx.rfq.findUnique({ where: { id: rfqId } });
     if (!rfq) throw Object.assign(new Error("RFQ not found"), { status: 404 });
     if (!isRfqAwaitingSellerConfirm(rfq.status) || rfq.awardedQuoteId == null) {
@@ -399,16 +423,21 @@ export async function declinePendingRfqConfirm(opts: {
       data: { status: "active" },
     });
 
-    const remaining = await tx.rfqQuote.count({
+    const remainingQuotes = await tx.rfqQuote.findMany({
       where: { rfqId, status: { in: ["active", "pending_confirm"] } },
+      orderBy: { unitPrice: "asc" },
     });
+    const best = remainingQuotes[0] ?? null;
 
     await tx.rfq.update({
       where: { id: rfqId },
       data: {
-        status: remaining > 0 ? "responded" : "pending",
+        status: remainingQuotes.length > 0 ? "responded" : "pending",
         awardedQuoteId: null,
         closedAt: null,
+        quotedPrice: best?.unitPrice ?? null,
+        sellerMessage: best?.message ?? null,
+        quotedAt: best?.updatedAt ?? null,
       },
     });
 
@@ -428,6 +457,7 @@ export async function closeRfqWithoutAward(opts: {
 }): Promise<RfqWithQuotes> {
   const { rfqId, buyerId } = opts;
   return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM rfq WHERE id = ${rfqId} FOR UPDATE`;
     const rfq = await tx.rfq.findUnique({ where: { id: rfqId } });
     if (!rfq) throw Object.assign(new Error("RFQ not found"), { status: 404 });
     if (rfq.buyerId !== buyerId) {

@@ -27,6 +27,11 @@ import {
   isAllowedUploadMime,
   isOwnedUploadObjectPath,
 } from "../lib/uploadLimits";
+import {
+  assertUploadClaimOwner,
+  claimUploadObject,
+  getUploadClaimOwner,
+} from "../lib/uploadClaims";
 import express from "express";
 
 const router: IRouter = Router();
@@ -61,19 +66,23 @@ function isDirectPutDriver(driver: string): boolean {
   return driver === "local" || driver === "blob";
 }
 
-/** Absolute origin so Zod `.url()` accepts uploadURL (relative paths fail). */
+/** Absolute origin for upload URLs — prefer APP_URL; do not trust client X-Forwarded-Host. */
 function publicApiOrigin(req: Request): string {
-  const xfProto = req.get("x-forwarded-proto");
-  const xfHost = req.get("x-forwarded-host");
-  if (xfProto && xfHost) {
-    return `${xfProto.split(",")[0]!.trim()}://${xfHost.split(",")[0]!.trim()}`;
+  const appUrl = process.env.APP_URL?.trim() || process.env.PUBLIC_APP_URL?.trim();
+  if (appUrl) {
+    try {
+      return new URL(appUrl).origin;
+    } catch {
+      /* fall through */
+    }
   }
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
   const host = req.get("host");
   if (host) {
-    return `${req.protocol}://${host}`;
+    const proto = req.protocol === "https" || host.includes("localhost") ? req.protocol : "https";
+    return `${proto}://${host}`;
   }
   return "http://localhost:3000";
 }
@@ -132,9 +141,21 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
     }
 
     const { name, size, contentType } = parsed.data;
+    const userId = await getClerkUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
 
     const { uploadURL, objectPath } =
       await objectStorageService.getObjectEntityUploadURL({ contentType });
+
+    const objectId = objectPath.split("/").pop();
+    if (!objectId) {
+      res.status(500).json({ error: "Failed to allocate upload object id" });
+      return;
+    }
+    claimUploadObject(objectId, userId);
 
     const payload = {
       uploadURL: toAbsoluteUploadUrl(req, uploadURL),
@@ -173,10 +194,11 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
  *
  * Vercel Blob client-upload token exchange (handleUpload).
  * Browser uploads bytes straight to Blob — avoids the ~4.5MB serverless body limit.
- * Do NOT wrap with requireClerkAuth: Vercel Blob also POSTs upload-completed webhooks here.
+ * Mounted on storagePublicRouter (before global requireClerkAuth): Vercel Blob also
+ * POSTs upload-completed webhooks here without a user session.
  * Auth is enforced in onBeforeGenerateToken for token issuance only.
  */
-router.post("/storage/uploads/blob", async (req: Request, res: Response) => {
+storagePublicRouter.post("/storage/uploads/blob", async (req: Request, res: Response) => {
   if (getObjectStorageDriver() !== "blob") {
     res.status(400).json({ error: "Blob client uploads require OBJECT_STORAGE_DRIVER=blob" });
     return;
@@ -213,11 +235,17 @@ router.post("/storage/uploads/blob", async (req: Request, res: Response) => {
         if (pathname !== expected) {
           throw new Error("objectPath does not match upload pathname");
         }
+        const objectId = pathname.split("/").pop()!;
+        const existingOwner = getUploadClaimOwner(objectId);
+        if (existingOwner && existingOwner !== userId) {
+          throw new Error("Upload object belongs to another user");
+        }
+        claimUploadObject(objectId, userId);
         return {
           allowedContentTypes: BLOB_ALLOWED_CONTENT_TYPES,
           maximumSizeInBytes: MAX_UPLOAD_BYTES,
           addRandomSuffix: false,
-          allowOverwrite: true,
+          allowOverwrite: false,
           tokenPayload: JSON.stringify({ userId, objectPath }),
         };
       },
@@ -283,6 +311,17 @@ router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, 
     return;
   }
 
+  const objectId = normalized.split("/").pop() || "";
+  const claimOwner = getUploadClaimOwner(objectId);
+  if (claimOwner && claimOwner !== userId) {
+    res.status(403).json({ error: "Forbidden — object belongs to another user" });
+    return;
+  }
+  if (!claimOwner) {
+    // Require a prior request-url claim in production-like envs.
+    claimUploadObject(objectId, userId);
+  }
+
   try {
     const objectFile = await getObjectEntityFileWithRetry(normalized);
     const existingAcl = await getObjectAclPolicy(objectFile);
@@ -344,6 +383,22 @@ router.put(
     const objectId = String(req.params.objectId || "").replace(/[^a-zA-Z0-9-]/g, "");
     if (!objectId) {
       res.status(400).json({ error: "Missing upload id" });
+      return;
+    }
+    const userId = await getClerkUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (!assertUploadClaimOwner(objectId, userId)) {
+      // Allow if object has no claim yet only when ACL already owned by caller.
+      const claimOwner = getUploadClaimOwner(objectId);
+      if (claimOwner != null) {
+        res.status(403).json({ error: "Forbidden — upload id belongs to another user" });
+        return;
+      }
+      // No claim: reject — must call request-url first.
+      res.status(403).json({ error: "Forbidden — request an upload URL before PUT" });
       return;
     }
     const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body ?? []);

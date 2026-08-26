@@ -5,7 +5,8 @@ import { rememberAuthRedirect } from "@/lib/authRedirect";
 
 const AUTH_PAGES = ["/onboarding", "/login", "/register", "/seller/verify"];
 
-/** Buyer-only surfaces — sellers in seller mode are redirected to Seller Central. */
+/** Buyer browse surfaces — sellers stay on Seller Central.
+ * Product detail (`/products/:id`) is allowed so sellers can preview a listing. */
 const BUYER_MARKETPLACE_PATHS = [
   "/",
   "/products",
@@ -18,14 +19,15 @@ const BUYER_MARKETPLACE_PATHS = [
 function isBuyerMarketplacePath(location: string): boolean {
   const path = location.split("?")[0] || "/";
   if (BUYER_MARKETPLACE_PATHS.includes(path)) return true;
-  if (path.startsWith("/products/")) return true;
+  // Allow /products/:id (seller "View" preview) — block supplier browse only
   if (path.startsWith("/suppliers/")) return true;
   return false;
 }
 
 /**
  * Incomplete onboarding → /onboarding.
- * Active sellers are kept on seller ops pages (no marketplace / buyer browse).
+ * Active sellers are kept off buyer browse (home, product list, suppliers, etc.)
+ * but can open a product detail page to preview their listing.
  * Buyers keep marketplace + buyer central.
  */
 export function OnboardingGate() {

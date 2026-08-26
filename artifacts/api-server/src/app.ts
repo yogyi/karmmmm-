@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import { pinoHttp } from "pino-http";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -48,5 +48,30 @@ if (clerkEnabled) {
 }
 
 app.use("/api", router);
+
+/** Always return JSON for API failures — never Express HTML error pages. */
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  if (res.headersSent) return;
+  const message = err instanceof Error ? err.message : "Internal server error";
+  const isPrisma =
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    typeof (err as { code?: unknown }).code === "string" &&
+    String((err as { code: string }).code).startsWith("P");
+  const status =
+    typeof err === "object" &&
+    err !== null &&
+    "status" in err &&
+    Number.isFinite(Number((err as { status?: unknown }).status))
+      ? Number((err as { status: number }).status)
+      : 500;
+  req.log?.error({ err }, "Unhandled API error");
+  res.status(status >= 400 && status < 600 ? status : 500).json({
+    error: isPrisma
+      ? "Database query failed. Please try again or contact support."
+      : message.slice(0, 300) || "Internal server error",
+  });
+});
 
 export default app;

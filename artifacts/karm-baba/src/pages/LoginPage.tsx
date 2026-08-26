@@ -87,8 +87,8 @@ export function LoginPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-6 bg-[#f9f8f6]">
-        <div className="w-full max-w-md">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-6 kb-page min-w-0">
+        <div className="w-full max-w-md min-w-0">
           <button
             type="button"
             onClick={() => navigate("/")}

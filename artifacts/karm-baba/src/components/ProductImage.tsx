@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Package } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const FALLBACK =
   "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=600&q=80";
@@ -31,15 +32,22 @@ export function resolveProductImageUrl(src?: string | null): string | null {
 
 /**
  * Product photo with rewrite for known-wrong URLs + graceful onError fallback.
+ *
+ * `fill` (default): absolutely covers a positioned parent — use inside
+ * `.kb-product-media` or any `relative overflow-hidden` box with a fixed height.
+ * `fill={false}`: normal flow image for fixed-size thumbs (list rows, etc.).
  */
 export function ProductImage({
   src,
   alt,
-  className = "w-full h-full object-cover",
+  className,
+  fill = true,
 }: {
   src?: string | null;
   alt: string;
   className?: string;
+  /** Absolute fill of parent — keeps catalog cards flush with rounded corners. */
+  fill?: boolean;
 }) {
   const resolved = resolveProductImageUrl(src);
   const [stage, setStage] = useState<"primary" | "fallback" | "empty">(
@@ -49,11 +57,14 @@ export function ProductImage({
   if (stage === "empty") {
     return (
       <div
-        className="w-full h-full bg-muted flex items-center justify-center"
+        className={cn(
+          "bg-muted flex items-center justify-center text-muted-foreground",
+          fill ? "absolute inset-0" : "h-full w-full",
+        )}
         role="img"
         aria-label={alt}
       >
-        <Package className="text-muted-foreground" size={28} />
+        <Package size={fill ? 28 : 20} />
       </div>
     );
   }
@@ -64,7 +75,13 @@ export function ProductImage({
     <img
       src={url}
       alt={alt}
-      className={className}
+      className={cn(
+        "m-0 border-0 p-0 object-cover object-center",
+        fill
+          ? "absolute inset-0 block h-full w-full max-w-none"
+          : "block h-full w-full max-w-full",
+        className,
+      )}
       loading="lazy"
       decoding="async"
       onError={() => setStage((s) => (s === "primary" ? "fallback" : "empty"))}

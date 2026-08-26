@@ -157,6 +157,26 @@ function readTrimmed(value: unknown): string | undefined {
   return value.trim();
 }
 
+/** Logo / cover / share-card image URLs (storage path or absolute http(s)). */
+function parseMediaUrl(
+  value: unknown,
+): { ok: true; url: string | null } | { ok: false; error: string } | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return { ok: true, url: null };
+  if (typeof value !== "string") {
+    return { ok: false, error: "Image URL must be a string" };
+  }
+  const url = value.trim();
+  if (
+    !url.startsWith("/api/storage/") &&
+    !url.startsWith("https://") &&
+    !url.startsWith("http://")
+  ) {
+    return { ok: false, error: "Invalid image URL" };
+  }
+  return { ok: true, url: url.slice(0, 500) };
+}
+
 /** Update shop profile after verification. GSTIN is locked unless re-verify is started. */
 router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> => {
   const dbUser = await getAuthenticatedDbUser(req);
@@ -280,6 +300,31 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
     patch.certifications = body.certifications.filter(
       (x): x is string => typeof x === "string" && x.trim().length > 0,
     );
+  }
+
+  const logoUrl = parseMediaUrl(body.logoUrl);
+  if (logoUrl !== undefined) {
+    if (!logoUrl.ok) {
+      res.status(400).json({ error: logoUrl.error });
+      return;
+    }
+    patch.logoUrl = logoUrl.url;
+  }
+  const coverUrl = parseMediaUrl(body.coverUrl);
+  if (coverUrl !== undefined) {
+    if (!coverUrl.ok) {
+      res.status(400).json({ error: coverUrl.error });
+      return;
+    }
+    patch.coverUrl = coverUrl.url;
+  }
+  const shareImageUrl = parseMediaUrl(body.shareImageUrl);
+  if (shareImageUrl !== undefined) {
+    if (!shareImageUrl.ok) {
+      res.status(400).json({ error: shareImageUrl.error });
+      return;
+    }
+    patch.shareImageUrl = shareImageUrl.url;
   }
 
   if (city !== undefined || state !== undefined) {
@@ -837,13 +882,10 @@ router.post(
     windowMs: 15 * 60 * 1000,
     max: 8,
     key: (req) => {
-      const ip =
-        (typeof req.headers["x-forwarded-for"] === "string"
-          ? req.headers["x-forwarded-for"].split(",")[0]?.trim()
-          : undefined) ||
-        req.ip ||
+      const uid =
+        (req as { clerkUserId?: string }).clerkUserId ||
         "unknown";
-      return `email-otp:${ip}`;
+      return `email-otp:user:${uid}`;
     },
   }),
   async (req, res): Promise<void> => {
@@ -934,15 +976,10 @@ router.post(
   requireClerkAuth,
   rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 20,
+    max: 10,
     key: (req) => {
-      const ip =
-        (typeof req.headers["x-forwarded-for"] === "string"
-          ? req.headers["x-forwarded-for"].split(",")[0]?.trim()
-          : undefined) ||
-        req.ip ||
-        "unknown";
-      return `email-otp-confirm:${ip}`;
+      const uid = (req as { clerkUserId?: string }).clerkUserId || "unknown";
+      return `email-otp-confirm:user:${uid}`;
     },
   }),
   async (req, res): Promise<void> => {

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { CheckCircle, ChevronLeft, Package, Send, Star, AlertCircle, Shield, Truck, Clock, Tag, Heart } from "lucide-react";
+import { CheckCircle, ChevronLeft, Package, Pencil, Send, Star, AlertCircle, Shield, Truck, Clock, Tag, Heart } from "lucide-react";
 import { motion } from "framer-motion";
-import { useGetProduct, useListReviews, useCreateRfq, useCreateReview, useListProducts, getGetRfqQueryKey } from "@workspace/api-client-react";
+import { useGetProduct, useListReviews, useCreateRfq, useCreateReview, useListProducts, getGetRfqQueryKey, getGetProductQueryKey, getListProductsQueryKey } from "@workspace/api-client-react";
 import { StarRating } from "@/components/StarRating";
 import { useAuth } from "@/context/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,18 +11,26 @@ import { useShortlist } from "@/hooks/useShortlist";
 import { ProductImage, resolveProductImageUrl } from "@/components/ProductImage";
 import { invalidateRfqQueries } from "@/lib/rfqQueries";
 
+function hasProductReviews(product: { rating?: number | null; reviewCount?: number | null }) {
+  return product.reviewCount != null && product.reviewCount > 0 && product.rating != null;
+}
+
 export function ProductDetailPage({ params }: { params: { id: string } }) {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const qc = useQueryClient();
   const rfqDialogRef = useRef<HTMLDivElement>(null);
 
+  const isSeller = user?.role === "seller";
+  const catalogBack = isSeller ? "/seller?tab=products" : "/products";
+  const catalogBackLabel = isSeller ? "Back to My Products" : "Back to Products";
+
   const productId = Number(params.id);
   const { data: product, isLoading, isError, isFetched, refetch } = useGetProduct(productId, { query: { enabled: !!productId } as any });
   const { data: reviews } = useListReviews({ productId }, { query: { enabled: !!productId } as any });
   const { data: related } = useListProducts(
     { categoryId: product?.categoryId, limit: 4, page: 1 },
-    { query: { enabled: !!product?.categoryId } as any },
+    { query: { enabled: !!product?.categoryId && !isSeller } as any },
   );
   const { toggle, has } = useShortlist();
 
@@ -36,6 +44,11 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
 
   const createRfq = useCreateRfq();
   const createReview = useCreateReview();
+  const isOwnListing =
+    isSeller &&
+    product != null &&
+    user?.supplierId != null &&
+    user.supplierId === product.supplierId;
 
   useEffect(() => {
     if (!rfqOpen) return;
@@ -157,10 +170,10 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
           </button>
           <button
             type="button"
-            onClick={() => navigate("/products")}
+            onClick={() => navigate(catalogBack)}
             className="text-primary hover:underline text-sm font-medium min-h-11"
           >
-            ← Back to products
+            ← {catalogBackLabel}
           </button>
         </div>
       </div>
@@ -179,10 +192,10 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
         </p>
         <button
           type="button"
-          onClick={() => navigate("/products")}
+          onClick={() => navigate(catalogBack)}
           className="text-primary hover:underline text-sm font-medium"
         >
-          ← Back to products
+          ← {catalogBackLabel}
         </button>
       </div>
     );
@@ -195,13 +208,21 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
     .filter(Boolean) as string[];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-6 sm:py-8 min-w-0">
       {/* Breadcrumb */}
-      <button onClick={() => navigate("/products")} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors mb-7 font-medium">
-        <ChevronLeft size={16} /> Back to Products
+      <button onClick={() => navigate(catalogBack)} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors mb-5 sm:mb-7 font-medium min-h-11">
+        <ChevronLeft size={16} /> {catalogBackLabel}
       </button>
 
-      <div className="grid md:grid-cols-2 gap-10 mb-12">
+      {isSeller && (
+        <div className="mb-5 rounded-xl border border-secondary/15 bg-secondary/[0.04] px-4 py-3 text-sm text-secondary/80">
+          {isOwnListing
+            ? "Listing preview — this is how buyers see your product on the marketplace."
+            : "Product preview — buyer actions (quotes & reviews) are hidden in Seller Central."}
+        </div>
+      )}
+
+      <div className="grid md:grid-cols-2 gap-6 md:gap-10 mb-12 min-w-0">
         {/* Image gallery */}
         <div>
           <div className="rounded-2xl overflow-hidden bg-muted mb-3 aspect-square shadow-sm border border-border">
@@ -246,19 +267,19 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
             )}
           </div>
 
-          <h1 className="font-heading text-2xl sm:text-3xl font-bold text-foreground mb-3 leading-tight">{product.name}</h1>
+          <h1 className="font-heading text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-3 leading-tight break-words">{product.name}</h1>
 
-          {product.rating && (
+          {hasProductReviews(product) && (
             <div className="mb-4">
-              <StarRating rating={product.rating} reviewCount={product.reviewCount} size={16} />
+              <StarRating rating={product.rating!} reviewCount={product.reviewCount} size={16} />
             </div>
           )}
 
           {/* Price card */}
-          <div className="bg-gradient-to-br from-accent to-orange-50 rounded-2xl p-5 mb-5 border border-orange-100">
-            <div className="flex items-baseline gap-1 mb-1">
-              <span className="font-heading text-4xl font-black text-primary">₹{product.minPrice}</span>
-              <span className="text-xl font-bold text-muted-foreground">– ₹{product.maxPrice}</span>
+          <div className="bg-gradient-to-br from-accent to-orange-50 rounded-2xl p-4 sm:p-5 mb-5 border border-orange-100">
+            <div className="flex flex-wrap items-baseline gap-1 mb-1">
+              <span className="font-heading text-3xl sm:text-4xl font-black text-primary">₹{product.minPrice}</span>
+              <span className="text-lg sm:text-xl font-bold text-muted-foreground">– ₹{product.maxPrice}</span>
             </div>
             <div className="text-sm text-muted-foreground">per {product.unit}</div>
             <div className="mt-3 flex items-center gap-4 text-sm">
@@ -282,126 +303,200 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
           )}
 
           {/* Supplier card */}
-          <div
-            className="bg-white border border-border rounded-2xl p-4 mb-5 cursor-pointer hover:border-primary/30 hover:shadow-md transition-all group"
-            onClick={() => navigate(`/suppliers/${product.supplierId}`)}
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-orange-100 flex items-center justify-center flex-shrink-0">
-                <span className="font-bold text-primary text-base">{product.supplierName?.[0]}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-bold text-sm text-foreground">{product.supplierName}</span>
-                  {product.supplierVerified && (
-                    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full">
-                      <CheckCircle size={9} /> Verified
-                    </span>
-                  )}
+          {isSeller ? (
+            <div className="bg-white border border-border rounded-2xl p-4 mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-orange-100 flex items-center justify-center flex-shrink-0">
+                  <span className="font-bold text-primary text-base">{product.supplierName?.[0]}</span>
                 </div>
-                <div className="text-xs text-primary font-medium mt-0.5 group-hover:underline">View Supplier Profile →</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-bold text-sm text-foreground">{product.supplierName}</span>
+                    {product.supplierVerified && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full">
+                        <CheckCircle size={9} /> Verified
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {isOwnListing ? "Your shop on this listing" : "Supplier on this listing"}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div
+              className="bg-white border border-border rounded-2xl p-4 mb-5 cursor-pointer hover:border-primary/30 hover:shadow-md transition-all group"
+              onClick={() => navigate(`/suppliers/${product.supplierId}`)}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-orange-100 flex items-center justify-center flex-shrink-0">
+                  <span className="font-bold text-primary text-base">{product.supplierName?.[0]}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-bold text-sm text-foreground">{product.supplierName}</span>
+                    {product.supplierVerified && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full">
+                        <CheckCircle size={9} /> Verified
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-primary font-medium mt-0.5 group-hover:underline">View Supplier Profile →</div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Trust signals */}
-          <div className="grid grid-cols-3 gap-2 mb-5">
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mb-5">
             {[
               { icon: <Shield size={14} />, label: "Verified" },
               { icon: <Truck size={14} />, label: "Fast Ship" },
               { icon: <Clock size={14} />, label: "24h Reply" },
             ].map(item => (
-              <div key={item.label} className="flex items-center gap-1.5 bg-muted rounded-xl p-2.5 text-xs font-medium text-muted-foreground">
+              <div key={item.label} className="flex flex-col sm:flex-row items-center gap-1 sm:gap-1.5 bg-muted rounded-xl p-2 sm:p-2.5 text-[10px] sm:text-xs font-medium text-muted-foreground text-center sm:text-left">
                 <span className="text-primary">{item.icon}</span> {item.label}
               </div>
             ))}
           </div>
 
-          {/* RFQ + shortlist */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                if (!user || user.id <= 0) {
-                  navigate(
-                    `/login?mode=buyer&redirect=${encodeURIComponent(`/products/${product.id}`)}`,
-                  );
-                  return;
-                }
-                setRfqOpen(true);
-              }}
-              className="flex-1 bg-primary hover:bg-primary/90 text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all hover:shadow-xl hover:shadow-primary/25 hover:-translate-y-0.5"
-            >
-              <Send size={18} /> Request quote
-            </button>
-            <button
-              onClick={() => toggle(product.id)}
-              className={`px-4 rounded-2xl border font-semibold transition-colors ${has(product.id) ? "bg-primary/10 border-primary text-primary" : "border-border hover:bg-muted"}`}
-              title="Save to shortlist"
-            >
-              <Heart size={18} className={has(product.id) ? "fill-primary" : ""} />
-            </button>
-          </div>
+          {/* Buyer CTAs vs seller catalog actions */}
+          {isSeller ? (
+            <div className="flex flex-col sm:flex-row gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={() => navigate("/seller?tab=products")}
+                className="flex-1 min-w-0 border border-border bg-white hover:bg-muted text-secondary py-3.5 sm:py-4 rounded-2xl font-bold text-sm sm:text-base transition-colors"
+              >
+                Back to catalog
+              </button>
+              {isOwnListing && (
+                <button
+                  type="button"
+                  onClick={() => navigate("/seller?tab=products")}
+                  className="flex-1 min-w-0 bg-primary hover:bg-primary/90 text-white py-3.5 sm:py-4 rounded-2xl font-bold text-sm sm:text-base inline-flex items-center justify-center gap-2 transition-all"
+                >
+                  <Pencil size={16} className="shrink-0" />
+                  Edit in Seller Central
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="flex gap-2 min-w-0">
+              <button
+                onClick={() => {
+                  if (!user || user.id <= 0) {
+                    navigate(
+                      `/login?mode=buyer&redirect=${encodeURIComponent(`/products/${product.id}`)}`,
+                    );
+                    return;
+                  }
+                  setRfqOpen(true);
+                }}
+                className="flex-1 min-w-0 bg-primary hover:bg-primary/90 text-white py-3.5 sm:py-4 rounded-2xl font-bold text-sm sm:text-base flex items-center justify-center gap-2 transition-all hover:shadow-xl hover:shadow-primary/25 hover:-translate-y-0.5"
+              >
+                <Send size={18} className="shrink-0" />
+                <span className="truncate">Request quote</span>
+              </button>
+              <button
+                onClick={() => toggle(product.id)}
+                className={`px-4 rounded-2xl border font-semibold transition-colors ${has(product.id) ? "bg-primary/10 border-primary text-primary" : "border-border hover:bg-muted"}`}
+                title="Save to shortlist"
+              >
+                <Heart size={18} className={has(product.id) ? "fill-primary" : ""} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Reviews */}
+      {/* Reviews — buyers can write; sellers only read (feedback on their listing) */}
       <section className="mb-12">
         <h2 className="font-heading text-xl font-bold mb-5">
-          Customer Reviews {reviews?.length ? `(${reviews.length})` : ""}
+          {isSeller ? "Buyer reviews" : "Customer Reviews"}
+          {reviews?.length ? ` (${reviews.length})` : ""}
         </h2>
 
-        {user && (
-          <form
-            className="bg-white border border-border rounded-2xl p-4 mb-5 shadow-sm space-y-3"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setReviewMsg("");
-              try {
-                await createReview.mutateAsync({
-                  data: {
-                    productId: product.id,
-                    supplierId: product.supplierId,
-                    reviewerId: user.id,
-                    reviewerName: user.name,
-                    rating: reviewForm.rating,
-                    comment: reviewForm.comment || "No comment provided",
-                  },
-                });
-                qc.invalidateQueries({ queryKey: getListReviewsQueryKey({ productId }) });
-                setReviewForm({ rating: 5, comment: "" });
-                setReviewMsg("Thanks — your review was published.");
-              } catch {
-                setReviewMsg("Could not submit review. Sign in and try again.");
-              }
-            }}
-          >
-            <div className="font-semibold text-sm">Write a review</div>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  aria-label={`Rate ${n} stars`}
-                  onClick={() => setReviewForm((f) => ({ ...f, rating: n }))}
-                  className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg hover:bg-muted"
-                >
-                  <Star size={18} className={n <= reviewForm.rating ? "fill-amber-400 text-amber-400" : "text-gray-200"} />
-                </button>
-              ))}
+        {!isSeller &&
+          (user ? (
+            <form
+              className="bg-white border border-border rounded-2xl p-4 mb-5 shadow-sm space-y-3"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setReviewMsg("");
+                try {
+                  await createReview.mutateAsync({
+                    data: {
+                      productId: product.id,
+                      supplierId: product.supplierId,
+                      reviewerName: user.name || "Buyer",
+                      rating: reviewForm.rating,
+                      comment: reviewForm.comment.trim() || "No comment provided",
+                    },
+                  });
+                  await Promise.all([
+                    qc.invalidateQueries({ queryKey: getListReviewsQueryKey({ productId }) }),
+                    qc.invalidateQueries({ queryKey: getGetProductQueryKey(productId) }),
+                    qc.invalidateQueries({ queryKey: getListProductsQueryKey() }),
+                    qc.invalidateQueries({ queryKey: getListReviewsQueryKey({ supplierId: product.supplierId }) }),
+                  ]);
+                  await refetch();
+                  setReviewForm({ rating: 5, comment: "" });
+                  setReviewMsg("Thanks — your review was published.");
+                } catch (err) {
+                  const msg =
+                    err && typeof err === "object" && "message" in err && typeof (err as { message: unknown }).message === "string"
+                      ? (err as { message: string }).message
+                      : "Could not submit review. Sign in and try again.";
+                  setReviewMsg(msg.includes("already reviewed") ? "You already reviewed this product." : msg);
+                }
+              }}
+            >
+              <div className="font-semibold text-sm">Write a review</div>
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    aria-label={`Rate ${n} stars`}
+                    onClick={() => setReviewForm((f) => ({ ...f, rating: n }))}
+                    className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg hover:bg-muted"
+                  >
+                    <Star size={18} className={n <= reviewForm.rating ? "fill-amber-400 text-amber-400" : "text-gray-200"} />
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={reviewForm.comment}
+                onChange={(e) => setReviewForm((f) => ({ ...f, comment: e.target.value }))}
+                rows={2}
+                placeholder="Share quality, packaging, delivery experience..."
+                className="w-full border border-border rounded-xl px-3 py-2 text-sm outline-none focus:border-primary"
+              />
+              <button
+                type="submit"
+                disabled={createReview.isPending}
+                className="bg-secondary text-white text-sm font-semibold px-4 py-2 rounded-xl disabled:opacity-60"
+              >
+                {createReview.isPending ? "Submitting…" : "Submit review"}
+              </button>
+              {reviewMsg && <p className="text-xs text-muted-foreground">{reviewMsg}</p>}
+            </form>
+          ) : (
+            <div className="bg-muted/50 border border-border rounded-2xl p-4 mb-5 text-sm text-muted-foreground">
+              <button
+                type="button"
+                className="text-primary font-semibold hover:underline"
+                onClick={() =>
+                  navigate(`/login?mode=buyer&redirect=${encodeURIComponent(`/products/${product.id}`)}`)
+                }
+              >
+                Sign in
+              </button>{" "}
+              to leave a star rating and review.
             </div>
-            <textarea
-              value={reviewForm.comment}
-              onChange={(e) => setReviewForm((f) => ({ ...f, comment: e.target.value }))}
-              rows={2}
-              placeholder="Share quality, packaging, delivery experience..."
-              className="w-full border border-border rounded-xl px-3 py-2 text-sm outline-none focus:border-primary"
-            />
-            <button type="submit" className="bg-secondary text-white text-sm font-semibold px-4 py-2 rounded-xl">
-              Submit review
-            </button>
-            {reviewMsg && <p className="text-xs text-muted-foreground">{reviewMsg}</p>}
-          </form>
-        )}
+          ))}
 
         {reviews && reviews.length > 0 ? (
           <div className="grid sm:grid-cols-2 gap-4">
@@ -431,12 +526,16 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No reviews yet — be the first to rate this product.</p>
+          <p className="text-sm text-muted-foreground">
+            {isSeller
+              ? "No buyer reviews on this listing yet."
+              : "No reviews yet — be the first to rate this product."}
+          </p>
         )}
       </section>
 
-      {/* Related products */}
-      {related?.items && related.items.filter((p) => p.id !== product.id).length > 0 && (
+      {/* Related products — buyers only */}
+      {!isSeller && related?.items && related.items.filter((p) => p.id !== product.id).length > 0 && (
         <section className="mb-12">
           <h2 className="font-heading text-xl font-bold mb-5">Related products</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -447,9 +546,11 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
                 <button
                   key={p.id}
                   onClick={() => navigate(`/products/${p.id}`)}
-                  className="bg-white border border-border rounded-2xl overflow-hidden text-left hover:border-primary/30 shadow-sm"
+                  className="bg-white border border-border rounded-2xl overflow-hidden text-left hover:border-primary/30 shadow-sm p-0"
                 >
-                  <ProductImage src={p.imageUrl} alt={p.name} className="h-28 w-full object-cover" />
+                  <div className="kb-product-media h-28 w-full">
+                    <ProductImage src={p.imageUrl} alt={p.name} />
+                  </div>
                   <div className="p-3">
                     <div className="text-xs font-semibold line-clamp-2 mb-1">{p.name}</div>
                     <div className="text-primary text-sm font-bold">₹{p.minPrice}–{p.maxPrice}</div>

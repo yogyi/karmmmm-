@@ -210,32 +210,35 @@ export function Header() {
   }
 
   /** Shared content column — top bar, logo row, category nav, and page body share this edge. */
-  const shell = "max-w-7xl mx-auto w-full px-4";
+  const shell = "max-w-7xl mx-auto w-full px-3 sm:px-4 min-w-0";
 
   return (
     <>
-    <header className="bg-white border-b border-border sticky top-0 z-50 shadow-sm">
+    <header className="bg-white/95 backdrop-blur-md border-b border-border/80 sticky top-0 z-50 shadow-[0_8px_24px_-18px_rgba(26,39,68,0.35)]">
       {/* Top bar — Alibaba-style buyer / seller entry */}
       <div
-        className={
-          sellerBoardActive ? "bg-[#1a3a4a] text-white" : "bg-secondary text-white"
-        }
+        className="text-white"
+        style={{
+          background: sellerBoardActive
+            ? "linear-gradient(90deg, hsl(220 45% 14%) 0%, hsl(200 35% 18%) 55%, hsl(28 70% 28%) 130%)"
+            : "linear-gradient(90deg, hsl(220 60% 16%) 0%, hsl(220 55% 22%) 60%, hsl(28 80% 32%) 140%)",
+        }}
       >
-        <div className={`${shell} text-xs min-h-9 sm:h-8 flex justify-between items-center gap-4 py-1 sm:py-0`}>
-          <span className="hidden sm:flex items-center gap-3 text-white/70 truncate min-w-0">
+        <div className={`${shell} text-xs min-h-9 sm:h-8 flex justify-between items-center gap-2 sm:gap-4 py-1.5 sm:py-0`}>
+          <span className="flex items-center gap-2 sm:gap-3 text-white/70 truncate min-w-0 flex-1">
             {boardLabel ? (
-              <span aria-current="page">{boardLabel}</span>
+              <span className="truncate" aria-current="page">{boardLabel}</span>
             ) : (
               <>
                 <span className="truncate">India&apos;s #1 B2B Wholesale Marketplace</span>
-                <span className="text-white/40 shrink-0" aria-hidden>
+                <span className="text-white/40 shrink-0 hidden sm:inline" aria-hidden>
                   |
                 </span>
-                <span className="shrink-0">Pan-India Delivery</span>
+                <span className="shrink-0 hidden sm:inline">Pan-India Delivery</span>
               </>
             )}
           </span>
-          <div className="flex gap-1 sm:gap-2 ml-auto items-center shrink-0 w-full sm:w-auto justify-end">
+          <div className="flex gap-1 sm:gap-2 items-center shrink-0">
             {!isLoggedIn ? (
               <>
                 <button
@@ -255,16 +258,16 @@ export function Header() {
                 <button
                   type="button"
                   onClick={() => navigate("/register?mode=buyer")}
-                  className="inline-flex items-center min-h-9 px-3 rounded-lg bg-primary/90 hover:bg-primary text-white font-semibold transition-colors"
+                  className="inline-flex items-center min-h-9 px-2.5 sm:px-3 rounded-lg kb-btn-primary text-white font-semibold text-[11px] sm:text-xs"
                 >
                   Join Free
                 </button>
               </>
             ) : (
-              <span className="sm:hidden text-white/80 flex items-center gap-1.5 truncate max-w-full">
+              <span className="sm:hidden text-white/80 flex items-center gap-1.5 truncate max-w-[9rem]">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block shrink-0" />
                 <span className="font-medium truncate" aria-current="page">
-                  {boardLabel ?? workspaceLabel}
+                  {workspaceLabel}
                 </span>
               </span>
             )}
@@ -377,7 +380,7 @@ export function Header() {
               <button
                 type="button"
                 onClick={() => navigate("/rfq/new")}
-                className="hidden md:inline-flex items-center gap-1.5 bg-primary text-white hover:bg-primary/90 border border-primary transition-all px-3.5 min-h-11 rounded-xl text-sm font-semibold shadow-sm"
+                className="hidden md:inline-flex items-center gap-1.5 kb-btn-primary text-white px-3.5 min-h-11 text-sm"
               >
                 <IndianRupee size={15} />
                 Request quote

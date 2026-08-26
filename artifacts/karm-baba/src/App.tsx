@@ -44,7 +44,7 @@ const queryClient = new QueryClient({
 
 function PageLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-background overflow-x-clip">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100] focus:bg-primary focus:text-white focus:px-3 focus:py-2 focus:rounded-lg focus:text-sm focus:font-semibold"
@@ -52,7 +52,7 @@ function PageLayout({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
       <Header />
-      <main id="main-content" className="flex-1" tabIndex={-1}>
+      <main id="main-content" className="flex-1 kb-page min-w-0 w-full" tabIndex={-1}>
         {children}
       </main>
       <Footer />

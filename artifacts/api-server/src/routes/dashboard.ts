@@ -14,6 +14,7 @@ import {
 } from "../lib/authorize";
 import { redactRfqForViewer } from "../lib/redact";
 import { sellerInboxWhere, sellerOpenMarketplaceWhere, sortRfqsForSellerInbox } from "../lib/rfqScope";
+import { mapOwnerSupplier } from "../lib/supplierDto";
 
 const router: IRouter = Router();
 
@@ -87,7 +88,8 @@ router.get("/dashboard/stats", async (req, res): Promise<void> => {
     totalProducts,
     totalSuppliers,
     totalRfqs,
-    totalUsers,
+    // Hide exact user count from anonymous scrapers; signed-in users still see it.
+    totalUsers: dbUser ? totalUsers : 0,
     categoryBreakdown: categories.map((c) => ({
       categoryName: c.name,
       count: c.productCount,
@@ -142,13 +144,7 @@ router.get("/dashboard/supplier/:id", requireClerkAuth, async (req, res): Promis
 
   res.json(
     GetSupplierDashboardResponse.parse({
-      supplier: {
-        ...supplier,
-        rating: toNumber(supplier.rating) ?? 0,
-        responseRate: toNumber(supplier.responseRate),
-        mainProducts: supplier.mainProducts ?? [],
-        certifications: supplier.certifications ?? [],
-      },
+      supplier: mapOwnerSupplier(supplier),
       productCount,
       rfqCount,
       pendingRfqs,

@@ -25,32 +25,48 @@ export function Footer() {
   }
 
   return (
-    <footer className="bg-secondary text-white mt-16">
-      <div className="border-b border-white/10 bg-white/5">
-        <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>
+    <footer
+      className="text-white mt-0 relative z-0 overflow-hidden"
+      style={{
+        background:
+          "linear-gradient(165deg, hsl(220 60% 12%) 0%, hsl(220 50% 18%) 55%, hsl(220 45% 14%) 100%)",
+      }}
+    >
+      <div
+        className="pointer-events-none absolute -right-20 top-0 h-72 w-72 rounded-full opacity-25"
+        style={{
+          background: "radial-gradient(circle, hsl(28 100% 50%) 0%, transparent 70%)",
+        }}
+      />
+      <div className="relative border-b border-white/10 bg-white/[0.04]">
+        <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 text-center sm:text-left">
             <div className="font-heading font-bold text-base">Launch updates</div>
-            <div className="text-white/60 text-sm">Leave your email — we&apos;ll notify you when the newsletter goes live</div>
+            <div className="text-white/60 text-sm leading-relaxed">
+              Leave your email — we&apos;ll notify you when the newsletter goes live
+            </div>
           </div>
-          <form onSubmit={subscribe} className="flex flex-col gap-2 w-full sm:w-auto">
-            <div className="flex gap-2 w-full sm:w-auto">
+          <form onSubmit={subscribe} className="flex flex-col gap-2 w-full sm:w-auto min-w-0 sm:max-w-md lg:max-w-none">
+            <div className="flex flex-col gap-2 w-full sm:flex-row sm:items-stretch">
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
                 aria-label="Email for launch notification"
-                className="flex-1 sm:w-64 min-h-11 bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/40 outline-none focus:border-primary transition-colors"
+                className="w-full min-w-0 flex-1 min-h-11 bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/40 outline-none focus:border-primary transition-colors"
               />
               <button
                 type="submit"
-                className="bg-primary hover:bg-primary/90 text-white px-4 min-h-11 rounded-xl text-sm font-semibold flex items-center gap-1.5 transition-colors flex-shrink-0"
+                className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-white px-4 min-h-11 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-colors shrink-0"
               >
-                Notify me at launch <ArrowRight size={14} />
+                <span className="sm:hidden">Notify me</span>
+                <span className="hidden sm:inline">Notify me at launch</span>
+                <ArrowRight size={14} className="shrink-0" />
               </button>
             </div>
             {newsletterMsg && (
-              <p className="text-xs text-white/70" role="status">
+              <p className="text-xs text-white/70 text-center sm:text-left" role="status">
                 {newsletterMsg}
               </p>
             )}
@@ -58,7 +74,7 @@ export function Footer() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-12">
+      <div className="relative max-w-7xl mx-auto px-4 py-12">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-10 mb-10 items-start">
           <div className="sm:col-span-2 lg:col-span-2">
             <Link
@@ -191,9 +207,9 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="pt-6 border-t border-white/15 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-white/45">
-          <div>© {new Date().getFullYear()} Karm Baba Ventures Pvt. Ltd. All rights reserved.</div>
-          <nav aria-label="Legal" className="flex flex-wrap justify-center gap-x-5 gap-y-1">
+        <div className="pt-6 border-t border-white/15 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-white/45 text-center sm:text-left">
+          <div className="px-2">© {new Date().getFullYear()} Karm Baba Ventures Pvt. Ltd. All rights reserved.</div>
+          <nav aria-label="Legal" className="flex flex-wrap justify-center gap-x-4 gap-y-1">
             {[
               { label: "Privacy Policy", path: "/privacy" },
               { label: "Terms of Service", path: "/terms" },

@@ -147,7 +147,7 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
           {/* Main content */}
           <div className="md:col-span-2 space-y-5">
             {supplier.description && (
-              <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
+              <div className="kb-card p-6">
                 <h2 className="font-heading font-bold text-lg mb-3 flex items-center gap-2">
                   About the Company
                 </h2>
@@ -157,7 +157,7 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
 
             {/* Products */}
             {productsData && productsData.items.length > 0 && (
-              <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
+              <div className="kb-card p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="font-heading font-bold text-lg">Products</h2>
                   <span className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded-full font-medium">{productsData.total} total</span>
@@ -172,11 +172,11 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
                       onClick={() => navigate(`/products/${product.id}`)}
                       className="border border-border rounded-2xl overflow-hidden hover:border-primary/30 hover:shadow-md transition-all text-left group card-hover"
                     >
-                      <div className="h-28 overflow-hidden bg-muted relative">
+                      <div className="kb-product-media h-28 w-full">
                         <ProductImage
                           src={product.imageUrl}
                           alt={product.name}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                          className="group-hover:scale-110 transition-transform duration-500"
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
@@ -200,7 +200,7 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
 
             {/* Reviews */}
             {reviews && reviews.length > 0 && (
-              <div className="bg-white rounded-2xl border border-border p-6 shadow-sm">
+              <div className="kb-card p-6">
                 <h2 className="font-heading font-bold text-lg mb-4">Customer Reviews ({reviews.length})</h2>
                 <div className="space-y-4">
                   {reviews.map((review, i) => (
@@ -235,7 +235,7 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
           {/* Sidebar */}
           <div className="space-y-4">
             {/* Company stats */}
-            <div className="bg-white rounded-2xl border border-border p-5 shadow-sm">
+            <div className="kb-card p-5">
               <h3 className="font-heading font-bold mb-4 text-base">Company Stats</h3>
               <div className="space-y-3">
                 {supplier.yearsInBusiness && (
@@ -290,7 +290,7 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
             </div>
 
             {supplier.mainProducts && supplier.mainProducts.length > 0 && (
-              <div className="bg-white rounded-2xl border border-border p-5 shadow-sm">
+              <div className="kb-card p-5">
                 <h3 className="font-heading font-bold mb-3 text-base">Main Products</h3>
                 <div className="flex flex-wrap gap-2">
                   {supplier.mainProducts.map(p => (
@@ -303,7 +303,7 @@ export function SupplierDetailPage({ params }: { params: { id: string } }) {
             )}
 
             {supplier.certifications && supplier.certifications.length > 0 && (
-              <div className="bg-white rounded-2xl border border-border p-5 shadow-sm">
+              <div className="kb-card p-5">
                 <h3 className="font-heading font-bold mb-3 text-base flex items-center gap-2">
                   <Award size={16} className="text-primary" /> Certifications
                 </h3>

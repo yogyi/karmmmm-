@@ -5,12 +5,19 @@ import {
   sortRfqsForSellerInbox,
 } from "./rfqScope";
 
+const marketplaceStatuses = ["pending", "responded", "pending_confirm", "accepted"] as const;
+
 describe("sellerInboxWhere", () => {
-  it("includes assigned RFQs, open collecting RFQs, and quoted RFQs", () => {
+  it("includes assigned RFQs, open marketplace RFQs, and quoted RFQs", () => {
     expect(sellerInboxWhere(7)).toEqual({
       OR: [
         { supplierId: 7 },
-        { supplierId: null, status: { in: ["pending", "responded"] } },
+        {
+          OR: [
+            { openMarketplace: true, status: { in: [...marketplaceStatuses] } },
+            { supplierId: null, status: { in: [...marketplaceStatuses] } },
+          ],
+        },
         { quotes: { some: { supplierId: 7 } } },
       ],
     });
@@ -23,7 +30,12 @@ describe("sellerInboxWhere", () => {
         {
           OR: [
             { supplierId: 7 },
-            { supplierId: null, status: { in: ["pending", "responded"] } },
+            {
+              OR: [
+                { openMarketplace: true, status: { in: [...marketplaceStatuses] } },
+                { supplierId: null, status: { in: [...marketplaceStatuses] } },
+              ],
+            },
             { quotes: { some: { supplierId: 7 } } },
           ],
         },
@@ -31,13 +43,14 @@ describe("sellerInboxWhere", () => {
     });
   });
 
-  it("applies status filter without listing unrelated open RFQs", () => {
+  it("applies status filter for assigned, open marketplace, and quoted RFQs", () => {
     expect(sellerInboxWhere(7, "responded", 42)).toEqual({
       AND: [
         { NOT: { buyerId: 42 } },
         {
           OR: [
             { supplierId: 7, status: "responded" },
+            { openMarketplace: true, status: "responded" },
             { supplierId: null, status: "responded", quotes: { some: { supplierId: 7 } } },
             { status: "responded", quotes: { some: { supplierId: 7 } } },
           ],
@@ -48,10 +61,12 @@ describe("sellerInboxWhere", () => {
 });
 
 describe("sellerOpenMarketplaceWhere", () => {
-  it("only returns open marketplace RFQs — never the viewer's buyer RFQs", () => {
+  it("returns open marketplace RFQs including closed ones", () => {
     expect(sellerOpenMarketplaceWhere()).toEqual({
-      supplierId: null,
-      status: { in: ["pending", "responded"] },
+      OR: [
+        { openMarketplace: true, status: { in: [...marketplaceStatuses] } },
+        { supplierId: null, status: { in: [...marketplaceStatuses] } },
+      ],
     });
   });
 });

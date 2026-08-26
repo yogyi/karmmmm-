@@ -108,8 +108,8 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   const { data: rfq, isLoading, isError, error: loadError, refetch } = useGetRfq(rfqId, {
     query: {
       enabled: !!rfqId,
-      refetchInterval: 8_000,
-      staleTime: 0,
+      refetchInterval: 45_000,
+      staleTime: 15_000,
       retry: (failureCount: number, err: unknown) =>
         httpStatus(err) !== 401 && failureCount < 1,
     } as any,
@@ -129,6 +129,7 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [qtySeeded, setQtySeeded] = useState(false);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   useEffect(() => {
     if (!rfq || qtySeeded) return;
@@ -204,13 +205,18 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   async function postConfirm(path: "confirm" | "decline-confirm") {
     const token = await getToken();
     if (!token) throw new Error("Session expired. Sign in again.");
-    const res = await fetch(`/api/rfq/${rfqId}/${path}`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(data?.error || `Request failed (${res.status})`);
+    setConfirmBusy(true);
+    try {
+      const res = await fetch(`/api/rfq/${rfqId}/${path}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error || `Request failed (${res.status})`);
+      }
+    } finally {
+      setConfirmBusy(false);
     }
   }
 
@@ -395,7 +401,8 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   const status = statusConfig[rfq.status as keyof typeof statusConfig] ?? statusConfig.pending;
   const fieldClass =
     "mt-1 w-full border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 bg-white";
-  const busy = submitQuote.isPending || awardQuote.isPending || updateRfq.isPending;
+  const busy =
+    submitQuote.isPending || awardQuote.isPending || updateRfq.isPending || confirmBusy;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -407,7 +414,7 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
         <ChevronLeft size={16} /> Back to RFQs
       </button>
 
-      <div className="bg-white rounded-2xl border border-border shadow-sm p-6 mb-6">
+      <div className="kb-card p-6 mb-6">
         <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
           <div>
             <h1 className="font-heading text-2xl font-bold text-foreground">{rfq.productName}</h1>
@@ -476,7 +483,7 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
 
       {/* Buyer: compare quotes & accept (seller must still confirm) */}
       {isLoggedIn && isBuyer && activeQuotes.length > 0 && (
-        <div className="bg-white rounded-2xl border border-border p-6 shadow-sm mb-6 space-y-4">
+        <div className="kb-card p-6 mb-6 space-y-4">
           <div>
             <h2 className="font-heading font-bold text-lg">
               {rfq.status === "accepted"
@@ -669,7 +676,7 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
       {isLoggedIn && canSendQuote && (
         <form
           onSubmit={(e) => void onSubmitQuote(e)}
-          className="bg-white rounded-2xl border border-border p-6 shadow-sm space-y-5"
+          className="kb-card p-6 space-y-5"
         >
           <div>
             <h2 className="font-heading font-bold text-lg">

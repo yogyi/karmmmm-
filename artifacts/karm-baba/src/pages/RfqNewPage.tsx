@@ -181,15 +181,27 @@ export function RfqNewPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-10">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-          <FileText size={20} />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Post a Request for Quotation</h1>
-          <p className="text-muted-foreground text-sm">
-            Tell suppliers what you need and get competitive quotes
-          </p>
+      <div className="mb-6 kb-card overflow-hidden">
+        <div
+          className="px-5 py-5 text-white"
+          style={{
+            background:
+              "linear-gradient(135deg, hsl(220 60% 16%) 0%, hsl(220 55% 26%) 50%, hsl(28 85% 40%) 140%)",
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center text-primary">
+              <FileText size={20} />
+            </div>
+            <div>
+              <h1 className="font-heading text-xl sm:text-2xl font-bold tracking-tight">
+                Post a Request for Quotation
+              </h1>
+              <p className="text-white/70 text-sm mt-0.5">
+                Tell suppliers what you need and get competitive quotes
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -206,7 +218,7 @@ export function RfqNewPage() {
         </div>
       )}
 
-      <form onSubmit={(e) => void handleSubmit(e)} className="bg-white rounded-2xl border border-border p-6 space-y-4">
+      <form onSubmit={(e) => void handleSubmit(e)} className="kb-card p-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-1.5">
             Product/Service Name *

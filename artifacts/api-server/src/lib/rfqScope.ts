@@ -3,7 +3,7 @@ import type { Prisma } from "@workspace/db";
 /**
  * Seller RFQ inbox — opportunities + closed marketplace deals (visible as closed):
  * - Directed / awarded RFQs for this shop
- * - Open marketplace RFQs (collecting, awaiting confirm, or closed)
+ * - Open marketplace RFQs (collecting, awaiting confirm, or closed) via openMarketplace flag
  * - RFQs this shop already quoted on
  * Never includes the viewer's own buyer RFQs.
  */
@@ -12,17 +12,26 @@ export function sellerInboxWhere(
   status?: string | null,
   viewerUserId?: number | null,
 ): Prisma.RfqWhereInput {
+  const marketplaceStatuses = ["pending", "responded", "pending_confirm", "accepted"] as const;
   const marketplaceVisible: Prisma.RfqWhereInput = status
-    ? { supplierId: null, status }
+    ? {
+        OR: [
+          { openMarketplace: true, status },
+          { supplierId: null, status },
+        ],
+      }
     : {
-        supplierId: null,
-        status: { in: ["pending", "responded", "pending_confirm", "accepted"] },
+        OR: [
+          { openMarketplace: true, status: { in: [...marketplaceStatuses] } },
+          { supplierId: null, status: { in: [...marketplaceStatuses] } },
+        ],
       };
 
   const opportunityOr: Prisma.RfqWhereInput = status
     ? {
         OR: [
           { supplierId, status },
+          { openMarketplace: true, status },
           { supplierId: null, status, quotes: { some: { supplierId } } },
           { status, quotes: { some: { supplierId } } },
         ],
@@ -45,6 +54,7 @@ export function sellerInboxWhere(
 
 /**
  * Sellers without a linked shop — open marketplace RFQs (incl. closed, as read-only).
+ * Buyer PII is still redacted until they engage / win.
  */
 export function sellerOpenMarketplaceWhere(
   status?: string | null,
@@ -53,9 +63,12 @@ export function sellerOpenMarketplaceWhere(
   if (status != null && !(visible as readonly string[]).includes(status)) {
     return { id: { in: [] } };
   }
+  const statusFilter = status ?? { in: [...visible] };
   return {
-    supplierId: null,
-    status: status ?? { in: [...visible] },
+    OR: [
+      { openMarketplace: true, status: statusFilter },
+      { supplierId: null, status: statusFilter },
+    ],
   };
 }
 

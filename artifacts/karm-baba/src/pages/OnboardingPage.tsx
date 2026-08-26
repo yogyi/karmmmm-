@@ -122,7 +122,7 @@ export function OnboardingPage() {
 
   if (!isLoaded || !profileReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f9f8f6]">
+      <div className="min-h-screen flex items-center justify-center kb-page">
         <Loader2 className="animate-spin text-primary" size={28} />
       </div>
     );
@@ -139,7 +139,7 @@ export function OnboardingPage() {
 
   if (changing && user?.onboardingCompleted) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f9f8f6] gap-3 px-4">
+      <div className="min-h-screen flex flex-col items-center justify-center kb-page gap-3 px-4">
         <Loader2 className="animate-spin text-primary" size={28} />
         <p className="text-sm text-muted-foreground">Switching account…</p>
       </div>
@@ -148,7 +148,7 @@ export function OnboardingPage() {
 
   if (user?.onboardingCompleted && !changing) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f9f8f6]">
+      <div className="min-h-screen flex items-center justify-center kb-page">
         <Loader2 className="animate-spin text-primary" size={28} />
       </div>
     );
@@ -156,7 +156,7 @@ export function OnboardingPage() {
 
   if (saving && getStoredAuthMode()) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f9f8f6] gap-3">
+      <div className="min-h-screen flex flex-col items-center justify-center kb-page gap-3">
         <Loader2 className="animate-spin text-primary" size={28} />
         <p className="text-sm text-muted-foreground">
           Setting up your {getStoredAuthMode()} account…
@@ -186,7 +186,7 @@ export function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f9f8f6] flex flex-col">
+    <div className="min-h-full flex flex-col">
       <header className="px-6 py-5 flex items-center justify-between max-w-3xl mx-auto w-full">
         <button type="button" onClick={() => navigate("/")} className="text-left">
           <img src={logoUrl} alt="Karm Baba" className="h-9" />

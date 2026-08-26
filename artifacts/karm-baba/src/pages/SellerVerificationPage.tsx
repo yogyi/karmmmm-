@@ -30,6 +30,7 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp";
+import { PageHero } from "@/components/PageHero";
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -611,7 +612,7 @@ export function SellerVerificationPage() {
 
   if (!isLoaded || !profileReady || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f4f6f8]">
+      <div className="min-h-screen flex items-center justify-center kb-page">
         <Loader2 className="animate-spin text-primary" size={28} />
       </div>
     );
@@ -619,7 +620,7 @@ export function SellerVerificationPage() {
 
   if (verified) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f4f6f8] px-4">
+      <div className="min-h-screen flex items-center justify-center kb-page px-4">
         <div className="max-w-md text-center space-y-3">
           <div className="w-14 h-14 rounded-2xl bg-green-100 text-green-700 flex items-center justify-center mx-auto">
             <BadgeCheck size={28} />
@@ -644,7 +645,7 @@ export function SellerVerificationPage() {
 
   if (pendingReview) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f4f6f8] px-4">
+      <div className="min-h-screen flex items-center justify-center kb-page px-4">
         <div className="max-w-md text-center space-y-3">
           <h1 className="font-heading text-2xl font-bold text-[#1a3a4a]">
             Submitted for review
@@ -667,34 +668,31 @@ export function SellerVerificationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f6f8]">
-      <div className="bg-[#1a3a4a] text-white">
-        <div className="max-w-3xl mx-auto px-4 py-8">
-          <p className="text-xs uppercase tracking-widest text-white/50 mb-2">
-            Seller Central · Verification
-          </p>
-          <h1 className="font-heading text-2xl sm:text-3xl font-bold mb-2">
-            {new URLSearchParams(window.location.search).get("step") === "3"
-              ? india
-                ? "Re-verify your GSTIN"
-                : "Verify company email"
-              : "Become a verified seller"}
-          </h1>
-          <p className="text-white/65 text-sm max-w-xl">
-            {new URLSearchParams(window.location.search).get("step") === "3"
-              ? india
-                ? "Your verified badge is paused. Confirm or update GSTIN, then submit to get verified again."
-                : "Confirm your company-domain email with a one-time code, then continue."
-              : india
-                ? "Complete KYC with GST registration so buyers can trust your shop — same idea as Alibaba's verified suppliers."
-                : "Overseas sellers: we verify a company-domain email (not Gmail/Yahoo) with OTP instead of GST — same trust bar, different method."}
-          </p>
-        </div>
-      </div>
+    <div>
+      <PageHero
+        compact
+        eyebrow="Seller Central · Verification"
+        title={
+          new URLSearchParams(window.location.search).get("step") === "3"
+            ? india
+              ? "Re-verify your GSTIN"
+              : "Verify company email"
+            : "Become a verified seller"
+        }
+        description={
+          new URLSearchParams(window.location.search).get("step") === "3"
+            ? india
+              ? "Your verified badge is paused. Confirm or update GSTIN, then submit to get verified again."
+              : "Confirm your company-domain email with a one-time code, then continue."
+            : india
+              ? "Complete KYC with GST registration so buyers can trust your shop — same idea as Alibaba's verified suppliers."
+              : "Overseas sellers: we verify a company-domain email (not Gmail/Yahoo) with OTP instead of GST — same trust bar, different method."
+        }
+      />
 
-      <div className="max-w-3xl mx-auto px-4 -mt-4 pb-16">
+      <div className="max-w-3xl mx-auto px-4 py-6 pb-16">
         {/* Progress */}
-        <div className="bg-white rounded-2xl border border-border shadow-sm p-4 mb-6">
+        <div className="kb-card p-4 mb-6">
           <p className="sm:hidden text-sm font-semibold mb-3">
             Step {step} of {STEPS.length}: {STEPS.find((s) => s.id === step)?.title}
           </p>
@@ -748,7 +746,7 @@ export function SellerVerificationPage() {
           </ol>
         </div>
 
-        <div className="bg-white rounded-2xl border border-border shadow-sm p-6 sm:p-8">
+        <div className="kb-card p-6 sm:p-8">
           {step === 1 && (
             <section className="space-y-4">
               <h2 className="font-semibold text-lg">Company profile</h2>

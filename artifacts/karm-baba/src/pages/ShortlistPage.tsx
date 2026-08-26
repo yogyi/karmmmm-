@@ -30,14 +30,17 @@ export function ShortlistPage() {
   const hasFetchError = queries.some((q) => q.isError);
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6 gap-3">
+    <div className="max-w-6xl mx-auto px-3 sm:px-4 py-6 sm:py-8 min-w-0">
+      <div className="mb-6 kb-card p-5 sm:p-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
-          <h1 className="font-heading text-2xl font-bold flex items-center gap-2">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground font-semibold mb-1">
+            Buyer Central
+          </p>
+          <h1 className="font-heading text-2xl font-bold text-secondary flex items-center gap-2">
             <Heart className="text-primary" size={22} /> Shortlist
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Save products while browsing — like Alibaba favorites — then compare and RFQ.
+            Save products while browsing — then compare and RFQ.
           </p>
         </div>
         {count > 0 && (
@@ -55,7 +58,7 @@ export function ShortlistPage() {
                 if (ok) clear();
               })();
             }}
-            className="text-sm text-muted-foreground hover:text-destructive border border-border rounded-xl px-3 py-2 min-h-11"
+            className="text-sm text-muted-foreground hover:text-destructive border border-border rounded-xl px-3 py-2 min-h-11 bg-white"
           >
             Clear all
           </button>
@@ -69,7 +72,7 @@ export function ShortlistPage() {
           ))}
         </div>
       ) : count === 0 ? (
-        <div className="text-center py-20 bg-white rounded-2xl border border-border">
+        <div className="text-center py-20 kb-card">
           <Package className="mx-auto text-muted-foreground mb-3" />
           <h3 className="font-heading font-bold mb-2">No saved products yet</h3>
           <button
@@ -96,24 +99,26 @@ export function ShortlistPage() {
             {items.map((product) => (
               <div
                 key={product.id}
-                className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm"
+                className="kb-card overflow-hidden"
               >
                 <button
                   type="button"
                   onClick={() => navigate(`/products/${product.id}`)}
-                  className="w-full text-left"
+                  className="w-full text-left p-0"
                 >
-                  <ProductImage
-                    src={product.imageUrl}
-                    alt={product.name}
-                    className="h-36 w-full object-cover"
-                  />
+                  <div className="kb-product-media h-36 w-full rounded-t-[inherit]">
+                    <ProductImage src={product.imageUrl} alt={product.name} />
+                  </div>
                   <div className="p-3">
                     <h3 className="text-sm font-semibold line-clamp-2 mb-1">{product.name}</h3>
                     <div className="text-primary font-bold text-sm">
                       ₹{product.minPrice}–{product.maxPrice}
                     </div>
-                    {product.rating != null && <StarRating rating={product.rating} size={10} />}
+                    {product.rating != null && product.reviewCount != null && product.reviewCount > 0 ? (
+                      <StarRating rating={product.rating} reviewCount={product.reviewCount} size={10} />
+                    ) : (
+                      <div className="text-[11px] text-muted-foreground">No reviews yet</div>
+                    )}
                   </div>
                 </button>
                 <div className="px-3 pb-3 flex gap-2">

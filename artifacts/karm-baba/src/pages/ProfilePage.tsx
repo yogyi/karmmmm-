@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Loader2, BadgeCheck, Lock, Camera } from "lucide-react";
 import { useAuth as useClerkAuth, useUser } from "@clerk/react";
 import { useUpload } from "@workspace/object-storage-web";
 import { useAuth } from "@/context/AuthContext";
+import { ImageSourcePicker } from "@/components/ImageSourcePicker";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,23 +57,34 @@ export function ProfilePage() {
   const { getToken } = useClerkAuth();
   const { user: clerkUser } = useUser();
   const [, navigate] = useLocation();
-  const photoInputRef = useRef<HTMLInputElement>(null);
   const { uploadFile } = useUpload({ getToken });
 
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
+  /** What is shown in the UI (may be a local blob preview). */
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  /** Last photo URL persisted on the server. */
+  const [savedAvatarUrl, setSavedAvatarUrl] = useState<string | null>(null);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingAvatarRemoved, setPendingAvatarRemoved] = useState(false);
+  const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
   const [shop, setShop] = useState<ShopProfile | null>(null);
   const [hasShop, setHasShop] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [photoBusy, setPhotoBusy] = useState(false);
   const [reverifying, setReverifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [gstConfirmOpen, setGstConfirmOpen] = useState(false);
 
   const isSeller = user?.role === "seller" || user?.role === "admin";
+  const avatarDirty = pendingAvatarFile != null || pendingAvatarRemoved;
+
+  useEffect(() => {
+    return () => {
+      if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+    };
+  }, [previewObjectUrl]);
 
   useEffect(() => {
     if (!isLoaded || !profileReady) return;
@@ -83,13 +95,25 @@ export function ProfilePage() {
     void load();
   }, [isLoaded, profileReady, isLoggedIn, user?.id]);
 
+  function clearPendingPreview() {
+    setPreviewObjectUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setPendingAvatarFile(null);
+    setPendingAvatarRemoved(false);
+  }
+
   async function load() {
     setLoading(true);
     setError(null);
+    clearPendingPreview();
     try {
       setName(user?.name ?? "");
       setCompany(user?.company ?? "");
-      setAvatarUrl(user?.avatarUrl ?? null);
+      const nextAvatar = user?.avatarUrl ?? null;
+      setAvatarUrl(nextAvatar);
+      setSavedAvatarUrl(nextAvatar);
       if (!isSeller) {
         setHasShop(false);
         setShop(null);
@@ -140,36 +164,23 @@ export function ProfilePage() {
     setError(null);
   }
 
-  async function persistAvatar(nextUrl: string | null) {
-    const token = await getToken();
-    if (!token) throw new Error("Session expired. Please sign in again.");
-    const displayName = (name || user?.name || "User").trim();
-    const res = await fetch("/api/users/me", {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: displayName.length >= 2 ? displayName : "User",
-        company: company.trim(),
-        avatarUrl: nextUrl,
+  /** Clerk avatar sync — timed out so it can never leave the UI stuck. */
+  async function syncClerkAvatar(file: File | null): Promise<void> {
+    if (!clerkUser?.setProfileImage) return;
+    const timeoutMs = 8_000;
+    await Promise.race([
+      clerkUser.setProfileImage({ file }),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error("Clerk avatar sync timed out")), timeoutMs);
       }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(body?.error ?? "Could not save profile photo");
-    }
-    setAvatarUrl(nextUrl);
-    await refreshProfile();
-    setSaved(true);
+    ]);
   }
 
-  async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (photoInputRef.current) photoInputRef.current.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
+  function onPickPhoto(file: File) {
+    const looksLikeImage =
+      file.type.startsWith("image/") ||
+      /\.(jpe?g|png|webp|gif)$/i.test(file.name);
+    if (!looksLikeImage) {
       setError("Choose a JPG, PNG, or WebP image");
       return;
     }
@@ -178,45 +189,28 @@ export function ProfilePage() {
       return;
     }
 
-    setPhotoBusy(true);
     setError(null);
     setSaved(false);
     const preview = URL.createObjectURL(file);
+    setPreviewObjectUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return preview;
+    });
+    setPendingAvatarFile(file);
+    setPendingAvatarRemoved(false);
     setAvatarUrl(preview);
-    try {
-      let nextUrl: string | null = null;
-      if (clerkUser?.setProfileImage) {
-        await clerkUser.setProfileImage({ file });
-        nextUrl = clerkUser.imageUrl || null;
-      }
-      if (!nextUrl) {
-        const uploaded = await uploadFile(file);
-        nextUrl = `/api/storage${uploaded.objectPath}`;
-      }
-      await persistAvatar(nextUrl);
-    } catch (err) {
-      setAvatarUrl(user?.avatarUrl ?? null);
-      setError(err instanceof Error ? err.message : "Could not update photo");
-    } finally {
-      URL.revokeObjectURL(preview);
-      setPhotoBusy(false);
-    }
   }
 
-  async function removePhoto() {
-    setPhotoBusy(true);
+  function removePhoto() {
     setError(null);
     setSaved(false);
-    try {
-      if (clerkUser?.setProfileImage) {
-        await clerkUser.setProfileImage({ file: null });
-      }
-      await persistAvatar(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not remove photo");
-    } finally {
-      setPhotoBusy(false);
-    }
+    setPreviewObjectUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setPendingAvatarFile(null);
+    setPendingAvatarRemoved(true);
+    setAvatarUrl(null);
   }
 
   async function save() {
@@ -234,14 +228,49 @@ export function ProfilePage() {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       };
+
+      let nextAvatarUrl = savedAvatarUrl;
+      let clerkFile: File | null | undefined = undefined;
+
+      if (pendingAvatarRemoved) {
+        nextAvatarUrl = null;
+        clerkFile = null;
+      } else if (pendingAvatarFile) {
+        const uploaded = await uploadFile(pendingAvatarFile);
+        if (!uploaded?.objectPath) {
+          throw new Error("Upload failed — try again");
+        }
+        nextAvatarUrl = `/api/storage${uploaded.objectPath}`;
+        clerkFile = pendingAvatarFile;
+      }
+
       const userRes = await fetch("/api/users/me", {
         method: "PATCH",
         headers,
-        body: JSON.stringify({ name: name.trim(), company: company.trim() }),
+        body: JSON.stringify({
+          name: name.trim(),
+          company: company.trim(),
+          ...(avatarDirty ? { avatarUrl: nextAvatarUrl } : {}),
+        }),
       });
       if (!userRes.ok) {
         const body = (await userRes.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? "Could not save account details");
+      }
+
+      if (avatarDirty && hasShop) {
+        try {
+          const shopLogoRes = await fetch("/api/suppliers/me", {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({ logoUrl: nextAvatarUrl }),
+          });
+          if (!shopLogoRes.ok) {
+            console.warn("Share card logo sync failed", await shopLogoRes.text().catch(() => ""));
+          }
+        } catch (err) {
+          console.warn("Share card logo sync failed", err);
+        }
       }
 
       if (hasShop && shop) {
@@ -270,6 +299,15 @@ export function ProfilePage() {
         }
       }
 
+      if (clerkFile !== undefined) {
+        void syncClerkAvatar(clerkFile).catch(() => {
+          /* optional — account photo already saved */
+        });
+      }
+
+      setSavedAvatarUrl(nextAvatarUrl);
+      setAvatarUrl(nextAvatarUrl);
+      clearPendingPreview();
       await refreshProfile();
       setSaved(true);
     } catch (e) {
@@ -313,78 +351,102 @@ export function ProfilePage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 sm:py-10">
-      <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Account</p>
-      <h1 className="font-heading text-2xl sm:text-3xl font-bold text-foreground mb-1">
-        Edit profile
-      </h1>
-      <p className="text-sm text-muted-foreground mb-8">
-        Update your details anytime. After GST verification, GSTIN stays locked until you
-        re-verify.
-      </p>
+      <div className="mb-8 rounded-2xl overflow-hidden kb-card">
+        <div
+          className="px-5 sm:px-6 py-5 text-white"
+          style={{
+            background:
+              "linear-gradient(135deg, hsl(220 60% 16%) 0%, hsl(220 55% 26%) 50%, hsl(28 85% 40%) 140%)",
+          }}
+        >
+          <p className="text-[11px] uppercase tracking-[0.18em] text-white/55 font-semibold mb-1.5">
+            Account
+          </p>
+          <h1 className="font-heading text-2xl sm:text-3xl font-bold tracking-tight">
+            Edit profile
+          </h1>
+          <p className="text-sm text-white/70 mt-1.5 max-w-lg">
+            Update your details anytime. After GST verification, GSTIN stays locked until you
+            re-verify.
+          </p>
+        </div>
+      </div>
 
       <div className="space-y-6">
-        <section className="bg-white rounded-2xl border border-border p-5 sm:p-6 space-y-4">
+        <section className="kb-card p-5 sm:p-6 space-y-4">
           <h2 className="font-semibold text-foreground">Your account</h2>
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={() => !photoBusy && photoInputRef.current?.click()}
-              disabled={photoBusy}
-              className="relative w-20 h-20 rounded-full overflow-hidden border border-border bg-primary text-white shrink-0 group disabled:opacity-60"
-              aria-label="Change profile photo"
+          <div className="flex items-start gap-4">
+            <ImageSourcePicker
+              disabled={saving}
+              onFile={(file) => onPickPhoto(file)}
+              onError={(msg) => setError(msg)}
+              align="start"
             >
-              {avatarUrl ? (
-                <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="w-full h-full flex items-center justify-center text-xl font-semibold">
-                  {(name || user?.name || "U")
-                    .trim()
-                    .split(/\s+/)
-                    .slice(0, 2)
-                    .map((part) => part[0] ?? "")
-                    .join("")
-                    .toUpperCase() || "U"}
-                </span>
-              )}
-              <span className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                {photoBusy ? (
-                  <Loader2 size={18} className="animate-spin" />
+              <button
+                type="button"
+                disabled={saving}
+                className="relative w-20 h-20 rounded-full overflow-hidden border border-border bg-primary text-white shrink-0 group disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                aria-label="Change profile photo"
+              >
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    key={avatarUrl}
+                  />
                 ) : (
-                  <Camera size={18} />
+                  <span className="w-full h-full flex items-center justify-center text-xl font-semibold">
+                    {(name || user?.name || "U")
+                      .trim()
+                      .split(/\s+/)
+                      .slice(0, 2)
+                      .map((part) => part[0] ?? "")
+                      .join("")
+                      .toUpperCase() || "U"}
+                  </span>
                 )}
-              </span>
-            </button>
-            <div className="min-w-0">
+                <span className="absolute inset-0 bg-black/50 flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-100">
+                  <Camera size={18} />
+                </span>
+              </button>
+            </ImageSourcePicker>
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground">Profile photo</p>
-              <p className="text-xs text-muted-foreground mb-2">JPG, PNG, or WebP · up to 5 MB</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={photoBusy}
-                  onClick={() => photoInputRef.current?.click()}
-                  className="rounded-xl border border-border px-3 py-1.5 text-sm font-semibold hover:bg-muted disabled:opacity-50"
+              <p className="text-xs text-muted-foreground mb-2">
+                JPG, PNG, or WebP · up to 5 MB · saves only when you click Save changes
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <ImageSourcePicker
+                  disabled={saving}
+                  onFile={(file) => onPickPhoto(file)}
+                  onError={(msg) => setError(msg)}
                 >
-                  {photoBusy ? "Updating…" : "Change photo"}
-                </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm font-semibold hover:bg-muted disabled:opacity-50"
+                  >
+                    Change photo
+                  </button>
+                </ImageSourcePicker>
                 {avatarUrl ? (
                   <button
                     type="button"
-                    disabled={photoBusy}
-                    onClick={() => void removePhoto()}
+                    disabled={saving}
+                    onClick={() => removePhoto()}
                     className="rounded-xl px-3 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
                   >
                     Remove
                   </button>
                 ) : null}
+                {avatarDirty ? (
+                  <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">
+                    Unsaved photo
+                  </span>
+                ) : null}
               </div>
             </div>
-            <input
-              ref={photoInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              className="hidden"
-              onChange={(e) => void onPickPhoto(e)}
-            />
           </div>
           <Field label="Full name *" value={name} onChange={setName} placeholder="Your name" />
           <label className="block">
@@ -407,7 +469,7 @@ export function ProfilePage() {
         </section>
 
         {isSeller && !hasShop && (
-          <section className="bg-white rounded-2xl border border-border p-5 sm:p-6">
+          <section className="kb-card p-5 sm:p-6">
             <h2 className="font-semibold text-foreground mb-2">Shop & GST</h2>
             <p className="text-sm text-muted-foreground mb-4">
               Complete seller verification to add GSTIN and shop details.
@@ -424,7 +486,7 @@ export function ProfilePage() {
 
         {hasShop && shop && (
           <>
-            <section className="bg-white rounded-2xl border border-border p-5 sm:p-6 space-y-4">
+            <section className="kb-card p-5 sm:p-6 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="font-semibold text-foreground">Shop details</h2>
                 {shop.verified && (
@@ -487,7 +549,7 @@ export function ProfilePage() {
               />
             </section>
 
-            <section className="bg-white rounded-2xl border border-border p-5 sm:p-6 space-y-4">
+            <section className="kb-card p-5 sm:p-6 space-y-4">
               <h2 className="font-semibold text-foreground">GSTIN</h2>
               {shop.gstLocked ? (
                 <>

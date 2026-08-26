@@ -21,22 +21,33 @@ type RfqLike = {
   quotes?: QuoteLike[];
 };
 
+function stripBuyerPii<T extends RfqLike>(rfq: T): T {
+  return {
+    ...rfq,
+    buyerEmail: "",
+    buyerName: "Buyer",
+    targetPrice: null,
+    description: null,
+  };
+}
+
 /**
  * Redact PII / commercial fields the viewer is not allowed to see.
- * - Buyer sees all quotes (to compare).
- * - Seller sees own quote fully; other sellers' prices hidden on open RFQs.
- * - Assigned/awarded supplier + admin see full detail.
+ *
+ * Buyer contact (email/name/budget/description) is only shown to:
+ * - the buyer themself
+ * - admin
+ * - the assigned/winning supplier (supplierId match)
+ * - a seller whose quote is pending_confirm or awarded on this RFQ
+ *
+ * Open marketplace browsing and losing quoters after another win do NOT get buyer PII.
  */
 export function redactRfqForViewer<T extends RfqLike>(rfq: T, viewer: DbUser | null): T {
   if (!viewer) {
     return {
-      ...rfq,
-      buyerEmail: "",
-      buyerName: "Buyer",
+      ...stripBuyerPii(rfq),
       quotedPrice: null,
       sellerMessage: null,
-      targetPrice: null,
-      description: null,
       quotes: [],
     };
   }
@@ -44,39 +55,52 @@ export function redactRfqForViewer<T extends RfqLike>(rfq: T, viewer: DbUser | n
   const isBuyer = rfq.buyerId != null && rfq.buyerId === viewer.id;
   const isSupplier = isRfqSupplierParty(viewer, rfq.supplierId);
   const linked = parseLinkedSupplierId(viewer);
-  const canSeeOpenInquiry =
-    rfq.supplierId == null &&
-    (rfq.status === "pending" || rfq.status === "responded" || rfq.status == null) &&
-    (viewer.role === "seller" || viewer.role === "admin");
   const admin = isAdmin(viewer);
-  const quotedByViewer =
-    linked != null && (rfq.quotes?.some((q) => q.supplierId === linked) ?? false);
+  const myQuote =
+    linked != null ? (rfq.quotes ?? []).find((q) => q.supplierId === linked) : undefined;
+  const isWinningOrPendingSeller =
+    !!myQuote && (myQuote.status === "awarded" || myQuote.status === "pending_confirm");
+  const isOpenCollecting =
+    rfq.supplierId == null &&
+    (rfq.status === "pending" || rfq.status === "responded" || rfq.status == null);
+  const canBrowseOpen = isOpenCollecting && (viewer.role === "seller" || viewer.role === "admin");
 
-  if (admin || isBuyer || isSupplier) {
+  if (admin || isBuyer) {
     return rfq;
   }
 
-  if (canSeeOpenInquiry || quotedByViewer) {
-    // Sellers only see their own quote commercially — not competitors' prices.
+  // Assigned / winning supplier (after confirm) or seller currently in handshake.
+  if (isSupplier || isWinningOrPendingSeller) {
+    const quotes = (rfq.quotes ?? []).filter(
+      (q) => linked != null && q.supplierId === linked,
+    );
+    return {
+      ...rfq,
+      quotes,
+    };
+  }
+
+  // Open marketplace browse or prior quote that lost — commercial glimpse only, no buyer PII.
+  if (canBrowseOpen || myQuote) {
     const quotes = (rfq.quotes ?? []).filter(
       (q) => linked != null && q.supplierId === linked,
     );
     const mine = quotes[0];
     return {
-      ...rfq,
+      ...stripBuyerPii(rfq),
       quotes,
       quotedPrice: mine?.unitPrice ?? null,
       sellerMessage: mine?.message ?? null,
+      // Hide internal buyer id from non-parties.
+      buyerId: null,
     };
   }
 
   return {
-    ...rfq,
-    buyerEmail: "",
-    buyerName: "Buyer",
+    ...stripBuyerPii(rfq),
     quotedPrice: null,
     sellerMessage: null,
-    description: null,
+    buyerId: null,
     quotes: [],
   };
 }

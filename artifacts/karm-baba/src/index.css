@@ -74,15 +74,15 @@
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
 
-  --background: 40 20% 97%;
-  --foreground: 220 30% 12%;
-  --border: 220 15% 88%;
-  --input: 220 15% 88%;
+  --background: 36 28% 96%;
+  --foreground: 220 40% 12%;
+  --border: 220 18% 88%;
+  --input: 220 18% 88%;
   --ring: 28 100% 50%;
   --card: 0 0% 100%;
-  --card-foreground: 220 30% 12%;
-  --card-border: 220 15% 90%;
-  --sidebar: 220 35% 14%;
+  --card-foreground: 220 40% 12%;
+  --card-border: 220 16% 90%;
+  --sidebar: 220 45% 13%;
   --sidebar-foreground: 40 30% 95%;
   --sidebar-border: 220 30% 20%;
   --sidebar-primary: 28 100% 50%;
@@ -91,29 +91,29 @@
   --sidebar-accent-foreground: 40 30% 90%;
   --sidebar-ring: 28 100% 50%;
   --popover: 0 0% 100%;
-  --popover-foreground: 220 30% 12%;
-  --popover-border: 220 15% 88%;
+  --popover-foreground: 220 40% 12%;
+  --popover-border: 220 18% 88%;
   --primary: 28 100% 50%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 60% 20%;
+  --secondary: 220 60% 18%;
   --secondary-foreground: 0 0% 100%;
-  --muted: 40 15% 94%;
-  --muted-foreground: 220 15% 45%;
-  --accent: 35 100% 95%;
-  --accent-foreground: 28 100% 38%;
+  --muted: 36 22% 93%;
+  --muted-foreground: 220 16% 42%;
+  --accent: 32 100% 95%;
+  --accent-foreground: 28 100% 36%;
   --destructive: 0 84% 55%;
   --destructive-foreground: 0 0% 100%;
   --chart-1: 28 100% 50%;
   --chart-2: 220 60% 40%;
   --chart-3: 142 60% 40%;
-  --chart-4: 280 60% 55%;
+  --chart-4: 200 70% 45%;
   --chart-5: 0 84% 55%;
 
-  --app-font-sans: 'Inter', system-ui, sans-serif;
-  --app-font-heading: 'Poppins', system-ui, sans-serif;
+  --app-font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --app-font-heading: 'Outfit', system-ui, sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: Menlo, monospace;
-  --radius: 0.625rem;
+  --radius: 0.75rem;
 
   --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0,0.04);
   --shadow-xs: 0px 2px 4px 0px rgba(0,0,0,0.06);
@@ -188,18 +188,54 @@
 
 @layer base {
   * { @apply border-border; }
-  html { scroll-behavior: smooth; }
-  body { @apply font-sans antialiased bg-background text-foreground; }
+  html {
+    scroll-behavior: smooth;
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    overflow-x: clip;
+    min-width: 0;
+  }
+  img, video, canvas, svg {
+    max-width: 100%;
+    height: auto;
+  }
+  /* Absolute fill images (product cards) must keep explicit height */
+  img.absolute {
+    height: 100%;
+    max-width: none;
+  }
   h1, h2, h3 { font-family: var(--app-font-heading); }
 
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  /* Thin, low-contrast scrollbars — professional, not flashy */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(220 14% 78% / 0.55) transparent;
+  }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: hsl(220 15% 80%); border-radius: 99px; }
-  ::-webkit-scrollbar-thumb:hover { background: hsl(220 15% 65%); }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(220 14% 78% / 0.55);
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(220 14% 62% / 0.75); }
 }
 
 @layer utilities {
   input[type="search"]::-webkit-search-cancel-button { @apply hidden; }
+
+  /*
+   * Overlay stack — keep nested menus/cameras ABOVE app modals.
+   * Modal (Add/Edit Product, delete confirm) = 300
+   * Popovers/menus opened from inside modals = 400
+   * Nested dialogs (in-app camera) = 450
+   * Never lower nested pickers below kb-z-modal or uploads look “broken”.
+   */
+  .kb-z-modal { z-index: 300; }
+  .kb-z-popover { z-index: 400; }
+  .kb-z-nested { z-index: 450; }
 
   .font-heading { font-family: var(--app-font-heading); }
 
@@ -254,10 +290,122 @@
   }
 
   .hero-pattern {
-    background-image: 
-      radial-gradient(circle at 20% 50%, rgba(255,140,0,0.08) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, rgba(255,140,0,0.05) 0%, transparent 40%),
-      url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    background-image:
+      radial-gradient(circle at 18% 40%, rgba(255,122,0,0.22) 0%, transparent 48%),
+      radial-gradient(circle at 88% 12%, rgba(255,255,255,0.12) 0%, transparent 42%),
+      linear-gradient(135deg, hsl(220 60% 14%) 0%, hsl(220 55% 24%) 48%, hsl(28 85% 36%) 160%),
+      url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /* Share-card inspired page atmosphere.
+     Do NOT use isolation / z-index on children — that traps position:fixed
+     modals under the site Footer (later sibling stacking context). */
+  .kb-page {
+    position: relative;
+    min-width: 0;
+    width: 100%;
+    background:
+      url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%231a2744' fill-opacity='0.013'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E"),
+      radial-gradient(900px 420px at 10% -8%, hsl(28 100% 50% / 0.12), transparent 55%),
+      radial-gradient(720px 380px at 92% 4%, hsl(220 60% 20% / 0.08), transparent 50%),
+      linear-gradient(180deg, #f8f5f0 0%, #eef1f6 48%, #f4f6f9 100%);
+  }
+
+  .kb-card {
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 1rem;
+    box-shadow:
+      0 0 0 1px rgba(26, 39, 68, 0.04),
+      0 14px 36px -20px rgba(26, 39, 68, 0.38);
+  }
+
+  .kb-card-interactive {
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(26, 39, 68, 0.08);
+    border-radius: 1rem;
+    padding: 0;
+    margin: 0;
+    box-shadow:
+      0 0 0 1px rgba(26, 39, 68, 0.03),
+      0 10px 28px -18px rgba(26, 39, 68, 0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+
+  /* Catalog product media: flush to card top, clipped to rounded corners */
+  .kb-product-media {
+    position: relative;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    line-height: 0;
+    flex-shrink: 0;
+    background: #e8edf3;
+    isolation: isolate;
+    /* Inherit card radius so top corners always clip even if parent transform creates a layer */
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+  }
+
+  .kb-product-media > img,
+  .kb-product-media > [role="img"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    margin: 0;
+    border: 0;
+    padding: 0;
+    display: block;
+    object-fit: cover;
+    object-position: center;
+  }
+
+  .kb-card-interactive:hover {
+    transform: translateY(-2px);
+    border-color: hsl(28 100% 50% / 0.35);
+    box-shadow:
+      0 0 0 1px hsl(28 100% 50% / 0.08),
+      0 18px 36px -16px rgba(255, 122, 0, 0.4);
+  }
+
+  .kb-btn-primary {
+    background: hsl(var(--primary));
+    color: white;
+    border-radius: 0.75rem;
+    font-weight: 700;
+    box-shadow: 0 10px 24px -12px rgba(255, 122, 0, 0.9);
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .kb-btn-primary:hover {
+    background: hsl(28 100% 46%);
+  }
+
+  .kb-field {
+    width: 100%;
+    border-radius: 0.75rem;
+    border: 1px solid hsl(var(--border) / 0.85);
+    background: white;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.875rem;
+    color: hsl(var(--secondary));
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .kb-field:focus {
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(28 100% 50% / 0.18);
+  }
+  .kb-field::placeholder {
+    color: hsl(var(--muted-foreground) / 0.72);
+  }
+
+  .kb-stat {
+    background: linear-gradient(180deg, #fff 0%, #fafbfc 100%);
+    border: 1px solid hsl(220 20% 90%);
+    border-radius: 1rem;
+    box-shadow: 0 8px 22px -16px rgba(26, 39, 68, 0.28);
   }
 
   .card-hover {
@@ -265,20 +413,30 @@
   }
   .card-hover:hover {
     transform: translateY(-2px);
-    box-shadow: 0 12px 28px -6px rgba(0,0,0,0.12), 0 4px 8px -4px rgba(0,0,0,0.06);
+    border-color: hsl(28 100% 50% / 0.3);
+    box-shadow:
+      0 0 0 1px hsl(28 100% 50% / 0.06),
+      0 16px 32px -14px rgba(255, 122, 0, 0.35);
   }
 
   .gradient-text {
-    background: linear-gradient(135deg, #FF8C00, #FF5500);
+    background: linear-gradient(135deg, #FF9A1F, #FF5500);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
 
   .glass-card {
-    background: rgba(255,255,255,0.08);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.1);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.18);
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 
   /* Hide native number spinners (quote / quantity fields) */

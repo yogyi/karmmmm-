@@ -15,6 +15,7 @@ import { useListRfqs, useGetFeaturedProducts } from "@workspace/api-client-react
 import { useAuth } from "@/context/AuthContext";
 import { useShortlist } from "@/hooks/useShortlist";
 import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
+import { PageHero } from "@/components/PageHero";
 
 const statusLabel: Record<string, { label: string; className: string }> = {
   pending: { label: "Open for quotes", className: "bg-yellow-100 text-yellow-800" },
@@ -42,10 +43,10 @@ export function BuyerCentralPage() {
   } = useListRfqs(listParams, {
     query: {
       enabled: isLoggedIn && !!user && user.id > 0 && !!profileReady,
-      refetchOnMount: "always",
+      refetchOnMount: true,
       refetchOnWindowFocus: true,
-      refetchInterval: 15_000,
-      staleTime: 0,
+      refetchInterval: 60_000,
+      staleTime: 20_000,
     } as any,
   });
   const { data: featured } = useGetFeaturedProducts();
@@ -72,22 +73,21 @@ export function BuyerCentralPage() {
   const products = Array.isArray(featured) ? featured.slice(0, 4) : [];
 
   return (
-    <div className="min-h-screen bg-[#f4f6f8]">
-      {/* Buyer Central hero */}
-      <section className="bg-secondary text-white">
-        <div className="max-w-6xl mx-auto px-4 py-10 sm:py-12">
-          <p className="text-xs uppercase tracking-widest text-white/50 mb-2">Buyer Central</p>
-          <h1 className="font-heading text-3xl sm:text-4xl font-bold mb-2">
+    <div>
+      <PageHero
+        eyebrow="Buyer Central"
+        title={
+          <>
             Welcome{user?.name ? `, ${user.name.split(" ")[0]}` : ""}
-          </h1>
-          <p className="text-white/65 max-w-xl text-sm sm:text-base mb-6">
-            Source products, send RFQs, and manage supplier replies — your buyer workspace on Karm Baba.
-          </p>
-          <div className="flex flex-wrap gap-3">
+          </>
+        }
+        description="Source products, send RFQs, and manage supplier replies — your buyer workspace on Karm Baba."
+        actions={
+          <>
             <button
               type="button"
               onClick={() => navigate("/products")}
-              className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-5 py-2.5 rounded-xl text-sm font-semibold"
+              className="inline-flex items-center gap-2 kb-btn-primary px-5 py-2.5 text-sm"
             >
               <Search size={16} /> Find products
             </button>
@@ -105,11 +105,11 @@ export function BuyerCentralPage() {
             >
               <Heart size={16} /> Shortlist ({shortlistCount})
             </button>
-          </div>
-        </div>
-      </section>
+          </>
+        }
+      />
 
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
+      <div className="max-w-6xl mx-auto px-3 sm:px-4 py-6 sm:py-8 space-y-6 sm:space-y-8 min-w-0">
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <Stat
@@ -155,7 +155,7 @@ export function BuyerCentralPage() {
         )}
 
         {/* How sourcing works */}
-        <section className="bg-white rounded-2xl border border-border p-6">
+        <section className="kb-card p-6">
           <div className="flex items-center gap-2 mb-4">
             <Sparkles size={18} className="text-primary" />
             <h2 className="font-semibold text-foreground">How sourcing works</h2>
@@ -180,7 +180,7 @@ export function BuyerCentralPage() {
 
         <div className="grid lg:grid-cols-5 gap-6">
           {/* Inquiries */}
-          <section className="lg:col-span-3 bg-white rounded-2xl border border-border overflow-hidden">
+          <section className="lg:col-span-3 kb-card overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h2 className="font-semibold text-foreground flex items-center gap-2">
                 <MessageSquare size={18} className="text-muted-foreground" />
@@ -242,7 +242,7 @@ export function BuyerCentralPage() {
 
           {/* Continue sourcing */}
           <section className="lg:col-span-2 space-y-4">
-            <div className="bg-white rounded-2xl border border-border p-5">
+            <div className="kb-card p-5">
               <h2 className="font-semibold text-foreground mb-3 flex items-center gap-2">
                 <Building2 size={18} className="text-muted-foreground" />
                 Quick links
@@ -268,7 +268,7 @@ export function BuyerCentralPage() {
             </div>
 
             {products.length > 0 && (
-              <div className="bg-white rounded-2xl border border-border p-5">
+              <div className="kb-card p-5">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-semibold text-foreground text-sm">Recommended for you</h2>
                   <button
@@ -340,13 +340,15 @@ function Stat({
     <button
       type="button"
       onClick={onClick}
-      className="bg-white rounded-2xl border border-border p-4 text-left hover:border-primary/40 hover:shadow-sm transition-all"
+      className="kb-stat p-4 text-left hover:border-primary/40 transition-all w-full"
     >
       <div className="flex items-center gap-2 text-muted-foreground mb-2">
-        {icon}
-        <span className="text-xs font-medium">{label}</span>
+        <span className="w-8 h-8 rounded-xl bg-accent text-primary flex items-center justify-center shrink-0">
+          {icon}
+        </span>
+        <span className="text-xs font-semibold">{label}</span>
       </div>
-      <div className="text-2xl font-bold text-foreground">
+      <div className="text-2xl font-heading font-bold text-secondary">
         {loading ? "—" : value}
       </div>
     </button>

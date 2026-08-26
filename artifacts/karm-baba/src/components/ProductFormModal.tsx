@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { X, Loader2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ImageIcon, Loader2, Package, X } from "lucide-react";
 import { useListCategories } from "@workspace/api-client-react";
 import { ImageUploader } from "./ImageUploader";
 
@@ -60,10 +61,27 @@ const DEFAULT_FORM: ProductFormData = {
   tags: "",
 };
 
-export function ProductFormModal({ open, onClose, onSubmit, initialValues, loading, title = "Add Product" }: ProductFormModalProps) {
+const fieldClass =
+  "w-full rounded-xl border border-border/80 bg-white px-3.5 py-2.5 text-sm text-secondary outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/70";
+
+const labelClass = "mb-1.5 block text-xs font-semibold text-secondary/70";
+
+export function ProductFormModal({
+  open,
+  onClose,
+  onSubmit,
+  initialValues,
+  loading,
+  title = "Add Product",
+}: ProductFormModalProps) {
   const { data: categories } = useListCategories();
   const [form, setForm] = useState<ProductFormData>(DEFAULT_FORM);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (open) {
@@ -92,21 +110,31 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && document.body.getAttribute("data-kb-camera-open") !== "1") {
+        onClose();
+      }
     }
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [open, onClose]);
 
   function set<K extends keyof ProductFormData>(key: K, value: ProductFormData[K]) {
-    setForm(prev => ({ ...prev, [key]: value }));
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (!form.name.trim()) { setError("Product name is required"); return; }
+    if (!form.name.trim()) {
+      setError("Product name is required");
+      return;
+    }
     if (form.categoryId === OTHERS_CATEGORY_ID) {
       if (form.customCategory.trim().length < 2) {
         setError("Please enter a custom category");
@@ -116,7 +144,10 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
       setError("Please select a category");
       return;
     }
-    if (!form.minPrice || !form.maxPrice) { setError("Price range is required"); return; }
+    if (!form.minPrice || !form.maxPrice) {
+      setError("Price range is required");
+      return;
+    }
     const minP = parseFloat(form.minPrice);
     const maxP = parseFloat(form.maxPrice);
     if (isNaN(minP) || isNaN(maxP) || minP <= 0 || maxP < minP) {
@@ -150,7 +181,10 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
         imageUrl: primaryImage,
         images: form.images,
         inStock: form.inStock,
-        tags: form.tags.split(",").map(t => t.trim()).filter(Boolean),
+        tags: form.tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save product");
@@ -158,227 +192,292 @@ export function ProductFormModal({ open, onClose, onSubmit, initialValues, loadi
   }
 
   function handleImagesChange(newImages: string[]) {
-    set("images", newImages);
-    if (newImages.length > 0 && !form.imageUrl) {
-      set("imageUrl", newImages[0]);
-    }
+    setForm((prev) => ({
+      ...prev,
+      images: newImages,
+      imageUrl: newImages[0] ?? prev.imageUrl,
+    }));
   }
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
+  const isEdit = Boolean(initialValues && "id" in initialValues && initialValues.id);
+
+  const modal = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-      onClick={onClose}
+      className="fixed inset-0 z-[300] kb-z-modal flex items-end justify-center sm:items-center sm:p-4 backdrop-blur-[2px]"
+      style={{
+        // Strong scrim so sticky header + site footer don't compete with the form
+        background:
+          "radial-gradient(720px 360px at 18% 0%, hsl(28 100% 50% / 0.14), transparent 55%), rgba(10, 16, 32, 0.88)",
+      }}
+      onClick={(e) => {
+        if (document.body.getAttribute("data-kb-camera-open") === "1") return;
+        if (e.target === e.currentTarget) onClose();
+      }}
       role="presentation"
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        className="flex w-full max-w-2xl max-h-[min(92dvh,900px)] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
-        <div className="flex items-center justify-between p-6 border-b border-border sticky top-0 bg-white z-10">
-          <h2 className="text-lg font-bold text-foreground">{title}</h2>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="min-h-11 min-w-11 rounded-lg hover:bg-muted transition-colors inline-flex items-center justify-center"
-          >
-            <X size={18} />
-          </button>
+        <div className="relative shrink-0 overflow-hidden bg-secondary text-white">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-90"
+            style={{
+              background:
+                "linear-gradient(135deg, hsl(220 60% 16%) 0%, hsl(220 55% 26%) 48%, hsl(28 90% 42%) 140%)",
+            }}
+          />
+          <div
+            className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full opacity-30"
+            style={{
+              background: "radial-gradient(circle, hsl(28 100% 60%) 0%, transparent 70%)",
+            }}
+          />
+          <div className="relative flex items-start justify-between gap-3 px-5 py-4 sm:px-6 sm:py-5">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/15">
+                <Package size={20} className="text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
+                  Seller catalog
+                </p>
+                <h2 className="truncate font-heading text-xl font-bold tracking-tight">{title}</h2>
+                <p className="mt-0.5 text-sm text-white/65">
+                  {isEdit
+                    ? "Update photos, pricing, and listing details."
+                    : "Add photos and details buyers see on your shop."}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={onClose}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 transition-colors hover:bg-white/15"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Product Images */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">
-              Product Images <span className="text-muted-foreground font-normal">(up to 5)</span>
-            </label>
-            <ImageUploader images={form.images} onChange={handleImagesChange} maxImages={5} />
-            {form.images.length > 0 && (
-              <p className="text-xs text-muted-foreground mt-1.5">First image will be the primary product photo</p>
-            )}
-          </div>
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div
+            className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <section className="rounded-2xl border border-primary/15 bg-gradient-to-b from-accent/80 to-white p-4 sm:p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <ImageIcon size={16} className="text-primary" />
+                <div>
+                  <h3 className="text-sm font-bold text-secondary">Product photos</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Up to 5 · first image is the cover buyers see
+                  </p>
+                </div>
+              </div>
+              <ImageUploader images={form.images} onChange={handleImagesChange} maxImages={5} />
+            </section>
 
-          {/* Name */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">
-              Product Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={e => set("name", e.target.value)}
-              placeholder="e.g. Premium Cotton T-Shirt"
-              className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
-              required
-            />
-          </div>
-
-          {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Description</label>
-            <textarea
-              value={form.description}
-              onChange={e => set("description", e.target.value)}
-              placeholder="Describe your product — material, specifications, use cases..."
-              rows={3}
-              className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm resize-none"
-            />
-          </div>
-
-          {/* Category */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">
-              Category <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={form.categoryId}
-              onChange={e => {
-                const nextId = parseInt(e.target.value, 10);
-                setForm(prev => ({
-                  ...prev,
-                  categoryId: nextId,
-                  customCategory: nextId === OTHERS_CATEGORY_ID ? prev.customCategory : "",
-                }));
-              }}
-              className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm bg-white"
-            >
-              <option value={0}>Select a category</option>
-              {categories
-                ?.filter(cat => cat.name.toLowerCase() !== "others")
-                .map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
-                ))}
-              <option value={OTHERS_CATEGORY_ID}>Others</option>
-            </select>
-            {form.categoryId === OTHERS_CATEGORY_ID && (
-              <div className="mt-3">
-                <label className="block text-sm font-medium text-foreground mb-1.5">
-                  Custom category <span className="text-red-500">*</span>
+            <section className="space-y-4">
+              <div>
+                <label className={labelClass}>
+                  Product name <span className="text-primary">*</span>
                 </label>
                 <input
                   type="text"
-                  value={form.customCategory}
-                  onChange={e => set("customCategory", e.target.value)}
-                  placeholder="e.g. Packaging, Chemicals, Stationery"
-                  className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
-                  autoFocus
+                  value={form.name}
+                  onChange={(e) => set("name", e.target.value)}
+                  placeholder="e.g. Premium Cotton T-Shirt"
+                  className={fieldClass}
+                  required
                 />
+              </div>
+
+              <div>
+                <label className={labelClass}>Description</label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => set("description", e.target.value)}
+                  placeholder="Material, specs, use cases…"
+                  rows={3}
+                  className={`${fieldClass} resize-none`}
+                />
+              </div>
+
+              <div>
+                <label className={labelClass}>
+                  Category <span className="text-primary">*</span>
+                </label>
+                <select
+                  value={form.categoryId}
+                  onChange={(e) => {
+                    const nextId = parseInt(e.target.value, 10);
+                    setForm((prev) => ({
+                      ...prev,
+                      categoryId: nextId,
+                      customCategory:
+                        nextId === OTHERS_CATEGORY_ID ? prev.customCategory : "",
+                    }));
+                  }}
+                  className={`${fieldClass} bg-white`}
+                >
+                  <option value={0}>Select a category</option>
+                  {categories
+                    ?.filter((cat) => cat.name.toLowerCase() !== "others")
+                    .map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  <option value={OTHERS_CATEGORY_ID}>Others</option>
+                </select>
+                {form.categoryId === OTHERS_CATEGORY_ID && (
+                  <div className="mt-3">
+                    <label className={labelClass}>
+                      Custom category <span className="text-primary">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={form.customCategory}
+                      onChange={(e) => set("customCategory", e.target.value)}
+                      placeholder="e.g. Packaging, Chemicals"
+                      className={fieldClass}
+                      autoFocus
+                    />
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-4 rounded-2xl border border-secondary/10 bg-secondary/[0.03] p-4 sm:p-5">
+              <h3 className="text-sm font-bold text-secondary">Pricing & order</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>
+                    Min price (₹) <span className="text-primary">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={form.minPrice}
+                    onChange={(e) => set("minPrice", e.target.value)}
+                    placeholder="100"
+                    min="0"
+                    step="0.01"
+                    className={fieldClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>
+                    Max price (₹) <span className="text-primary">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={form.maxPrice}
+                    onChange={(e) => set("maxPrice", e.target.value)}
+                    placeholder="500"
+                    min="0"
+                    step="0.01"
+                    className={fieldClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Unit</label>
+                  <select
+                    value={form.unit}
+                    onChange={(e) => set("unit", e.target.value)}
+                    className={`${fieldClass} bg-white`}
+                  >
+                    {UNITS.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>Min order qty</label>
+                  <input
+                    type="number"
+                    value={form.minOrder}
+                    onChange={(e) => set("minOrder", e.target.value)}
+                    placeholder="50"
+                    min="1"
+                    className={fieldClass}
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-4 pb-2">
+              <div>
+                <label className={labelClass}>
+                  Tags <span className="font-normal text-muted-foreground">(comma separated)</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.tags}
+                  onChange={(e) => set("tags", e.target.value)}
+                  placeholder="cotton, wholesale, export"
+                  className={fieldClass}
+                />
+              </div>
+
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-border/80 bg-white px-3.5 py-3 transition-colors hover:border-primary/30">
+                <input
+                  type="checkbox"
+                  checked={form.inStock}
+                  onChange={(e) => set("inStock", e.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                />
+                <span className="text-sm font-semibold text-secondary">In stock</span>
+                <span className="ml-auto text-xs text-muted-foreground">Visible to buyers</span>
+              </label>
+            </section>
+
+            {error && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                {error}
               </div>
             )}
           </div>
 
-          {/* Price Range */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Min Price (₹) <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                value={form.minPrice}
-                onChange={e => set("minPrice", e.target.value)}
-                placeholder="100"
-                min="0"
-                step="0.01"
-                className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Max Price (₹) <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                value={form.maxPrice}
-                onChange={e => set("maxPrice", e.target.value)}
-                placeholder="500"
-                min="0"
-                step="0.01"
-                className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
-              />
-            </div>
-          </div>
-
-          {/* Unit & MOQ */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Unit</label>
-              <select
-                value={form.unit}
-                onChange={e => set("unit", e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm bg-white"
-              >
-                {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Min Order Qty</label>
-              <input
-                type="number"
-                value={form.minOrder}
-                onChange={e => set("minOrder", e.target.value)}
-                placeholder="50"
-                min="1"
-                className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
-              />
-            </div>
-          </div>
-
-          {/* Tags */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">
-              Tags <span className="text-muted-foreground font-normal">(comma separated)</span>
-            </label>
-            <input
-              type="text"
-              value={form.tags}
-              onChange={e => set("tags", e.target.value)}
-              placeholder="e.g. cotton, wholesale, export"
-              className="w-full px-3 py-2.5 rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
-            />
-          </div>
-
-          {/* In Stock */}
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="inStock"
-              checked={form.inStock}
-              onChange={e => set("inStock", e.target.checked)}
-              className="w-4 h-4 accent-primary"
-            />
-            <label htmlFor="inStock" className="text-sm font-medium text-foreground">In Stock</label>
-          </div>
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          <div className="flex gap-3 pt-1">
+          <div
+            className="flex shrink-0 gap-3 border-t border-border/70 bg-white px-5 py-3.5 sm:px-6 sm:py-4"
+            style={{ paddingBottom: "max(0.875rem, env(safe-area-inset-bottom))" }}
+          >
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors"
+              className="min-h-11 flex-1 rounded-xl border border-border text-sm font-semibold text-secondary transition-colors hover:bg-muted"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-bold text-white shadow-[0_10px_24px_-12px_rgba(255,122,0,0.9)] transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
-              {loading ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : title}
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" /> Saving…
+                </>
+              ) : isEdit ? (
+                "Save changes"
+              ) : (
+                "Publish product"
+              )}
             </button>
           </div>
         </form>
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

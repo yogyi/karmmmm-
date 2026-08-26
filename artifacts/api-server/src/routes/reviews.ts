@@ -10,6 +10,44 @@ import { getAuthenticatedDbUser } from "../lib/authorize";
 
 const router: IRouter = Router();
 
+async function refreshProductRating(productId: number) {
+  const allReviews = await prisma.review.findMany({
+    where: { productId },
+    select: { rating: true },
+  });
+  if (allReviews.length === 0) {
+    await prisma.product.update({
+      where: { id: productId },
+      data: { rating: null, reviewCount: 0 },
+    });
+    return;
+  }
+  const avg = allReviews.reduce((s, r) => s + r.rating, 0) / allReviews.length;
+  await prisma.product.update({
+    where: { id: productId },
+    data: { rating: avg.toFixed(2), reviewCount: allReviews.length },
+  });
+}
+
+async function refreshSupplierRating(supplierId: number) {
+  const allReviews = await prisma.review.findMany({
+    where: { supplierId },
+    select: { rating: true },
+  });
+  if (allReviews.length === 0) {
+    await prisma.supplier.update({
+      where: { id: supplierId },
+      data: { rating: 0, reviewCount: 0 },
+    });
+    return;
+  }
+  const avg = allReviews.reduce((s, r) => s + r.rating, 0) / allReviews.length;
+  await prisma.supplier.update({
+    where: { id: supplierId },
+    data: { rating: avg.toFixed(2), reviewCount: allReviews.length },
+  });
+}
+
 router.get("/reviews", async (req, res): Promise<void> => {
   const parsed = ListReviewsQueryParams.safeParse(req.query);
   if (!parsed.success) {
@@ -24,7 +62,7 @@ router.get("/reviews", async (req, res): Promise<void> => {
 
   const items = await prisma.review.findMany({
     where,
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
   });
 
   res.json(
@@ -47,38 +85,79 @@ router.post("/reviews", requireClerkAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  // Bind reviewer identity to the authenticated user — never trust client IDs/names alone.
+  const { productId, supplierId, rating, comment, reviewerName } = parsed.data;
+
+  if (productId == null && supplierId == null) {
+    res.status(400).json({ error: "productId or supplierId is required" });
+    return;
+  }
+
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    res.status(400).json({ error: "Rating must be an integer from 1 to 5" });
+    return;
+  }
+
+  if (productId != null) {
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, supplierId: true },
+    });
+    if (!product) {
+      res.status(404).json({ error: "Product not found" });
+      return;
+    }
+
+    const existing = await prisma.review.findFirst({
+      where: { productId, reviewerId: dbUser.id },
+      select: { id: true },
+    });
+    if (existing) {
+      res.status(409).json({ error: "You already reviewed this product" });
+      return;
+    }
+
+    const resolvedSupplierId = supplierId ?? product.supplierId;
+
+    const review = await prisma.review.create({
+      data: {
+        productId,
+        supplierId: resolvedSupplierId,
+        rating,
+        comment: comment.trim() || "No comment provided",
+        reviewerId: dbUser.id,
+        reviewerName: (dbUser.name || reviewerName || "Buyer").trim(),
+      },
+    });
+
+    await refreshProductRating(productId);
+    await refreshSupplierRating(resolvedSupplierId);
+
+    res.status(201).json({ ...review, createdAt: review.createdAt.toISOString() });
+    return;
+  }
+
+  // Supplier-only review
+  const supplier = await prisma.supplier.findUnique({
+    where: { id: supplierId! },
+    select: { id: true },
+  });
+  if (!supplier) {
+    res.status(404).json({ error: "Supplier not found" });
+    return;
+  }
+
   const review = await prisma.review.create({
     data: {
-      ...parsed.data,
+      productId: null,
+      supplierId: supplier.id,
+      rating,
+      comment: comment.trim() || "No comment provided",
       reviewerId: dbUser.id,
-      reviewerName: dbUser.name || parsed.data.reviewerName,
+      reviewerName: (dbUser.name || reviewerName || "Buyer").trim(),
     },
   });
 
-  if (parsed.data.supplierId) {
-    const allReviews = await prisma.review.findMany({
-      where: { supplierId: parsed.data.supplierId },
-      select: { rating: true },
-    });
-    const avg = allReviews.reduce((s, r) => s + r.rating, 0) / allReviews.length;
-    await prisma.supplier.update({
-      where: { id: parsed.data.supplierId },
-      data: { rating: avg.toFixed(2), reviewCount: allReviews.length },
-    });
-  }
-
-  if (parsed.data.productId) {
-    const allReviews = await prisma.review.findMany({
-      where: { productId: parsed.data.productId },
-      select: { rating: true },
-    });
-    const avg = allReviews.reduce((s, r) => s + r.rating, 0) / allReviews.length;
-    await prisma.product.update({
-      where: { id: parsed.data.productId },
-      data: { rating: avg.toFixed(2), reviewCount: allReviews.length },
-    });
-  }
+  await refreshSupplierRating(supplier.id);
 
   res.status(201).json({ ...review, createdAt: review.createdAt.toISOString() });
 });

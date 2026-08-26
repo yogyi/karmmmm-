@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { FileText, Clock, CheckCircle, XCircle, MessageSquare, Plus, Package, LogIn } from "lucide-react";
 import { motion } from "framer-motion";
 import { useListRfqs } from "@workspace/api-client-react";
 import { useAuth } from "@/context/AuthContext";
 import { subscribeRfqBroadcast } from "@/lib/rfqQueries";
+import { PageHero } from "@/components/PageHero";
 
 const statusConfig = {
   pending: { label: "Open for quotes", color: "bg-yellow-100 text-yellow-700 border-yellow-200", icon: <Clock size={12} /> },
@@ -18,30 +19,42 @@ export function RfqListPage() {
   const [, navigate] = useLocation();
   const { user, isLoggedIn, isLoaded, profileReady } = useAuth();
   const isSeller = user?.role === "seller" || user?.role === "admin";
+  const [manualRefreshing, setManualRefreshing] = useState(false);
 
   // Sellers: ask for supplier inbox (or bare list so API uses seller scope).
   // Buyers: force buyerId so list is "my RFQs".
-  const listParams =
-    user && user.id > 0
-      ? user.role === "seller" || user.role === "admin"
-        ? typeof user.supplierId === "number" && user.supplierId > 0
-          ? { supplierId: user.supplierId }
-          : undefined
-        : { buyerId: user.id }
-      : undefined;
+  const listParams = useMemo(() => {
+    if (!user || user.id <= 0) return undefined;
+    if (user.role === "seller" || user.role === "admin") {
+      return typeof user.supplierId === "number" && user.supplierId > 0
+        ? { supplierId: user.supplierId }
+        : undefined;
+    }
+    return { buyerId: user.id };
+  }, [user?.id, user?.role, user?.supplierId]);
 
-  const { data: rfqs, isLoading, isFetching, refetch, isError, error } = useListRfqs(listParams, {
+  const { data: rfqs, isLoading, refetch, isError } = useListRfqs(listParams, {
     query: {
       enabled: !!user && user.id > 0 && profileReady,
-      refetchOnMount: "always",
+      refetchOnMount: true,
       refetchOnWindowFocus: true,
       refetchOnReconnect: true,
-      refetchInterval: isSeller ? 5_000 : 12_000,
-      staleTime: 0,
+      // Quiet background sync — don't hammer the API / flash the Refresh button
+      refetchInterval: isSeller ? 45_000 : 90_000,
+      staleTime: 20_000,
     } as any,
   });
 
   useEffect(() => subscribeRfqBroadcast(() => void refetch()), [refetch]);
+
+  async function handleRefresh() {
+    setManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setManualRefreshing(false);
+    }
+  }
 
   // Defense-in-depth: never show the viewer's own RFQs in seller inbox UI.
   const roleFilteredRfqs = (rfqs ?? []).filter((r) =>
@@ -60,8 +73,8 @@ export function RfqListPage() {
 
   if (isLoaded && !isLoggedIn) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-6 sm:py-8">
-        <div className="text-center py-20 bg-white rounded-2xl border border-border shadow-sm">
+      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-6 sm:py-8 min-w-0">
+        <div className="text-center py-20 kb-card">
           <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
             <LogIn size={28} className="text-muted-foreground" />
           </div>
@@ -73,7 +86,7 @@ export function RfqListPage() {
             <button
               type="button"
               onClick={() => navigate("/login?mode=buyer")}
-              className="bg-primary text-white px-6 py-2.5 rounded-xl font-semibold text-sm hover:bg-primary/90"
+              className="kb-btn-primary px-6 py-2.5 text-sm"
             >
               Buyer sign in
             </button>
@@ -91,47 +104,45 @@ export function RfqListPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 sm:py-8">
-      <div className="flex items-center justify-between mb-6 gap-3">
-        <div>
-          <h1 className="font-heading text-2xl font-bold text-foreground">
-            {isSeller ? "Incoming RFQs" : "My RFQs"}
-          </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            {isSeller
-              ? "Highest target-price inquiries first · directed + open RFQs for your shop"
-              : "Track and manage your quotation requests"}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            type="button"
-            onClick={() => void refetch()}
-            className="hidden sm:inline-flex border border-border px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-muted"
-            disabled={isFetching}
-          >
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </button>
-          {!isSeller && (
+    <div>
+      <PageHero
+        compact
+        eyebrow={isSeller ? "Seller Central" : "Buyer Central"}
+        title={isSeller ? "Incoming RFQs" : "My RFQs"}
+        description={
+          isSeller
+            ? "Highest target-price inquiries first · directed + open RFQs for your shop"
+            : "Track and manage your quotation requests"
+        }
+        actions={
+          <>
             <button
               type="button"
-              onClick={() => navigate("/rfq/new")}
-              className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl font-semibold text-sm hover:bg-primary/90 transition-all hover:shadow-lg hover:shadow-primary/25"
+              onClick={() => void handleRefresh()}
+              className="hidden sm:inline-flex bg-white/10 hover:bg-white/15 border border-white/25 px-3 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60"
+              disabled={manualRefreshing}
             >
-              <Plus size={16} />{" "}
-              <span className="hidden sm:inline">Post New RFQ</span>
-              <span className="sm:hidden">New RFQ</span>
+              {manualRefreshing ? "Refreshing…" : "Refresh"}
             </button>
-          )}
-        </div>
-      </div>
+            {!isSeller ? (
+              <button
+                type="button"
+                onClick={() => navigate("/rfq/new")}
+                className="inline-flex items-center gap-2 kb-btn-primary px-4 py-2.5 text-sm"
+              >
+                <Plus size={16} />
+                <span className="hidden sm:inline">Post New RFQ</span>
+                <span className="sm:hidden">New RFQ</span>
+              </button>
+            ) : null}
+          </>
+        }
+      />
 
+      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-6 sm:py-8 min-w-0">
       {isError && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Could not load RFQs
-          {error && typeof error === "object" && "message" in error
-            ? `: ${String((error as { message: string }).message).replace(/^HTTP \d+ [^:]+:\s*/, "")}`
-            : "."}{" "}
+          Could not load RFQs. Please try again.{" "}
           <button type="button" className="underline font-semibold" onClick={() => void refetch()}>
             Try again
           </button>
@@ -141,7 +152,7 @@ export function RfqListPage() {
       {isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="bg-white rounded-2xl border border-border p-5 animate-pulse shadow-sm">
+            <div key={i} className="kb-card p-5 animate-pulse">
               <div className="flex items-start justify-between">
                 <div className="space-y-2 flex-1">
                   <div className="h-5 bg-muted rounded-full w-2/3" />
@@ -153,7 +164,7 @@ export function RfqListPage() {
           ))}
         </div>
       ) : sortedRfqs?.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-2xl border border-border shadow-sm">
+        <div className="text-center py-20 kb-card">
           <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
             <FileText size={28} className="text-muted-foreground" />
           </div>
@@ -195,7 +206,7 @@ export function RfqListPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
                 onClick={() => navigate(`/rfq/${rfq.id}`)}
-                className="bg-white rounded-2xl border border-border p-4 sm:p-5 hover:shadow-md hover:border-primary/20 transition-all shadow-sm cursor-pointer"
+                className="kb-card-interactive p-4 sm:p-5 cursor-pointer"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex gap-3 flex-1 min-w-0">
@@ -298,6 +309,7 @@ export function RfqListPage() {
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }

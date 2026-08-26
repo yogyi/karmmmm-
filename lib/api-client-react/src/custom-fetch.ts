@@ -153,12 +153,21 @@ function truncate(text: string, maxLength = 300): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
+function looksLikeHtml(text: string): boolean {
+  const t = text.trimStart().toLowerCase();
+  return t.startsWith("<!doctype") || t.startsWith("<html") || t.includes("<pre>");
+}
+
 function buildErrorMessage(response: Response, data: unknown): string {
   const prefix = `HTTP ${response.status} ${response.statusText}`;
 
   if (typeof data === "string") {
     const text = data.trim();
-    return text ? `${prefix}: ${truncate(text)}` : prefix;
+    if (!text) return prefix;
+    if (looksLikeHtml(text)) {
+      return `${prefix}: Something went wrong. Please try again.`;
+    }
+    return `${prefix}: ${truncate(text)}`;
   }
 
   const title = getStringField(data, "title");

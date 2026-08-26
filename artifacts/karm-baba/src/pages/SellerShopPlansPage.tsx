@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth as useClerkAuth } from "@clerk/react";
+import { useUpload } from "@workspace/object-storage-web";
 import {
   ArrowLeft,
+  Camera,
   Check,
   Loader2,
   Share2,
@@ -12,6 +14,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useAppDialog } from "@/components/AppDialog";
+import { PageHero } from "@/components/PageHero";
 
 type Plan = {
   code: string;
@@ -56,6 +59,12 @@ export function SellerShopPlansPage() {
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState<"logo" | "cover" | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const { uploadFile } = useUpload({ getToken });
 
   const authHeaders = useCallback(async () => {
     const token = await getToken();
@@ -82,8 +91,13 @@ export function SellerShopPlansPage() {
         companyName?: string;
         verified?: boolean;
         verificationStatus?: string;
+        logoUrl?: string | null;
+        coverUrl?: string | null;
+        shareImageUrl?: string | null;
       };
       setSlug(me.slug ?? null);
+      setLogoUrl(me.logoUrl ?? null);
+      setCoverUrl(me.shareImageUrl ?? me.coverUrl ?? null);
       setHasShop(true);
       const status = me.verificationStatus ?? "draft";
       setKycDone(
@@ -192,6 +206,60 @@ export function SellerShopPlansPage() {
     }
   }
 
+  async function saveCardImage(field: "logo" | "cover", nextUrl: string | null) {
+    const headers = await authHeaders();
+    const body =
+      field === "logo"
+        ? { logoUrl: nextUrl }
+        : { coverUrl: nextUrl, shareImageUrl: nextUrl };
+    const res = await fetch("/api/suppliers/me", {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(data?.error || "Could not save card image");
+    }
+    if (field === "logo") setLogoUrl(nextUrl);
+    else setCoverUrl(nextUrl);
+  }
+
+  async function onPickCardImage(
+    field: "logo" | "cover",
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = e.target.files?.[0];
+    const input = field === "logo" ? logoInputRef.current : coverInputRef.current;
+    if (input) input.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setMessage("Choose a JPG, PNG, or WebP image.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage("Image must be under 5 MB.");
+      return;
+    }
+    setImageBusy(field);
+    setMessage(null);
+    const preview = URL.createObjectURL(file);
+    if (field === "logo") setLogoUrl(preview);
+    else setCoverUrl(preview);
+    try {
+      const uploaded = await uploadFile(file);
+      const nextUrl = `/api/storage${uploaded.objectPath}`;
+      await saveCardImage(field, nextUrl);
+      setMessage(field === "logo" ? "Card logo updated." : "Card cover updated.");
+    } catch (err) {
+      await load();
+      setMessage(err instanceof Error ? err.message : "Could not update image");
+    } finally {
+      URL.revokeObjectURL(preview);
+      setImageBusy(null);
+    }
+  }
+
   if (!isLoaded || !profileReady || !isLoggedIn) {
     return (
       <div className="min-h-[40vh] flex flex-col items-center justify-center gap-3 px-4">
@@ -210,25 +278,27 @@ export function SellerShopPlansPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f6f8]">
-      <div className="bg-secondary text-white">
-        <div className="max-w-6xl mx-auto px-4 py-5 sm:py-8">
-          <button
-            type="button"
-            onClick={() => navigate(hasShop ? "/seller" : "/")}
-            className="inline-flex items-center gap-1 text-white/70 text-sm mb-3 hover:text-white min-h-11"
-          >
-            <ArrowLeft size={14} /> {hasShop ? "Seller Central" : "Home"}
-          </button>
-          <h1 className="font-heading text-2xl sm:text-3xl font-bold flex items-center gap-2">
-            <Sparkles size={24} /> Shop & plans
-          </h1>
-          <p className="text-white/65 text-sm mt-1 max-w-xl">
-            Free plan includes seller verification (GST for India; tax ID optional abroad). Manage
-            product limits, lead quota, and shareable profile cards after KYC.
-          </p>
-        </div>
-      </div>
+    <div>
+      <PageHero
+        compact
+        eyebrow="Seller Central"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => navigate(hasShop ? "/seller" : "/")}
+              className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-white/10 border border-white/20 hover:bg-white/15"
+              aria-label={hasShop ? "Back to Seller Central" : "Back home"}
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <span className="inline-flex items-center gap-2">
+              <Sparkles size={22} className="text-primary" /> Shop & plans
+            </span>
+          </span>
+        }
+        description="Free plan includes seller verification. Manage product limits, lead quota, and shareable profile cards after KYC."
+      />
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
         {(!hasShop || !kycDone) && (
@@ -294,6 +364,66 @@ export function SellerShopPlansPage() {
                 <p className="text-sm text-muted-foreground mb-3 break-all font-mono text-xs bg-muted px-3 py-2 rounded-lg">
                   {shareUrl}
                 </p>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1.5">Logo</p>
+                    <button
+                      type="button"
+                      disabled={imageBusy !== null}
+                      onClick={() => logoInputRef.current?.click()}
+                      className="relative w-full aspect-square rounded-xl border border-border bg-muted/40 overflow-hidden hover:border-primary/40"
+                    >
+                      {logoUrl ? (
+                        <img src={logoUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                      ) : (
+                        <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-xs text-muted-foreground">
+                          <Camera size={16} /> Add logo
+                        </span>
+                      )}
+                      {imageBusy === "logo" && (
+                        <span className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                          <Loader2 className="animate-spin text-white" size={18} />
+                        </span>
+                      )}
+                    </button>
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={(e) => void onPickCardImage("logo", e)}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1.5">Cover</p>
+                    <button
+                      type="button"
+                      disabled={imageBusy !== null}
+                      onClick={() => coverInputRef.current?.click()}
+                      className="relative w-full aspect-[16/9] rounded-xl border border-border bg-muted/40 overflow-hidden hover:border-primary/40"
+                    >
+                      {coverUrl ? (
+                        <img src={coverUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                      ) : (
+                        <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-xs text-muted-foreground">
+                          <Camera size={16} /> Add cover
+                        </span>
+                      )}
+                      {imageBusy === "cover" && (
+                        <span className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                          <Loader2 className="animate-spin text-white" size={18} />
+                        </span>
+                      )}
+                    </button>
+                    <input
+                      ref={coverInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={(e) => void onPickCardImage("cover", e)}
+                    />
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"

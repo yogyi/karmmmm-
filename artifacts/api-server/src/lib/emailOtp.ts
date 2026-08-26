@@ -4,7 +4,12 @@ const OTP_TTL_MS = 15 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
 
 function pepper(): string {
-  return process.env.SESSION_SECRET?.trim() || "karm-baba-dev-otp-pepper";
+  const secret = process.env.SESSION_SECRET?.trim();
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL === "1") {
+    throw new Error("SESSION_SECRET is required for email OTP in production");
+  }
+  return "karm-baba-dev-otp-pepper";
 }
 
 export function generateEmailOtp(): string {

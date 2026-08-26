@@ -150,6 +150,8 @@ model Rfq {
   quotedAt        DateTime? @map("quoted_at")
   awardedQuoteId  Int?      @map("awarded_quote_id")
   closedAt        DateTime? @map("closed_at")
+  /// True when created without a directed supplier (open marketplace). Survives award so other sellers can still see closed deals.
+  openMarketplace Boolean   @default(false) @map("open_marketplace")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   product       Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)

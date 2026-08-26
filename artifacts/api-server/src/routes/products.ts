@@ -62,7 +62,12 @@ router.get("/products", async (req, res): Promise<void> => {
 
   const where: Prisma.ProductWhereInput = {};
 
-  if (search) where.name = { contains: search, mode: "insensitive" };
+  if (search) {
+    where.OR = [
+      { name: { contains: search, mode: "insensitive" } },
+      { description: { contains: search, mode: "insensitive" } },
+    ];
+  }
   if (categoryId != null) where.categoryId = categoryId;
   if (supplierId != null) where.supplierId = supplierId;
   if (minPrice != null || maxPrice != null) {
@@ -85,7 +90,16 @@ router.get("/products", async (req, res): Promise<void> => {
       res.json({ items: [], total: 0, page, limit });
       return;
     }
-    where.supplierId = { in: ids };
+    if (supplierId != null) {
+      // Keep supplier filter AND verified constraint
+      if (!ids.includes(supplierId)) {
+        res.json({ items: [], total: 0, page, limit });
+        return;
+      }
+      where.supplierId = supplierId;
+    } else {
+      where.supplierId = { in: ids };
+    }
   }
 
   let orderBy: Prisma.ProductOrderByWithRelationInput = { createdAt: "desc" };
@@ -361,17 +375,27 @@ router.delete("/products/:id", requireClerkAuth, async (req, res): Promise<void>
     return;
   }
 
-  await prisma.product.delete({ where: { id: params.data.id } });
-  await Promise.all([
-    prisma.category.update({
-      where: { id: existing.categoryId },
-      data: { productCount: { decrement: 1 } },
-    }),
-    prisma.supplier.update({
-      where: { id: existing.supplierId },
-      data: { productCount: { decrement: 1 } },
-    }),
-  ]);
+  try {
+    await prisma.$transaction([
+      prisma.product.delete({ where: { id: params.data.id } }),
+      prisma.category.update({
+        where: { id: existing.categoryId },
+        data: { productCount: { decrement: 1 } },
+      }),
+      prisma.supplier.update({
+        where: { id: existing.supplierId },
+        data: { productCount: { decrement: 1 } },
+      }),
+    ]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Delete failed";
+    res.status(409).json({
+      error: message.includes("Foreign key") || message.includes("constraint")
+        ? "This product is linked to other records and could not be deleted."
+        : "Could not delete product. Please try again.",
+    });
+    return;
+  }
   res.status(204).send();
 });
 

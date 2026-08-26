@@ -13,7 +13,23 @@ const ROOT = path.resolve(
 );
 
 function filePath(bucketName: string, objectName: string): string {
-  return path.join(ROOT, bucketName, objectName);
+  const safeBucket = path.basename(bucketName.replace(/\\/g, "/"));
+  const normalized = path.normalize(objectName.replace(/\\/g, "/"));
+  if (
+    !safeBucket ||
+    safeBucket === "." ||
+    safeBucket === ".." ||
+    normalized.split("/").some((p) => p === "..") ||
+    path.isAbsolute(normalized)
+  ) {
+    throw new Error("Invalid object path");
+  }
+  const dest = path.join(ROOT, safeBucket, normalized);
+  const rootWithSep = ROOT.endsWith(path.sep) ? ROOT : ROOT + path.sep;
+  if (dest !== ROOT && !dest.startsWith(rootWithSep)) {
+    throw new Error("Invalid object path");
+  }
+  return dest;
 }
 
 function aclPath(bucketName: string, objectName: string): string {

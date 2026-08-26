@@ -11,6 +11,7 @@ import {
   Clock,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { PageHero } from "@/components/PageHero";
 
 type Lead = {
   id: number;
@@ -194,22 +195,25 @@ export function SellerLeadsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f6f8]">
-      <div className="bg-secondary text-white">
-        <div className="max-w-6xl mx-auto px-4 py-8">
-          <button
-            type="button"
-            onClick={() => navigate("/seller")}
-            className="inline-flex items-center gap-1 text-white/70 text-sm mb-3 hover:text-white"
-          >
-            <ArrowLeft size={14} /> Seller Central
-          </button>
-          <h1 className="font-heading text-2xl sm:text-3xl font-bold">CRM Leads</h1>
-          <p className="text-white/65 text-sm mt-1">
-            Buyer inquiries from RFQs and shareable profile cards · {total} total
-          </p>
-        </div>
-      </div>
+    <div>
+      <PageHero
+        compact
+        eyebrow="Seller Central"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => navigate("/seller")}
+              className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-white/10 border border-white/20 hover:bg-white/15"
+              aria-label="Back to Seller Central"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            CRM Leads
+          </span>
+        }
+        description={`Buyer inquiries from RFQs and shareable profile cards · ${total} total`}
+      />
 
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="mb-4">

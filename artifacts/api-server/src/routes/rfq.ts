@@ -58,6 +58,7 @@ function canViewRfq(
     buyerId: number | null;
     supplierId: number | null;
     status?: string | null;
+    openMarketplace?: boolean | null;
     quotes?: { supplierId: number }[];
   },
 ): boolean {
@@ -75,13 +76,13 @@ function canViewRfq(
     return user.role === "seller" || user.role === "admin";
   }
 
-  // Open marketplace RFQs: collecting, awaiting confirm, or closed (read-only for other sellers)
+  // Open marketplace: collecting, handshake, or closed — seller mode only
   if (
-    rfq.supplierId == null &&
+    user.role === "seller" &&
+    (rfq.openMarketplace === true || rfq.supplierId == null) &&
     (isRfqOpenForQuotes(rfq.status ?? "pending") ||
       isRfqAwaitingSellerConfirm(rfq.status ?? "") ||
-      rfq.status === "accepted") &&
-    user.role === "seller"
+      rfq.status === "accepted")
   ) {
     return true;
   }
@@ -200,6 +201,12 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
       res.status(400).json({ error: "Supplier not found" });
       return;
     }
+    if (parseLinkedSupplierId(dbUser) === supplier.id) {
+      res.status(400).json({
+        error: "You cannot send an RFQ to your own shop. Post an open RFQ or pick another supplier.",
+      });
+      return;
+    }
     supplierId = supplier.id;
     supplierName = supplier.companyName;
   }
@@ -251,6 +258,13 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
     }
   }
 
+  if (supplierId != null && parseLinkedSupplierId(dbUser) === supplierId) {
+    res.status(400).json({
+      error: "You cannot send an RFQ to your own shop. Post an open RFQ or pick another supplier.",
+    });
+    return;
+  }
+
   const quantity = Math.floor(Number(input.quantity));
   if (!Number.isFinite(quantity) || quantity < 1) {
     res.status(400).json({ error: "Quantity must be at least 1" });
@@ -273,6 +287,7 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
       targetPrice: input.targetPrice ?? null,
       description: input.description?.trim() || null,
       status: "pending",
+      openMarketplace: supplierId == null,
     },
     include: { quotes: true },
   });
@@ -639,6 +654,21 @@ router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
       }
       if (isRfqClosed(existing.status) && body.status !== existing.status) {
         res.status(409).json({ error: "Closed deals cannot be reopened via status change" });
+        return;
+      }
+      if (body.status === "pending_confirm") {
+        res.status(400).json({
+          error: "Use POST /rfq/:id/award to start seller confirmation — do not set pending_confirm directly",
+        });
+        return;
+      }
+      if (
+        isRfqAwaitingSellerConfirm(existing.status) &&
+        (body.status === "pending" || body.status === "responded")
+      ) {
+        res.status(400).json({
+          error: "Use POST /rfq/:id/decline-confirm to reopen a pending handshake",
+        });
         return;
       }
       const rfq = await prisma.rfq.update({

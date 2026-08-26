@@ -27,6 +27,7 @@ export const requireClerkAuth: RequestHandler = (req, res, next) => {
         res.status(401).json({ error: "Authentication required" });
         return;
       }
+      (req as Request & { clerkUserId?: string }).clerkUserId = auth.userId;
       next();
     })
     .catch(next);
