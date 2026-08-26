@@ -43,7 +43,7 @@ export function resolveObjectStorageDriver(): ObjectStorageDriver {
   ) {
     return explicit;
   }
-  // Prefer durable Blob on Vercel when the store token is linked.
+  // Prefer durable Blob when the store token is linked (Vercel or local with pulled env).
   if (isBlobConfigured()) {
     return "blob";
   }
@@ -65,7 +65,11 @@ export function resolveObjectStorageDriver(): ObjectStorageDriver {
   if (process.env.REPL_ID || process.env.REPL_SLUG) {
     return "replit";
   }
-  // Never use ephemeral local disk on Vercel — fail loudly at upload time instead.
+  // Local/dev: always use disk — never require Blob/S3 just because Vercel CLI set VERCEL=1.
+  if (process.env.NODE_ENV !== "production") {
+    return "local";
+  }
+  // Production on Vercel without a Blob token: select blob so upload fails with a clear setup error.
   if (process.env.VERCEL) {
     return "blob";
   }
@@ -75,6 +79,11 @@ export function resolveObjectStorageDriver(): ObjectStorageDriver {
 let cachedDriver: ObjectStorageDriver | null = null;
 let gcsClient: Storage | null = null;
 let s3Client: S3Client | null = null;
+
+/** Test helper — clears cached driver between cases. */
+export function resetObjectStorageDriverCache(): void {
+  cachedDriver = null;
+}
 
 export function getObjectStorageDriver(): ObjectStorageDriver {
   if (!cachedDriver) cachedDriver = resolveObjectStorageDriver();

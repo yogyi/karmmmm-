@@ -1,5 +1,8 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { resolveObjectStorageDriver } from "./objectStorageBackend";
+import {
+  resolveObjectStorageDriver,
+  resetObjectStorageDriverCache,
+} from "./objectStorageBackend";
 
 const KEYS = [
   "OBJECT_STORAGE_DRIVER",
@@ -14,6 +17,7 @@ const KEYS = [
   "REPL_SLUG",
   "BLOB_READ_WRITE_TOKEN",
   "VERCEL",
+  "NODE_ENV",
 ] as const;
 
 describe("resolveObjectStorageDriver", () => {
@@ -24,6 +28,7 @@ describe("resolveObjectStorageDriver", () => {
       saved[key] = process.env[key];
       delete process.env[key];
     }
+    resetObjectStorageDriverCache();
   });
 
   afterEach(() => {
@@ -31,6 +36,7 @@ describe("resolveObjectStorageDriver", () => {
       if (saved[key] === undefined) delete process.env[key];
       else process.env[key] = saved[key];
     }
+    resetObjectStorageDriverCache();
   });
 
   it("honors explicit OBJECT_STORAGE_DRIVER", () => {
@@ -51,9 +57,16 @@ describe("resolveObjectStorageDriver", () => {
     expect(resolveObjectStorageDriver()).toBe("blob");
   });
 
-  it("prefers blob on Vercel even without token (upload fails clearly later)", () => {
+  it("prefers blob on Vercel production even without token (upload fails clearly later)", () => {
+    process.env.NODE_ENV = "production";
     process.env.VERCEL = "1";
     expect(resolveObjectStorageDriver()).toBe("blob");
+  });
+
+  it("uses local disk in development even if VERCEL=1 without a Blob token", () => {
+    process.env.NODE_ENV = "development";
+    process.env.VERCEL = "1";
+    expect(resolveObjectStorageDriver()).toBe("local");
   });
 
   it("auto-selects s3 when R2/S3 env is present", () => {

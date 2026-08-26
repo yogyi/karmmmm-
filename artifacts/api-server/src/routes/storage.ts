@@ -122,7 +122,8 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
   }
 
   try {
-    if (getObjectStorageDriver() === "blob" && !isBlobConfigured()) {
+    const driver = getObjectStorageDriver();
+    if (driver === "blob" && !isBlobConfigured()) {
       res.status(503).json({
         error:
           "Vercel Blob is not linked. In Vercel → Storage → create/connect Blob, then redeploy (BLOB_READ_WRITE_TOKEN).",
@@ -135,25 +136,34 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
     const { uploadURL, objectPath } =
       await objectStorageService.getObjectEntityUploadURL({ contentType });
 
-    const absoluteUploadURL = toAbsoluteUploadUrl(req, uploadURL);
+    const payload = {
+      uploadURL: toAbsoluteUploadUrl(req, uploadURL),
+      objectPath,
+      metadata: { name, size, contentType },
+    };
 
-    res.json(
-      RequestUploadUrlResponse.parse({
-        uploadURL: absoluteUploadURL,
-        objectPath,
-        metadata: { name, size, contentType },
-      }),
-    );
+    // Never throw 500 on OpenAPI Zod .url() quirks — return a usable payload.
+    const checked = RequestUploadUrlResponse.safeParse(payload);
+    if (!checked.success) {
+      req.log.warn(
+        { issues: checked.error.issues, uploadURL: payload.uploadURL },
+        "Upload URL response failed schema check — returning absolute URL anyway",
+      );
+    }
+    res.json(payload);
   } catch (error) {
     req.log.error(
       { err: error, driver: objectStorageService.getDriver() },
       "Error generating upload URL",
     );
+    const driver = getObjectStorageDriver();
     res.status(500).json({
       error:
-        getObjectStorageDriver() === "blob" && !isBlobConfigured()
+        driver === "blob" && !isBlobConfigured()
           ? "Vercel Blob is not linked. In Vercel → Storage → create/connect Blob, then redeploy (BLOB_READ_WRITE_TOKEN)."
-          : "Failed to generate upload URL. Check OBJECT_STORAGE_DRIVER and cloud credentials.",
+          : driver === "local"
+            ? "Failed to generate local upload URL. Restart the API server and try again."
+            : `Failed to generate upload URL (driver=${driver}). Check OBJECT_STORAGE_DRIVER and cloud credentials.`,
     });
   }
 });

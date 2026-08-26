@@ -109,9 +109,20 @@ export function useUpload(options: UseUploadOptions = {}) {
       const isAppUpload =
         uploadURL.startsWith("/") ||
         uploadURL.includes("/api/storage/uploads/put/");
+      const putUrl =
+        isAppUpload && uploadURL.startsWith("http")
+          ? (() => {
+              try {
+                const u = new URL(uploadURL);
+                return `${u.pathname}${u.search}`;
+              } catch {
+                return uploadURL;
+              }
+            })()
+          : uploadURL;
       const token = isAppUpload ? await options.getToken?.() : null;
       const contentType = inferContentType(file);
-      const response = await fetch(uploadURL, {
+      const response = await fetch(putUrl, {
         method: "PUT",
         body: file,
         credentials: isAppUpload ? "include" : "omit",
