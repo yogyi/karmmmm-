@@ -20,6 +20,7 @@ import { useListCategories } from "@workspace/api-client-react";
 import { useAuth } from "@/context/AuthContext";
 import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
 import logoUrl from "@assets/logo_1780688383558.png";
+import { workspaceHomePath } from "@/lib/workspaceHome";
 
 export function Header() {
   const [location, navigate] = useLocation();
@@ -30,6 +31,8 @@ export function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { data: categories } = useListCategories();
+
+  const homePath = workspaceHomePath(user?.role);
 
   useEffect(() => {
     const params = new URLSearchParams(
@@ -185,6 +188,27 @@ export function Header() {
     navigate(`/products?search=${encodeURIComponent(q)}`);
   }
 
+  /** Logo → workspace home (seller overview / buyer central / marketplace). */
+  function goWorkspaceHome(e?: React.MouseEvent) {
+    // Allow modified clicks (new tab) to use the real href.
+    if (e && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)) {
+      return;
+    }
+    e?.preventDefault();
+    setMenuOpen(false);
+    setUserMenuOpen(false);
+    const pathOnly = location.split("?")[0] || "/";
+    const search = searchString.startsWith("?") ? searchString.slice(1) : searchString;
+    const alreadyHome = pathOnly === homePath && !search;
+    if (alreadyHome) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    // Always land on a clean home URL (clears /seller?tab=products etc.).
+    navigate(homePath);
+    window.scrollTo(0, 0);
+  }
+
   /** Shared content column — top bar, logo row, category nav, and page body share this edge. */
   const shell = "max-w-7xl mx-auto w-full px-4";
 
@@ -250,17 +274,22 @@ export function Header() {
 
       <div className={`${shell} py-2.5 sm:py-3`}>
         <div className="flex items-center gap-2 sm:gap-4">
-        <button
-          type="button"
-          onClick={() =>
-            navigate(isSeller ? "/seller" : isBuyer ? "/buyer" : "/")
+        <Link
+          href={homePath}
+          onClick={goWorkspaceHome}
+          className="flex items-center gap-2.5 flex-shrink-0 min-w-0 cursor-pointer rounded-xl hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          aria-label={
+            homePath === "/seller"
+              ? "Go to Seller Central home"
+              : homePath === "/buyer"
+                ? "Go to Buyer Central home"
+                : "Go to Karm Baba home"
           }
-          className="flex items-center gap-2.5 flex-shrink-0 group min-w-0"
         >
           <img
             src={logoUrl}
-            alt="Karm Baba"
-            className="h-9 sm:h-10 w-auto group-hover:opacity-90 transition-opacity"
+            alt=""
+            className="h-9 sm:h-10 w-auto pointer-events-none"
           />
           <div className="hidden sm:block text-left">
             <div className="text-lg font-heading font-bold text-secondary leading-none">
@@ -270,7 +299,7 @@ export function Header() {
               {isSeller ? "Seller Central" : isBuyer ? "Buyer Central" : "B2B Marketplace"}
             </div>
           </div>
-        </button>
+        </Link>
 
         {/* Mobile: spacer so avatar + menu sit on the right when seller nav is hidden */}
         {showSellerOpsNav ? <div className="flex-1 md:hidden" aria-hidden /> : null}

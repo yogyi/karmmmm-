@@ -5,8 +5,15 @@ export type RfqWithQuotes = Prisma.RfqGetPayload<{ include: { quotes: true } }>;
 export const RFQ_OPEN_STATUSES = ["pending", "responded"] as const;
 export type RfqOpenStatus = (typeof RFQ_OPEN_STATUSES)[number];
 
+/** Buyer accepted a quote; waiting for that seller to confirm the deal. */
+export const RFQ_PENDING_CONFIRM = "pending_confirm" as const;
+
 export function isRfqOpenForQuotes(status: string): boolean {
   return status === "pending" || status === "responded";
+}
+
+export function isRfqAwaitingSellerConfirm(status: string): boolean {
+  return status === RFQ_PENDING_CONFIRM;
 }
 
 export function isRfqClosed(status: string): boolean {
@@ -44,7 +51,7 @@ export function formatRfqQuote(q: {
     validDays: q.validDays,
     paymentTerms: q.paymentTerms,
     message: q.message,
-    status: q.status as "active" | "withdrawn" | "awarded" | "declined",
+    status: q.status as "active" | "withdrawn" | "awarded" | "declined" | "pending_confirm",
     lineTotal: unitPrice * q.quantity,
     createdAt: q.createdAt.toISOString(),
     updatedAt: q.updatedAt.toISOString(),
@@ -55,7 +62,9 @@ export function formatRfqDeal(r: RfqWithQuotes) {
   const quotes = [...r.quotes]
     .sort((a, b) => Number(a.unitPrice) - Number(b.unitPrice))
     .map(formatRfqQuote);
-  const activeCount = quotes.filter((q) => q.status === "active" || q.status === "awarded").length;
+  const activeCount = quotes.filter(
+    (q) => q.status === "active" || q.status === "awarded" || q.status === "pending_confirm",
+  ).length;
   return {
     id: r.id,
     productId: r.productId,
@@ -71,7 +80,12 @@ export function formatRfqDeal(r: RfqWithQuotes) {
     unit: r.unit,
     targetPrice: toNumber(r.targetPrice),
     description: r.description,
-    status: r.status as "pending" | "responded" | "accepted" | "rejected",
+    status: r.status as
+      | "pending"
+      | "responded"
+      | "pending_confirm"
+      | "accepted"
+      | "rejected",
     quotedPrice: toNumber(r.quotedPrice),
     sellerMessage: r.sellerMessage ?? null,
     quotedAt: r.quotedAt ? r.quotedAt.toISOString() : null,
@@ -93,11 +107,11 @@ export async function loadRfqWithQuotes(id: number): Promise<RfqWithQuotes | nul
 /** Sync denormalized quote summary on the RFQ row for list UIs. */
 export async function refreshRfqQuoteSummary(rfqId: number): Promise<void> {
   const quotes = await prisma.rfqQuote.findMany({
-    where: { rfqId, status: { in: ["active", "awarded"] } },
+    where: { rfqId, status: { in: ["active", "awarded", "pending_confirm"] } },
     orderBy: [{ status: "desc" }, { unitPrice: "asc" }, { createdAt: "desc" }],
   });
   const rfq = await prisma.rfq.findUnique({ where: { id: rfqId } });
-  if (!rfq || isRfqClosed(rfq.status)) return;
+  if (!rfq || isRfqClosed(rfq.status) || isRfqAwaitingSellerConfirm(rfq.status)) return;
 
   const best = quotes.find((q) => q.status === "awarded") ?? quotes[0] ?? null;
   await prisma.rfq.update({
@@ -213,7 +227,10 @@ export async function submitSellerQuote(opts: {
   return loaded;
 }
 
-/** Buyer awards one active quote → deal closed; other quotes declined. */
+/**
+ * Buyer accepts a quote → waiting for that seller to confirm.
+ * Deal is NOT closed until the seller says yes.
+ */
 export async function awardRfqQuote(opts: {
   rfqId: number;
   quoteId: number;
@@ -225,7 +242,7 @@ export async function awardRfqQuote(opts: {
     const rfq = await tx.rfq.findUnique({ where: { id: rfqId } });
     if (!rfq) throw Object.assign(new Error("RFQ not found"), { status: 404 });
     if (rfq.buyerId !== buyerId) {
-      throw Object.assign(new Error("Only the buyer can award a quote"), { status: 403 });
+      throw Object.assign(new Error("Only the buyer can accept a quote"), { status: 403 });
     }
     if (isRfqClosed(rfq.status)) {
       throw Object.assign(new Error("This RFQ is already closed"), { status: 409 });
@@ -234,11 +251,78 @@ export async function awardRfqQuote(opts: {
     const quote = await tx.rfqQuote.findFirst({
       where: { id: quoteId, rfqId },
     });
-    if (!quote || quote.status === "withdrawn") {
+    if (!quote || quote.status === "withdrawn" || quote.status === "declined") {
       throw Object.assign(new Error("Quote not found"), { status: 404 });
     }
-    if (quote.status !== "active") {
-      throw Object.assign(new Error("Only an active quote can be awarded"), { status: 409 });
+    if (quote.status !== "active" && quote.status !== "pending_confirm") {
+      throw Object.assign(new Error("Only an active quote can be accepted"), { status: 409 });
+    }
+
+    // Clear any previous pending proposal on this RFQ.
+    await tx.rfqQuote.updateMany({
+      where: { rfqId, status: "pending_confirm", id: { not: quote.id } },
+      data: { status: "active" },
+    });
+
+    await tx.rfqQuote.update({
+      where: { id: quote.id },
+      data: { status: "pending_confirm" },
+    });
+
+    await tx.rfq.update({
+      where: { id: rfqId },
+      data: {
+        status: RFQ_PENDING_CONFIRM,
+        quotedPrice: quote.unitPrice,
+        sellerMessage: quote.message,
+        quotedAt: quote.updatedAt,
+        awardedQuoteId: quote.id,
+        closedAt: null,
+        // Keep open marketplace `supplierId` null until seller confirms the deal.
+        ...(rfq.supplierId != null
+          ? { supplierId: quote.supplierId, supplierName: quote.supplierName }
+          : {}),
+      },
+    });
+
+    const loaded = await tx.rfq.findUnique({
+      where: { id: rfqId },
+      include: { quotes: { orderBy: { unitPrice: "asc" } } },
+    });
+    if (!loaded) throw Object.assign(new Error("RFQ not found"), { status: 404 });
+    return loaded;
+  });
+}
+
+/**
+ * Winning seller confirms the buyer's acceptance → deal closed.
+ * Other quotes are declined; RFQ marked accepted for all sellers.
+ */
+export async function confirmRfqDeal(opts: {
+  rfqId: number;
+  supplierId: number;
+}): Promise<RfqWithQuotes> {
+  const { rfqId, supplierId } = opts;
+
+  return prisma.$transaction(async (tx) => {
+    const rfq = await tx.rfq.findUnique({ where: { id: rfqId } });
+    if (!rfq) throw Object.assign(new Error("RFQ not found"), { status: 404 });
+    if (!isRfqAwaitingSellerConfirm(rfq.status) || rfq.awardedQuoteId == null) {
+      throw Object.assign(new Error("No buyer acceptance waiting for confirmation"), {
+        status: 409,
+      });
+    }
+
+    const quote = await tx.rfqQuote.findFirst({
+      where: { id: rfq.awardedQuoteId, rfqId },
+    });
+    if (!quote || quote.status !== "pending_confirm") {
+      throw Object.assign(new Error("Accepted quote not found"), { status: 404 });
+    }
+    if (quote.supplierId !== supplierId) {
+      throw Object.assign(new Error("Only the selected seller can confirm this deal"), {
+        status: 403,
+      });
     }
 
     const now = new Date();
@@ -247,7 +331,7 @@ export async function awardRfqQuote(opts: {
       data: { status: "awarded" },
     });
     await tx.rfqQuote.updateMany({
-      where: { rfqId, id: { not: quote.id }, status: "active" },
+      where: { rfqId, id: { not: quote.id }, status: { in: ["active", "pending_confirm"] } },
       data: { status: "declined" },
     });
 
@@ -262,6 +346,69 @@ export async function awardRfqQuote(opts: {
         quotedAt: quote.updatedAt,
         awardedQuoteId: quote.id,
         closedAt: now,
+      },
+    });
+
+    const loaded = await tx.rfq.findUnique({
+      where: { id: rfqId },
+      include: { quotes: { orderBy: { unitPrice: "asc" } } },
+    });
+    if (!loaded) throw Object.assign(new Error("RFQ not found"), { status: 404 });
+    return loaded;
+  });
+}
+
+/**
+ * Seller declines the buyer's acceptance (or buyer withdraws) → RFQ reopens for quotes.
+ */
+export async function declinePendingRfqConfirm(opts: {
+  rfqId: number;
+  /** Seller shop that must match the pending quote, or buyerId for buyer withdraw. */
+  actor: { type: "seller"; supplierId: number } | { type: "buyer"; buyerId: number };
+}): Promise<RfqWithQuotes> {
+  const { rfqId, actor } = opts;
+
+  return prisma.$transaction(async (tx) => {
+    const rfq = await tx.rfq.findUnique({ where: { id: rfqId } });
+    if (!rfq) throw Object.assign(new Error("RFQ not found"), { status: 404 });
+    if (!isRfqAwaitingSellerConfirm(rfq.status) || rfq.awardedQuoteId == null) {
+      throw Object.assign(new Error("No pending deal confirmation to decline"), { status: 409 });
+    }
+
+    const quote = await tx.rfqQuote.findFirst({
+      where: { id: rfq.awardedQuoteId, rfqId },
+    });
+    if (!quote) {
+      throw Object.assign(new Error("Accepted quote not found"), { status: 404 });
+    }
+
+    if (actor.type === "seller") {
+      if (quote.supplierId !== actor.supplierId) {
+        throw Object.assign(new Error("Only the selected seller can decline this deal"), {
+          status: 403,
+        });
+      }
+    } else if (rfq.buyerId !== actor.buyerId) {
+      throw Object.assign(new Error("Only the buyer can withdraw this acceptance"), {
+        status: 403,
+      });
+    }
+
+    await tx.rfqQuote.update({
+      where: { id: quote.id },
+      data: { status: "active" },
+    });
+
+    const remaining = await tx.rfqQuote.count({
+      where: { rfqId, status: { in: ["active", "pending_confirm"] } },
+    });
+
+    await tx.rfq.update({
+      where: { id: rfqId },
+      data: {
+        status: remaining > 0 ? "responded" : "pending",
+        awardedQuoteId: null,
+        closedAt: null,
       },
     });
 
@@ -300,12 +447,12 @@ export async function closeRfqWithoutAward(opts: {
 
     const now = new Date();
     await tx.rfqQuote.updateMany({
-      where: { rfqId, status: "active" },
+      where: { rfqId, status: { in: ["active", "pending_confirm"] } },
       data: { status: "declined" },
     });
     await tx.rfq.update({
       where: { id: rfqId },
-      data: { status: "rejected", closedAt: now },
+      data: { status: "rejected", closedAt: now, awardedQuoteId: null },
     });
 
     const loaded = await tx.rfq.findUnique({

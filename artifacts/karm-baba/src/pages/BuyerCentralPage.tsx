@@ -20,6 +20,7 @@ const statusLabel: Record<string, { label: string; className: string }> = {
   pending: { label: "Open for quotes", className: "bg-yellow-100 text-yellow-800" },
   responded: { label: "Quotes in", className: "bg-blue-100 text-blue-800" },
   accepted: { label: "Deal closed", className: "bg-green-100 text-green-800" },
+  pending_confirm: { label: "Awaiting confirm", className: "bg-amber-100 text-amber-900" },
   rejected: { label: "Cancelled", className: "bg-red-100 text-red-700" },
 };
 

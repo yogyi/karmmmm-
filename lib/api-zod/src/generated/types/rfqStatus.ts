@@ -12,6 +12,7 @@ export type RfqStatus = typeof RfqStatus[keyof typeof RfqStatus];
 export const RfqStatus = {
   pending: 'pending',
   responded: 'responded',
+  pending_confirm: 'pending_confirm',
   accepted: 'accepted',
   rejected: 'rejected',
 } as const;

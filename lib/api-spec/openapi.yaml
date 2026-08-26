@@ -1202,7 +1202,7 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [pending, responded, accepted, rejected]
+          enum: [pending, responded, pending_confirm, accepted, rejected]
         quotedPrice:
           type: ["number", "null"]
           description: Winning or latest unit price (denormalized for lists)
@@ -1255,7 +1255,7 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [active, withdrawn, awarded, declined]
+          enum: [active, withdrawn, awarded, declined, pending_confirm]
         lineTotal:
           type: number
         createdAt:
@@ -1324,7 +1324,7 @@ components:
       properties:
         status:
           type: string
-          enum: [pending, responded, accepted, rejected]
+          enum: [pending, responded, pending_confirm, accepted, rejected]
         quotedPrice:
           type: number
         sellerMessage:

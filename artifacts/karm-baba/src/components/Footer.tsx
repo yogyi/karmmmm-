@@ -1,14 +1,16 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import logoUrl from "@assets/logo_1780688383558.png";
 import { Mail, Phone, MapPin, ArrowRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { workspaceHomePath } from "@/lib/workspaceHome";
 
 export function Footer() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const isSeller = user?.role === "seller";
   const isBuyer = user?.role === "buyer";
+  const homePath = workspaceHomePath(user?.role);
   const [email, setEmail] = useState("");
   const [newsletterMsg, setNewsletterMsg] = useState<string | null>(null);
 
@@ -59,13 +61,23 @@ export function Footer() {
       <div className="max-w-7xl mx-auto px-4 py-12">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-10 mb-10 items-start">
           <div className="sm:col-span-2 lg:col-span-2">
-            <div className="flex items-center gap-2.5 mb-4">
-              <img src={logoUrl} alt="Karm Baba" className="h-9 w-auto brightness-200" />
+            <Link
+              href={homePath}
+              className="flex items-center gap-2.5 mb-4 cursor-pointer hover:opacity-90 transition-opacity w-fit"
+              aria-label={
+                homePath === "/seller"
+                  ? "Go to Seller Central home"
+                  : homePath === "/buyer"
+                    ? "Go to Buyer Central home"
+                    : "Go to Karm Baba home"
+              }
+            >
+              <img src={logoUrl} alt="" className="h-9 w-auto brightness-200 pointer-events-none" />
               <div>
                 <div className="font-heading font-bold text-lg leading-none">Karm Baba</div>
                 <div className="text-[10px] text-white/50 font-medium tracking-wide uppercase">B2B Marketplace</div>
               </div>
-            </div>
+            </Link>
             <p className="text-white/60 text-sm leading-relaxed mb-4 max-w-md">
               India&apos;s trusted B2B wholesale marketplace connecting buyers and suppliers since 2020.
             </p>

@@ -5,6 +5,7 @@ describe("RFQ deal lifecycle helpers", () => {
   it("treats pending and responded as open for quotes", () => {
     expect(isRfqOpenForQuotes("pending")).toBe(true);
     expect(isRfqOpenForQuotes("responded")).toBe(true);
+    expect(isRfqOpenForQuotes("pending_confirm")).toBe(false);
     expect(isRfqOpenForQuotes("accepted")).toBe(false);
     expect(isRfqOpenForQuotes("rejected")).toBe(false);
   });
@@ -12,6 +13,7 @@ describe("RFQ deal lifecycle helpers", () => {
   it("treats accepted and rejected as closed deals", () => {
     expect(isRfqClosed("accepted")).toBe(true);
     expect(isRfqClosed("rejected")).toBe(true);
+    expect(isRfqClosed("pending_confirm")).toBe(false);
     expect(isRfqClosed("pending")).toBe(false);
     expect(isRfqClosed("responded")).toBe(false);
   });

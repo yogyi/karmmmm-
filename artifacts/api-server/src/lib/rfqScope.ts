@@ -1,25 +1,28 @@
 import type { Prisma } from "@workspace/db";
 
 /**
- * Seller RFQ inbox — opportunities only (never the viewer's own buyer RFQs):
+ * Seller RFQ inbox — opportunities + closed marketplace deals (visible as closed):
  * - Directed / awarded RFQs for this shop
- * - Open marketplace RFQs still collecting quotes (pending | responded)
+ * - Open marketplace RFQs (collecting, awaiting confirm, or closed)
  * - RFQs this shop already quoted on
+ * Never includes the viewer's own buyer RFQs.
  */
 export function sellerInboxWhere(
   supplierId: number,
   status?: string | null,
   viewerUserId?: number | null,
 ): Prisma.RfqWhereInput {
-  const openCollecting: Prisma.RfqWhereInput = status
+  const marketplaceVisible: Prisma.RfqWhereInput = status
     ? { supplierId: null, status }
-    : { supplierId: null, status: { in: ["pending", "responded"] } };
+    : {
+        supplierId: null,
+        status: { in: ["pending", "responded", "pending_confirm", "accepted"] },
+      };
 
   const opportunityOr: Prisma.RfqWhereInput = status
     ? {
         OR: [
           { supplierId, status },
-          // Status-filtered open RFQs this shop quoted (not every open RFQ with that status)
           { supplierId: null, status, quotes: { some: { supplierId } } },
           { status, quotes: { some: { supplierId } } },
         ],
@@ -27,7 +30,7 @@ export function sellerInboxWhere(
     : {
         OR: [
           { supplierId },
-          openCollecting,
+          marketplaceVisible,
           { quotes: { some: { supplierId } } },
         ],
       };
@@ -41,20 +44,18 @@ export function sellerInboxWhere(
 }
 
 /**
- * Sellers without a linked shop — open marketplace RFQs only.
- * Never mix in the viewer's own buyer RFQs (those belong in buyer mode).
+ * Sellers without a linked shop — open marketplace RFQs (incl. closed, as read-only).
  */
 export function sellerOpenMarketplaceWhere(
   status?: string | null,
 ): Prisma.RfqWhereInput {
-  const openStatuses = ["pending", "responded"] as const;
-  if (status != null && status !== "pending" && status !== "responded") {
-    // Closed RFQs are not opportunities for shop-less sellers
+  const visible = ["pending", "responded", "pending_confirm", "accepted"] as const;
+  if (status != null && !(visible as readonly string[]).includes(status)) {
     return { id: { in: [] } };
   }
   return {
     supplierId: null,
-    status: status ?? { in: [...openStatuses] },
+    status: status ?? { in: [...visible] },
   };
 }
 

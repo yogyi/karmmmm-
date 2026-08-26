@@ -14,4 +14,5 @@ export const RfqQuoteStatus = {
   withdrawn: 'withdrawn',
   awarded: 'awarded',
   declined: 'declined',
+  pending_confirm: 'pending_confirm',
 } as const;

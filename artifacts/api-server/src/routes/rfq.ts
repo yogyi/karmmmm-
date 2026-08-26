@@ -22,7 +22,10 @@ import { sellerInboxWhere, sellerOpenMarketplaceWhere, sortRfqsForSellerInbox } 
 import {
   awardRfqQuote,
   closeRfqWithoutAward,
+  confirmRfqDeal,
+  declinePendingRfqConfirm,
   formatRfqDeal,
+  isRfqAwaitingSellerConfirm,
   isRfqClosed,
   isRfqOpenForQuotes,
   loadRfqWithQuotes,
@@ -72,10 +75,12 @@ function canViewRfq(
     return user.role === "seller" || user.role === "admin";
   }
 
-  // Open marketplace RFQs while still collecting quotes — seller mode only
+  // Open marketplace RFQs: collecting, awaiting confirm, or closed (read-only for other sellers)
   if (
     rfq.supplierId == null &&
-    isRfqOpenForQuotes(rfq.status ?? "pending") &&
+    (isRfqOpenForQuotes(rfq.status ?? "pending") ||
+      isRfqAwaitingSellerConfirm(rfq.status ?? "") ||
+      rfq.status === "accepted") &&
     user.role === "seller"
   ) {
     return true;
@@ -379,7 +384,7 @@ router.post("/rfq/:id/quotes", requireClerkAuth, async (req, res): Promise<void>
   }
 });
 
-/** Buyer awards one quote → deal closed. */
+/** Buyer accepts a quote → waiting for seller to confirm (deal not closed yet). */
 router.post("/rfq/:id/award", requireClerkAuth, async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const rfqId = parseInt(String(rawId), 10);
@@ -395,7 +400,7 @@ router.post("/rfq/:id/award", requireClerkAuth, async (req, res): Promise<void> 
   }
   if (dbUser.role === "seller") {
     res.status(403).json({
-      error: "Switch to buyer mode to award quotes.",
+      error: "Switch to buyer mode to accept quotes.",
     });
     return;
   }
@@ -412,15 +417,92 @@ router.post("/rfq/:id/award", requireClerkAuth, async (req, res): Promise<void> 
       quoteId,
       buyerId: dbUser.id,
     });
+    // Lead stays "quoted" until seller confirms the deal.
+    res.json(GetRfqResponse.parse(formatForViewer(updated, dbUser)));
+  } catch (err) {
+    res.status(httpErrorStatus(err)).json({
+      error: err instanceof Error ? err.message : "Failed to accept quote",
+    });
+  }
+});
+
+/** Selected seller confirms buyer's acceptance → deal closed. */
+router.post("/rfq/:id/confirm", requireClerkAuth, async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const rfqId = parseInt(String(rawId), 10);
+  if (!Number.isFinite(rfqId)) {
+    res.status(400).json({ error: "Invalid RFQ id" });
+    return;
+  }
+
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  const linkedSupplierId = parseLinkedSupplierId(dbUser);
+  if (linkedSupplierId == null || (dbUser.role !== "seller" && !isAdmin(dbUser))) {
+    res.status(403).json({ error: "Switch to seller mode with a linked shop to confirm." });
+    return;
+  }
+
+  try {
+    const updated = await confirmRfqDeal({ rfqId, supplierId: linkedSupplierId });
     try {
       await syncLeadAfterDeal(updated);
     } catch (err) {
-      console.warn("Lead sync after award failed", err);
+      console.warn("Lead sync after confirm failed", err);
     }
     res.json(GetRfqResponse.parse(formatForViewer(updated, dbUser)));
   } catch (err) {
     res.status(httpErrorStatus(err)).json({
-      error: err instanceof Error ? err.message : "Failed to award quote",
+      error: err instanceof Error ? err.message : "Failed to confirm deal",
+    });
+  }
+});
+
+/** Seller declines — or buyer withdraws — a pending mutual confirmation. */
+router.post("/rfq/:id/decline-confirm", requireClerkAuth, async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const rfqId = parseInt(String(rawId), 10);
+  if (!Number.isFinite(rfqId)) {
+    res.status(400).json({ error: "Invalid RFQ id" });
+    return;
+  }
+
+  const dbUser = await getAuthenticatedDbUser(req);
+  if (!dbUser) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const linkedSupplierId = parseLinkedSupplierId(dbUser);
+  const existing = await loadRfqWithQuotes(rfqId);
+  if (!existing) {
+    res.status(404).json({ error: "RFQ not found" });
+    return;
+  }
+
+  try {
+    let updated;
+    if (existing.buyerId === dbUser.id && dbUser.role !== "seller") {
+      updated = await declinePendingRfqConfirm({
+        rfqId,
+        actor: { type: "buyer", buyerId: dbUser.id },
+      });
+    } else if (linkedSupplierId != null && (dbUser.role === "seller" || isAdmin(dbUser))) {
+      updated = await declinePendingRfqConfirm({
+        rfqId,
+        actor: { type: "seller", supplierId: linkedSupplierId },
+      });
+    } else {
+      res.status(403).json({ error: "Not allowed to decline this confirmation" });
+      return;
+    }
+    res.json(GetRfqResponse.parse(formatForViewer(updated, dbUser)));
+  } catch (err) {
+    res.status(httpErrorStatus(err)).json({
+      error: err instanceof Error ? err.message : "Failed to decline confirmation",
     });
   }
 });
@@ -474,15 +556,10 @@ router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
         quoteId: body.awardQuoteId,
         buyerId: existing.buyerId ?? dbUser.id,
       });
-      try {
-        await syncLeadAfterDeal(updated);
-      } catch (err) {
-        console.warn("Lead sync after award failed", err);
-      }
       res.json(UpdateRfqResponse.parse(formatForViewer(updated, dbUser)));
     } catch (err) {
       res.status(httpErrorStatus(err)).json({
-        error: err instanceof Error ? err.message : "Failed to award quote",
+        error: err instanceof Error ? err.message : "Failed to accept quote",
       });
     }
     return;
@@ -591,11 +668,6 @@ router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
           quoteId: active[0]!.id,
           buyerId: dbUser.id,
         });
-        try {
-          await syncLeadAfterDeal(updated);
-        } catch (err) {
-          console.warn("Lead sync after award failed", err);
-        }
         res.json(UpdateRfqResponse.parse(formatForViewer(updated, dbUser)));
       } catch (err) {
         res.status(httpErrorStatus(err)).json({

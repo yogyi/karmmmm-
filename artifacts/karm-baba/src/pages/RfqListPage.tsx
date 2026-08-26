@@ -9,6 +9,7 @@ import { subscribeRfqBroadcast } from "@/lib/rfqQueries";
 const statusConfig = {
   pending: { label: "Open for quotes", color: "bg-yellow-100 text-yellow-700 border-yellow-200", icon: <Clock size={12} /> },
   responded: { label: "Quotes in", color: "bg-blue-100 text-blue-700 border-blue-200", icon: <MessageSquare size={12} /> },
+  pending_confirm: { label: "Awaiting confirm", color: "bg-amber-100 text-amber-900 border-amber-200", icon: <Clock size={12} /> },
   accepted: { label: "Deal closed", color: "bg-green-100 text-green-700 border-green-200", icon: <CheckCircle size={12} /> },
   rejected: { label: "Cancelled", color: "bg-red-100 text-red-600 border-red-200", icon: <XCircle size={12} /> },
 };

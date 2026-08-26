@@ -18,6 +18,7 @@ import {
 } from "@workspace/api-client-react";
 import type { RfqQuote } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth as useClerkAuth } from "@clerk/react";
 import { useAuth } from "@/context/AuthContext";
 import { invalidateRfqQueries } from "@/lib/rfqQueries";
 import { useAppDialog } from "@/components/AppDialog";
@@ -32,6 +33,11 @@ const statusConfig = {
     label: "Quotes received",
     color: "bg-blue-100 text-blue-700 border-blue-200",
     icon: <MessageSquare size={12} />,
+  },
+  pending_confirm: {
+    label: "Awaiting seller confirm",
+    color: "bg-amber-100 text-amber-900 border-amber-200",
+    icon: <Clock size={12} />,
   },
   accepted: {
     label: "Deal closed",
@@ -94,6 +100,7 @@ function formatMoney(amount: number, code: string) {
 export function RfqDetailPage({ params }: { params: { id: string } }) {
   const [, navigate] = useLocation();
   const { user, isLoggedIn } = useAuth();
+  const { getToken } = useClerkAuth();
   const { confirm } = useAppDialog();
   const qc = useQueryClient();
   const rfqId = Number(params.id);
@@ -158,6 +165,7 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
     !!user && user.role === "seller" && typeof user.supplierId === "number" && user.supplierId > 0;
 
   const isOpenForQuotes = !!rfq && (rfq.status === "pending" || rfq.status === "responded");
+  const awaitingSellerConfirm = rfq?.status === "pending_confirm";
   const isOwnBuyerRfq = !!user && !!rfq && user.id === rfq.buyerId;
   const canSendQuote =
     !!user &&
@@ -172,15 +180,39 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
     return (rfq.quotes ?? []).find((q) => q.supplierId === user.supplierId) ?? null;
   }, [rfq, user?.supplierId, user?.role]);
 
-  // Buyer tools (award / cancel) only in buyer mode — not while acting as seller.
+  // Buyer tools (accept / cancel) only in buyer mode — not while acting as seller.
   const isBuyer =
     !!user &&
     !!rfq &&
     user.id === rfq.buyerId &&
     user.role !== "seller";
   const quotes = (rfq?.quotes ?? []) as RfqQuote[];
-  const activeQuotes = quotes.filter((q) => q.status === "active" || q.status === "awarded");
+  const activeQuotes = quotes.filter(
+    (q) => q.status === "active" || q.status === "awarded" || q.status === "pending_confirm",
+  );
   const dealClosed = rfq?.status === "accepted" || rfq?.status === "rejected";
+  const pendingQuote =
+    awaitingSellerConfirm && rfq?.awardedQuoteId
+      ? quotes.find((q) => q.id === rfq.awardedQuoteId) ?? null
+      : null;
+  const iAmPendingSeller =
+    !!linkedShop &&
+    !!pendingQuote &&
+    pendingQuote.supplierId === user?.supplierId &&
+    user?.role === "seller";
+
+  async function postConfirm(path: "confirm" | "decline-confirm") {
+    const token = await getToken();
+    if (!token) throw new Error("Session expired. Sign in again.");
+    const res = await fetch(`/api/rfq/${rfqId}/${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(data?.error || `Request failed (${res.status})`);
+    }
+  }
 
   async function onSubmitQuote(e: React.FormEvent) {
     e.preventDefault();
@@ -218,9 +250,10 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
 
   async function onAward(quoteId: number) {
     const ok = await confirm({
-      title: "Accept quote & close deal?",
-      message: "Accept this quote and close the deal? Other quotes will be declined.",
-      confirmLabel: "Accept & close",
+      title: "Accept this quote?",
+      message:
+        "The seller must also confirm. After they say yes, the deal closes. Other sellers will still see this RFQ as closed.",
+      confirmLabel: "Accept quote",
       cancelLabel: "Keep comparing",
     });
     if (!ok) return;
@@ -230,9 +263,56 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
       await awardQuote.mutateAsync({ id: rfqId, data: { quoteId } });
       await invalidateRfqQueries(qc, { rfqId });
       await refetch();
-      setSuccess("Deal closed — you accepted this supplier's quote.");
+      setSuccess("Quote accepted — waiting for the seller to confirm the deal.");
     } catch (err) {
-      setError(errMessage(err, "Could not award this quote."));
+      setError(errMessage(err, "Could not accept this quote."));
+    }
+  }
+
+  async function onSellerConfirmDeal() {
+    const ok = await confirm({
+      title: "Confirm this deal?",
+      message: "You and the buyer both agree. The deal will be marked closed.",
+      confirmLabel: "Yes — close deal",
+      cancelLabel: "Not yet",
+    });
+    if (!ok) return;
+    setError("");
+    setSuccess("");
+    try {
+      await postConfirm("confirm");
+      await invalidateRfqQueries(qc, { rfqId });
+      await refetch();
+      setSuccess("Deal closed — both sides agreed.");
+    } catch (err) {
+      setError(errMessage(err, "Could not confirm the deal."));
+    }
+  }
+
+  async function onDeclinePendingConfirm() {
+    const ok = await confirm({
+      title: iAmPendingSeller ? "Decline this deal?" : "Withdraw acceptance?",
+      message: iAmPendingSeller
+        ? "The RFQ will reopen so the buyer can choose another quote."
+        : "The RFQ will reopen for quotes.",
+      confirmLabel: iAmPendingSeller ? "Decline" : "Withdraw",
+      cancelLabel: "Keep waiting",
+      destructive: true,
+    });
+    if (!ok) return;
+    setError("");
+    setSuccess("");
+    try {
+      await postConfirm("decline-confirm");
+      await invalidateRfqQueries(qc, { rfqId });
+      await refetch();
+      setSuccess(
+        iAmPendingSeller
+          ? "Deal declined — RFQ is open again."
+          : "Acceptance withdrawn — RFQ is open again.",
+      );
+    } catch (err) {
+      setError(errMessage(err, "Could not update confirmation."));
     }
   }
 
@@ -394,23 +474,32 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* Buyer: compare quotes & award */}
+      {/* Buyer: compare quotes & accept (seller must still confirm) */}
       {isLoggedIn && isBuyer && activeQuotes.length > 0 && (
         <div className="bg-white rounded-2xl border border-border p-6 shadow-sm mb-6 space-y-4">
           <div>
             <h2 className="font-heading font-bold text-lg">
-              {rfq.status === "accepted" ? "Winning quote" : "Compare quotes"}
+              {rfq.status === "accepted"
+                ? "Winning quote"
+                : awaitingSellerConfirm
+                  ? "Waiting for seller"
+                  : "Compare quotes"}
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
               {rfq.status === "accepted"
-                ? "Deal is closed with the supplier below."
-                : "Review offers and accept one to close the deal. Other quotes are then declined."}
+                ? "Deal is closed — both you and the seller agreed."
+                : awaitingSellerConfirm
+                  ? "You accepted a quote. The seller must confirm before the deal closes."
+                  : "Accept one quote. The seller must also confirm — then the deal closes. Other sellers will see it as closed."}
             </p>
           </div>
 
           <div className="space-y-3">
             {activeQuotes.map((q) => {
-              const isWinner = q.status === "awarded" || q.id === rfq.awardedQuoteId;
+              const isWinner =
+                q.status === "awarded" ||
+                q.status === "pending_confirm" ||
+                q.id === rfq.awardedQuoteId;
               return (
                 <div
                   key={q.id}
@@ -422,9 +511,14 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
                     <div>
                       <div className="font-semibold text-foreground flex items-center gap-2">
                         {q.supplierName}
-                        {isWinner && (
+                        {q.status === "awarded" && (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
-                            <Trophy size={10} /> Awarded
+                            <Trophy size={10} /> Deal closed
+                          </span>
+                        )}
+                        {q.status === "pending_confirm" && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-900 bg-amber-100 px-2 py-0.5 rounded-full">
+                            <Clock size={10} /> Awaiting seller
                           </span>
                         )}
                       </div>
@@ -445,14 +539,14 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
                         <p className="text-sm text-foreground/80 whitespace-pre-wrap mt-2">{q.message}</p>
                       )}
                     </div>
-                    {isBuyer && rfq.status === "responded" && q.status === "active" && (
+                    {isBuyer && isOpenForQuotes && q.status === "active" && (
                       <button
                         type="button"
                         disabled={busy}
                         onClick={() => void onAward(q.id)}
                         className="shrink-0 bg-green-600 text-white px-4 min-h-10 rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-60"
                       >
-                        Accept & close deal
+                        Accept quote
                       </button>
                     )}
                   </div>
@@ -460,6 +554,17 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
               );
             })}
           </div>
+
+          {isBuyer && awaitingSellerConfirm && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onDeclinePendingConfirm()}
+              className="w-full border border-border py-2.5 rounded-xl font-semibold text-sm hover:bg-muted disabled:opacity-60"
+            >
+              Withdraw acceptance
+            </button>
+          )}
 
           {isBuyer && isOpenForQuotes && (
             <button
@@ -480,6 +585,62 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
+      {/* Seller: confirm deal after buyer accepts your quote */}
+      {isLoggedIn && iAmPendingSeller && awaitingSellerConfirm && pendingQuote && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 mb-6 space-y-3">
+          <h2 className="font-heading font-bold text-lg">Buyer accepted your quote</h2>
+          <p className="text-sm text-muted-foreground">
+            Confirm to close the deal. Other sellers will still see this RFQ as closed.
+          </p>
+          <div className="text-xl font-heading font-bold">
+            {formatMoney(pendingQuote.unitPrice, pendingQuote.currency)} / {pendingQuote.unit}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onSellerConfirmDeal()}
+              className="bg-green-600 text-white px-5 min-h-11 rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-60"
+            >
+              Yes — confirm deal
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onDeclinePendingConfirm()}
+              className="border border-border px-5 min-h-11 rounded-xl text-sm font-semibold hover:bg-white disabled:opacity-60"
+            >
+              Decline
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Other sellers: RFQ closing / closed (read-only) */}
+      {isLoggedIn &&
+        linkedShop &&
+        user?.role === "seller" &&
+        !iAmPendingSeller &&
+        myQuote?.status !== "awarded" &&
+        (awaitingSellerConfirm || rfq.status === "accepted") && (
+          <div
+            className={`rounded-2xl border p-5 mb-6 ${
+              rfq.status === "accepted"
+                ? "bg-muted/40 border-border"
+                : "bg-amber-50/80 border-amber-100"
+            }`}
+          >
+            <h2 className="font-heading font-bold text-lg mb-1">
+              {rfq.status === "accepted" ? "Deal closed" : "Deal closing"}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {rfq.status === "accepted"
+                ? "Another seller won this RFQ. It stays visible as closed."
+                : "Buyer accepted another seller’s quote — waiting for that seller to confirm."}
+            </p>
+          </div>
+        )}
+
       {/* Seller: own quote status when deal closed */}
       {isLoggedIn && linkedShop && myQuote && dealClosed && (
         <div
@@ -494,7 +655,7 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
           </h2>
           <p className="text-sm text-muted-foreground mb-2">
             {myQuote.status === "awarded"
-              ? "The buyer accepted your quote."
+              ? "You and the buyer both confirmed — deal closed."
               : myQuote.status === "declined"
                 ? "Another supplier was awarded, or the buyer cancelled."
                 : "This RFQ is no longer open."}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { Package, FileText, Clock, Eye, TrendingUp, Plus, CheckCircle, XCircle, MessageSquare, Pencil, Trash2, AlertTriangle, ImageIcon, BadgeCheck, Loader2, Share2, Copy, ExternalLink } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -21,6 +21,7 @@ import { subscribeRfqBroadcast } from "@/lib/rfqQueries";
 const statusConfig = {
   pending: { label: "Open", color: "bg-yellow-100 text-yellow-700", icon: <Clock size={12} /> },
   responded: { label: "Quotes in", color: "bg-blue-100 text-blue-700", icon: <MessageSquare size={12} /> },
+  pending_confirm: { label: "Awaiting confirm", color: "bg-amber-100 text-amber-900", icon: <Clock size={12} /> },
   accepted: { label: "Deal closed", color: "bg-green-100 text-green-700", icon: <CheckCircle size={12} /> },
   rejected: { label: "Cancelled", color: "bg-red-100 text-red-600", icon: <XCircle size={12} /> },
 };
@@ -114,6 +115,8 @@ export function DashboardPage() {
   const searchString = useSearch();
   const { user, isLoaded } = useAuth();
   const { getToken } = useClerkAuth();
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
   const queryClient = useQueryClient();
 
   const isSupplier = user?.role === "seller" || user?.role === "admin";
@@ -126,11 +129,19 @@ export function DashboardPage() {
   const [shopVerified, setShopVerified] = useState<boolean | null>(
     user?.role === "admin" ? true : null,
   );
-  /** True once /suppliers/me confirms a shop row (any verification status). */
-  const [shopReady, setShopReady] = useState(user?.role === "admin");
+  /**
+   * Sellers with a linked shop open the dashboard immediately; KYC details refresh in the background.
+   * Avoids a blank "Loading your shop…" screen when /suppliers/me is slow or cancelled.
+   */
+  const [shopReady, setShopReady] = useState(
+    () =>
+      user?.role === "admin" ||
+      (typeof user?.supplierId === "number" && user.supplierId > 0),
+  );
   const [needsVerify, setNeedsVerify] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<string | null>(null);
   const [shopLoadError, setShopLoadError] = useState<string | null>(null);
+  const [shopCheckNonce, setShopCheckNonce] = useState(0);
   const [shareSlug, setShareSlug] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
   /** Shop id from /suppliers/me — fills gaps when auth profile lacks supplierId. */
@@ -142,25 +153,56 @@ export function DashboardPage() {
   useEffect(() => {
     if (!isLoaded || !user || user.role === "buyer" || user.role === "admin") return;
     let cancelled = false;
-    void (async () => {
-      setShopLoadError(null);
-      const token = await getToken();
-      if (!token) {
-        if (!cancelled) setShopLoadError("Session expired. Sign in again.");
+    let settled = false;
+
+    const finish = () => {
+      settled = true;
+      window.clearTimeout(timeoutId);
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      if (cancelled || settled) return;
+      // Never leave sellers on an infinite spinner.
+      if (authSupplierId != null) {
+        setShopReady(true);
+        setNeedsVerify(false);
+        setShopLoadError(null);
         return;
       }
+      setShopLoadError("Shop check timed out. Retry to continue.");
+      setShopReady(false);
+    }, 12_000);
+
+    void (async () => {
+      setShopLoadError(null);
       try {
+        const token = await getTokenRef.current();
+        if (cancelled) return;
+        if (!token) {
+          finish();
+          setShopLoadError("Session expired. Sign in again.");
+          return;
+        }
         const res = await fetch("/api/suppliers/me", {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (cancelled) return;
         if (res.status === 404) {
+          finish();
           setNeedsVerify(true);
           setShopReady(false);
           setShopVerified(false);
+          setShopSupplierId(null);
           return;
         }
         if (!res.ok) {
+          finish();
+          // Keep dashboard usable if we already know the shop id.
+          if (authSupplierId != null) {
+            setShopReady(true);
+            setShopLoadError(`Could not refresh shop status (${res.status}).`);
+            return;
+          }
           setShopLoadError(`Could not load your shop (${res.status}).`);
           setShopReady(false);
           setShopVerified(false);
@@ -173,6 +215,8 @@ export function DashboardPage() {
           slug?: string | null;
           shareUrl?: string | null;
         };
+        if (cancelled) return;
+        finish();
         const status =
           typeof s.verificationStatus === "string" ? s.verificationStatus : "draft";
         setVerificationStatus(status);
@@ -191,21 +235,30 @@ export function DashboardPage() {
         }
         setNeedsVerify(false);
         setShopReady(true);
+        setShopLoadError(null);
       } catch {
-        if (!cancelled) {
-          setShopLoadError("Could not load your shop. Check your connection.");
-          setShopReady(false);
-          setShopVerified(false);
+        if (cancelled) return;
+        finish();
+        if (authSupplierId != null) {
+          setShopReady(true);
+          setShopLoadError("Could not refresh shop status. Showing your dashboard anyway.");
+          return;
         }
+        setShopLoadError("Could not load your shop. Check your connection.");
+        setShopReady(false);
+        setShopVerified(false);
       }
     })();
+
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
     };
-  }, [isLoaded, user?.id, user?.role, getToken]);
+    // Intentionally omit getToken — Clerk recreates it often and was cancelling the fetch mid-flight.
+  }, [isLoaded, user?.id, user?.role, authSupplierId, shopCheckNonce]);
 
   async function ensureShareLink() {
-    const token = await getToken();
+    const token = await getTokenRef.current();
     if (!token) return;
     const res = await fetch("/api/suppliers/me/share-link", {
       method: "POST",
@@ -222,6 +275,11 @@ export function DashboardPage() {
     await navigator.clipboard.writeText(url);
     setShareCopied(true);
     setTimeout(() => setShareCopied(false), 2000);
+  }
+
+  async function retryShopCheck() {
+    setShopLoadError(null);
+    setShopCheckNonce((n) => n + 1);
   }
 
   const { data: platformStats } = useGetDashboardStats({
@@ -383,7 +441,7 @@ export function DashboardPage() {
           <div className="flex flex-wrap gap-3 justify-center">
             <button
               type="button"
-              onClick={() => window.location.reload()}
+              onClick={() => void retryShopCheck()}
               className="bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90"
             >
               Retry
@@ -429,9 +487,16 @@ export function DashboardPage() {
       );
     }
     return (
-      <div className="min-h-[50vh] flex flex-col items-center justify-center gap-3">
+      <div className="min-h-[50vh] flex flex-col items-center justify-center gap-3 px-4">
         <Loader2 className="animate-spin text-primary" size={28} />
         <p className="text-sm text-muted-foreground">Loading your shop…</p>
+        <button
+          type="button"
+          onClick={() => void retryShopCheck()}
+          className="mt-2 text-sm font-semibold text-primary hover:underline"
+        >
+          Taking too long? Retry
+        </button>
       </div>
     );
   }
