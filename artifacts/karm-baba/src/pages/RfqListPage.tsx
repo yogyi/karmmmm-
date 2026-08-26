@@ -21,17 +21,15 @@ export function RfqListPage() {
   const isSeller = user?.role === "seller" || user?.role === "admin";
   const [manualRefreshing, setManualRefreshing] = useState(false);
 
-  // Sellers: ask for supplier inbox (or bare list so API uses seller scope).
+  // Sellers: bare list — API scopes by linked shop (sending supplierId can 403 on mismatch).
   // Buyers: force buyerId so list is "my RFQs".
   const listParams = useMemo(() => {
     if (!user || user.id <= 0) return undefined;
     if (user.role === "seller" || user.role === "admin") {
-      return typeof user.supplierId === "number" && user.supplierId > 0
-        ? { supplierId: user.supplierId }
-        : undefined;
+      return undefined;
     }
     return { buyerId: user.id };
-  }, [user?.id, user?.role, user?.supplierId]);
+  }, [user?.id, user?.role]);
 
   const { data: rfqs, isLoading, refetch, isError } = useListRfqs(listParams, {
     query: {
@@ -57,8 +55,11 @@ export function RfqListPage() {
   }
 
   // Defense-in-depth: never show the viewer's own RFQs in seller inbox UI.
+  // buyerId may be redacted to null for open marketplace browse — keep those.
   const roleFilteredRfqs = (rfqs ?? []).filter((r) =>
-    isSeller ? r.buyerId !== user?.id : r.buyerId === user?.id,
+    isSeller
+      ? r.buyerId == null || r.buyerId !== user?.id
+      : r.buyerId === user?.id,
   );
 
   // Sellers: highest target price first (matches API). Buyers keep API newest-first order.
@@ -103,6 +104,37 @@ export function RfqListPage() {
     );
   }
 
+  // Shop owners browsing in buyer mode only see their own posts — not the seller inbox.
+  if (
+    profileReady &&
+    user &&
+    user.role === "buyer" &&
+    typeof user.supplierId === "number" &&
+    user.supplierId > 0
+  ) {
+    return (
+      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-6 sm:py-8 min-w-0">
+        <div className="text-center py-16 kb-card">
+          <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <FileText size={28} className="text-muted-foreground" />
+          </div>
+          <h1 className="font-heading text-xl font-bold mb-2">Incoming RFQs need Seller mode</h1>
+          <p className="text-muted-foreground text-sm mb-6 max-w-sm mx-auto">
+            You&apos;re in buyer mode, so this page only shows RFQs you posted. Switch to seller to
+            see and quote inbound inquiries.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate("/onboarding?change=1")}
+            className="kb-btn-primary px-6 py-2.5 text-sm"
+          >
+            Switch to seller
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <PageHero
@@ -111,7 +143,7 @@ export function RfqListPage() {
         title={isSeller ? "Incoming RFQs" : "My RFQs"}
         description={
           isSeller
-            ? "Highest target-price inquiries first · directed + open RFQs for your shop"
+            ? "Open marketplace + RFQs sent to your shop · highest budget first"
             : "Track and manage your quotation requests"
         }
         actions={
@@ -173,7 +205,7 @@ export function RfqListPage() {
           </h3>
           <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">
             {isSeller
-              ? "Share your profile card or wait for buyers to send quotation requests."
+              ? "When buyers post product or open RFQs, they appear here. Share your shop card for direct inquiries too."
               : "Submit your first request for quotation to get wholesale quotes from verified suppliers"}
           </p>
           {isSeller ? (

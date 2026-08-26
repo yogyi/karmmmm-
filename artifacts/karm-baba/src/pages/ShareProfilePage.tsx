@@ -71,10 +71,17 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
   const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mediaBusy, setMediaBusy] = useState<"cover" | "logo" | null>(null);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const [mediaMsg, setMediaMsg] = useState<string | null>(null);
   const [ownerShopId, setOwnerShopId] = useState<number | null>(null);
   const { uploadFile } = useUpload({ getToken });
+  /** Last persisted URLs — used to cancel pending previews. */
+  const [savedLogoUrl, setSavedLogoUrl] = useState<string | null>(null);
+  const [savedCoverUrl, setSavedCoverUrl] = useState<string | null>(null);
+  const [pendingLogoFile, setPendingLogoFile] = useState<File | null>(null);
+  const [pendingCoverFile, setPendingCoverFile] = useState<File | null>(null);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "",
     company: "",
@@ -84,6 +91,8 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
     productInterest: "",
     message: "",
   });
+
+  const mediaDirty = pendingLogoFile != null || pendingCoverFile != null;
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -158,6 +167,18 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
         shareUrl: string;
       };
       setSupplier(data.supplier);
+      setSavedLogoUrl(data.supplier.logoUrl ?? null);
+      setSavedCoverUrl(data.supplier.shareImageUrl || data.supplier.coverUrl || null);
+      setPendingLogoFile(null);
+      setPendingCoverFile(null);
+      setLogoPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setCoverPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
       setProducts(data.products ?? []);
       setShareUrl(
         typeof window !== "undefined"
@@ -170,6 +191,13 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
       cancelled = true;
     };
   }, [params.slug, isLoaded, isLoggedIn, getToken, navigate]);
+
+  useEffect(() => {
+    return () => {
+      if (logoPreviewUrl) URL.revokeObjectURL(logoPreviewUrl);
+      if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
+    };
+  }, [logoPreviewUrl, coverPreviewUrl]);
 
   async function copyLink() {
     if (!shareUrl) return;
@@ -204,9 +232,11 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
           : { ...prev, coverUrl: nextUrl, shareImageUrl: nextUrl }
         : prev,
     );
+    if (field === "logo") setSavedLogoUrl(nextUrl);
+    else setSavedCoverUrl(nextUrl);
   }
 
-  async function onPickMedia(field: "cover" | "logo", file: File) {
+  function onPickMedia(field: "cover" | "logo", file: File) {
     if (!supplier) return;
 
     const looksLikeImage =
@@ -220,39 +250,81 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
       return;
     }
 
-    setMediaBusy(field);
     setMediaMsg(null);
     const preview = URL.createObjectURL(file);
+    if (field === "logo") {
+      setLogoPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return preview;
+      });
+      setPendingLogoFile(file);
+      setSupplier((prev) => (prev ? { ...prev, logoUrl: preview } : prev));
+    } else {
+      setCoverPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return preview;
+      });
+      setPendingCoverFile(file);
+      setSupplier((prev) =>
+        prev ? { ...prev, coverUrl: preview, shareImageUrl: preview } : prev,
+      );
+    }
+    setMediaMsg("Preview ready — click Save changes to publish.");
+  }
+
+  function cancelMediaChanges() {
+    setPendingLogoFile(null);
+    setPendingCoverFile(null);
+    setLogoPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setCoverPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     setSupplier((prev) =>
       prev
-        ? field === "logo"
-          ? { ...prev, logoUrl: preview }
-          : { ...prev, coverUrl: preview, shareImageUrl: preview }
+        ? {
+            ...prev,
+            logoUrl: savedLogoUrl,
+            coverUrl: savedCoverUrl,
+            shareImageUrl: savedCoverUrl,
+          }
         : prev,
     );
+    setMediaMsg(null);
+  }
+
+  async function saveMediaChanges() {
+    if (!supplier || !mediaDirty) return;
+    setMediaBusy(true);
+    setMediaMsg(null);
     try {
-      const uploaded = await uploadFile(file);
-      const nextUrl = mediaUrlFromUpload(uploaded);
-      await saveShopMedia(field, nextUrl);
-      setMediaMsg(field === "cover" ? "Cover updated" : "Logo updated");
+      if (pendingLogoFile) {
+        const uploaded = await uploadFile(pendingLogoFile);
+        await saveShopMedia("logo", mediaUrlFromUpload(uploaded));
+      }
+      if (pendingCoverFile) {
+        const uploaded = await uploadFile(pendingCoverFile);
+        await saveShopMedia("cover", mediaUrlFromUpload(uploaded));
+      }
+      setPendingLogoFile(null);
+      setPendingCoverFile(null);
+      setLogoPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setCoverPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setMediaMsg("Shop photos saved");
       window.setTimeout(() => setMediaMsg(null), 2500);
     } catch (err) {
-      try {
-        const token = await getToken();
-        const res = await fetch(`/api/suppliers/by-slug/${encodeURIComponent(params.slug)}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (res.ok) {
-          const data = (await res.json()) as { supplier: ShareSupplier };
-          setSupplier(data.supplier);
-        }
-      } catch {
-        /* ignore */
-      }
-      setMediaMsg(err instanceof Error ? err.message : "Could not update image");
+      setMediaMsg(err instanceof Error ? err.message : "Could not save images");
     } finally {
-      window.setTimeout(() => URL.revokeObjectURL(preview), 500);
-      setMediaBusy(null);
+      setMediaBusy(false);
     }
   }
 
@@ -357,8 +429,46 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
 
       <div className="relative max-w-4xl mx-auto px-4 py-8 sm:py-12">
         {isOwner && mediaMsg ? (
-          <div className="mb-3 rounded-xl border border-secondary/10 bg-white/90 px-4 py-2.5 text-sm font-medium text-secondary shadow-sm">
+          <div
+            className={`mb-3 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-sm ${
+              mediaMsg.toLowerCase().includes("could not") ||
+              mediaMsg.toLowerCase().includes("failed") ||
+              mediaMsg.toLowerCase().includes("choose") ||
+              mediaMsg.toLowerCase().includes("must be")
+                ? "border-red-200 bg-red-50 text-red-700"
+                : "border-secondary/10 bg-white/90 text-secondary"
+            }`}
+          >
             {mediaMsg}
+          </div>
+        ) : null}
+
+        {isOwner && mediaDirty ? (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-white/95 px-4 py-3 shadow-sm">
+            <p className="text-sm text-muted-foreground">
+              You have unsaved shop photo changes.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={mediaBusy}
+                onClick={() => cancelMediaChanges()}
+                className="rounded-xl border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={mediaBusy}
+                onClick={() => void saveMediaChanges()}
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
+              >
+                {mediaBusy ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : null}
+                {mediaBusy ? "Saving…" : "Save changes"}
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -416,26 +526,18 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
             <div className="absolute top-3 right-3 flex items-center gap-2 z-20">
               {isOwner ? (
                 <ImageSourcePicker
-                  disabled={mediaBusy !== null}
+                  disabled={mediaBusy}
                   preferEnvironment
-                  onFile={(file) => void onPickMedia("cover", file)}
+                  onFile={(file) => onPickMedia("cover", file)}
                   onError={(msg) => setMediaMsg(msg)}
                 >
                   <button
                     type="button"
-                    disabled={mediaBusy !== null}
+                    disabled={mediaBusy}
                     className="inline-flex items-center gap-1.5 bg-white/95 text-secondary text-sm font-semibold px-3.5 py-2 rounded-xl shadow-md border border-white/80 hover:bg-white transition-colors disabled:opacity-60"
                   >
-                    {mediaBusy === "cover" ? (
-                      <Loader2 size={14} className="animate-spin text-primary" />
-                    ) : (
-                      <Camera size={14} className="text-primary" />
-                    )}
-                    {mediaBusy === "cover"
-                      ? "Uploading…"
-                      : cardCover
-                        ? "Change cover"
-                        : "Add cover"}
+                    <Camera size={14} className="text-primary" />
+                    {cardCover ? "Change cover" : "Add cover"}
                   </button>
                 </ImageSourcePicker>
               ) : null}
@@ -467,7 +569,7 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
                       {supplier.companyName[0]}
                     </div>
                   )}
-                  {mediaBusy === "logo" ? (
+                  {mediaBusy && pendingLogoFile ? (
                     <span className="absolute inset-[3px] rounded-[0.85rem] bg-black/45 flex items-center justify-center">
                       <Loader2 size={18} className="animate-spin text-white" />
                     </span>
@@ -475,14 +577,14 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
                 </div>
                 {isOwner ? (
                   <ImageSourcePicker
-                    disabled={mediaBusy !== null}
-                    onFile={(file) => void onPickMedia("logo", file)}
+                    disabled={mediaBusy}
+                    onFile={(file) => onPickMedia("logo", file)}
                     onError={(msg) => setMediaMsg(msg)}
                     align="start"
                   >
                     <button
                       type="button"
-                      disabled={mediaBusy !== null}
+                      disabled={mediaBusy}
                       className="absolute -bottom-1 -right-1 w-9 h-9 rounded-full bg-secondary text-white border-2 border-white shadow-md flex items-center justify-center hover:bg-secondary/90 disabled:opacity-60"
                       aria-label="Change logo"
                       title="Change logo"

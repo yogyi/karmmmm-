@@ -340,17 +340,12 @@ export function DashboardPage() {
   const { data: supplierDash } = useGetSupplierDashboard(supplierId ?? 0, {
     query: { enabled: isSupplier && hasLinkedShop && shopReady } as any,
   });
-  const { data: inboxRfqs, refetch: refetchInboxRfqs } = useListRfqs(
-    isSupplier && hasLinkedShop && supplierId != null
-      ? { supplierId }
-      : isSupplier
-        ? undefined
-        : user && user.id > 0
-          ? { buyerId: user.id }
-          : undefined,
+  const { data: inboxRfqs, refetch: refetchInboxRfqs, isError: inboxRfqsError } = useListRfqs(
+    isSupplier ? undefined : user && user.id > 0 ? { buyerId: user.id } : undefined,
     {
       query: {
-        enabled: !!user && user.id > 0 && (!isSupplier || shopReady),
+        // Fetch inbox even before KYC finishes — open RFQs don't require a verified shop.
+        enabled: !!user && user.id > 0 && (user.role === "seller" || user.role === "admin" || !isSupplier),
         refetchOnMount: true,
         refetchOnWindowFocus: true,
         refetchInterval: isSupplier ? 45_000 : 90_000,
@@ -374,7 +369,10 @@ export function DashboardPage() {
   const supplierProducts = supplierProductsData?.items ?? [];
 
   // Same filter as Incoming RFQs — never mix platform totals into seller cards.
-  const sellerIncomingRfqs = (inboxRfqs ?? []).filter((r) => r.buyerId !== user?.id);
+  // buyerId may be null when redacted for open marketplace browse.
+  const sellerIncomingRfqs = (inboxRfqs ?? []).filter(
+    (r) => r.buyerId == null || r.buyerId !== user?.id,
+  );
   const incomingRfqCount = sellerIncomingRfqs.length;
   const openRfqCount = sellerIncomingRfqs.filter(
     (r) =>
@@ -577,8 +575,7 @@ export function DashboardPage() {
           <h2 className="text-xl font-bold mb-2">Complete seller verification</h2>
           <p className="text-sm text-muted-foreground mb-6">
             Free plan includes shop setup with GST and company KYC. Finish verification to unlock
-            Seller Central, product listing, and RFQ quotes. Your verified badge appears after
-            review.
+            product listing. You can still browse open RFQs while you finish.
           </p>
           <div className="flex flex-wrap gap-3 justify-center">
             <button
@@ -590,12 +587,35 @@ export function DashboardPage() {
             </button>
             <button
               type="button"
+              onClick={() => navigate("/rfq")}
+              className="border border-border px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-muted"
+            >
+              View incoming RFQs
+            </button>
+            <button
+              type="button"
               onClick={() => navigate("/account")}
               className="border border-border px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-muted"
             >
               Account
             </button>
           </div>
+          {sellerIncomingRfqs.length > 0 ? (
+            <p className="mt-6 text-sm text-muted-foreground">
+              {openRfqCount > 0
+                ? `${openRfqCount} open RFQ${openRfqCount === 1 ? "" : "s"} waiting — `
+                : `${incomingRfqCount} RFQ${incomingRfqCount === 1 ? "" : "s"} in your inbox — `}
+              <button
+                type="button"
+                className="text-primary font-semibold hover:underline"
+                onClick={() => navigate("/rfq")}
+              >
+                open inbox
+              </button>
+            </p>
+          ) : inboxRfqsError ? (
+            <p className="mt-6 text-sm text-red-600">Could not load RFQs right now.</p>
+          ) : null}
         </div>
       );
     }

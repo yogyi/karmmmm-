@@ -315,7 +315,7 @@ export function Header() {
               { label: "Leads", path: "/seller/leads" },
               { label: "Plans", path: "/seller/plans" },
               { label: "Verification", path: "/seller/verify" },
-              { label: "RFQs", path: "/rfq" },
+              { label: "Incoming RFQs", path: "/rfq" },
             ].map((item) => {
               const active = isNavActive(item.path);
               return (
@@ -509,7 +509,8 @@ export function Header() {
                       }}
                       className="w-full text-left px-4 py-2 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
                     >
-                      <FileText size={15} className="text-muted-foreground" /> My RFQs
+                      <FileText size={15} className="text-muted-foreground" />{" "}
+                      {isSeller ? "Incoming RFQs" : "My RFQs"}
                     </button>
                     <div className="border-t border-border mt-1 pt-1">
                       <button

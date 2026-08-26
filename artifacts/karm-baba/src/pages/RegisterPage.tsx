@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
-import { SignUp } from "@clerk/react";
+import { SignUp, useAuth as useClerkAuth } from "@clerk/react";
 import { useLocation, useSearch } from "wouter";
+import { Loader2 } from "lucide-react";
 import { AuthModeToggle } from "@/components/AuthModeToggle";
 import {
   type AuthMode,
   resolveInitialAuthMode,
   setStoredAuthMode,
 } from "@/lib/authMode";
-import { clerkAuthRedirectUrls } from "@/lib/authRedirect";
+import { clerkAuthRedirectUrls, consumeAuthRedirect } from "@/lib/authRedirect";
+import { useAuth } from "@/context/AuthContext";
+import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
+import { workspaceHomePath } from "@/lib/workspaceHome";
 import logoUrl from "@assets/logo_1780688383558.png";
 
 function redirectFromSearch(search: string): string | null {
@@ -18,7 +22,11 @@ function redirectFromSearch(search: string): string | null {
 export function RegisterPage() {
   const [, navigate] = useLocation();
   const search = useSearch();
+  const { isSignedIn, isLoaded: clerkLoaded } = useClerkAuth();
+  const { user, isLoaded, profileReady } = useAuth();
+  const { switchTo, switching } = useSwitchAccountRole();
   const [mode, setMode] = useState<AuthMode>(() => resolveInitialAuthMode("buyer"));
+  const [continuing, setContinuing] = useState(false);
   const clerkRedirects = clerkAuthRedirectUrls(search);
   const redirect = redirectFromSearch(search);
 
@@ -33,6 +41,31 @@ export function RegisterPage() {
     url.searchParams.set("mode", next);
     window.history.replaceState(null, "", url.pathname + url.search + url.hash);
   }
+
+  async function continueSignedIn() {
+    if (!user || continuing || switching) return;
+    setContinuing(true);
+    try {
+      if (user.role === "admin") {
+        navigate(consumeAuthRedirect("/"));
+        return;
+      }
+      if (!user.onboardingCompleted) {
+        navigate("/onboarding");
+        return;
+      }
+      if (mode === user.role) {
+        navigate(consumeAuthRedirect(workspaceHomePath(user.role)));
+        return;
+      }
+      await switchTo(mode);
+    } finally {
+      setContinuing(false);
+    }
+  }
+
+  const authReady = clerkLoaded && isLoaded && profileReady;
+  const alreadySignedIn = Boolean(authReady && isSignedIn && user);
 
   return (
     <div className="min-h-screen flex">
@@ -87,20 +120,44 @@ export function RegisterPage() {
 
           <AuthModeToggle mode={mode} onChange={selectMode} />
 
-          <SignUp
-            routing="hash"
-            signInUrl={`/login?mode=${mode}${
-              redirect ? `&redirect=${encodeURIComponent(redirect)}` : ""
-            }`}
-            fallbackRedirectUrl={clerkRedirects.fallbackRedirectUrl}
-            forceRedirectUrl={clerkRedirects.forceRedirectUrl}
-            appearance={{
-              elements: {
-                rootBox: "mx-auto w-full",
-                card: "shadow-xl border border-border rounded-2xl",
-              },
-            }}
-          />
+          {!authReady ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="animate-spin text-primary" size={28} />
+            </div>
+          ) : alreadySignedIn ? (
+            <div className="rounded-2xl border border-border bg-white shadow-xl p-6 space-y-4">
+              <p className="text-sm text-muted-foreground text-center">
+                You&apos;re already signed in. Choose Buyer or Seller above, then continue.
+              </p>
+              <button
+                type="button"
+                disabled={continuing || switching}
+                onClick={() => void continueSignedIn()}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-primary min-h-11 px-4 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
+              >
+                {(continuing || switching) && (
+                  <Loader2 size={16} className="animate-spin" />
+                )}
+                Continue as {mode === "seller" ? "Seller" : "Buyer"}
+              </button>
+            </div>
+          ) : (
+            <SignUp
+              key="kb-sign-up"
+              routing="hash"
+              signInUrl={`/login?mode=${mode}${
+                redirect ? `&redirect=${encodeURIComponent(redirect)}` : ""
+              }`}
+              fallbackRedirectUrl={clerkRedirects.fallbackRedirectUrl}
+              forceRedirectUrl={clerkRedirects.forceRedirectUrl}
+              appearance={{
+                elements: {
+                  rootBox: "mx-auto w-full",
+                  card: "shadow-xl border border-border rounded-2xl",
+                },
+              }}
+            />
+          )}
 
           <p className="text-center text-sm text-muted-foreground mt-6">
             Already have an account?{" "}

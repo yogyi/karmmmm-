@@ -103,10 +103,7 @@ export function ProductDetailPage({ params }: { params: { id: string } }) {
           productId: product?.id,
           productName: product?.name ?? "",
           categoryId: product?.categoryId,
-          supplierId:
-            product?.supplierId && product.supplierId > 0
-              ? product.supplierId
-              : undefined,
+          // Open marketplace — all sellers can quote. Use supplier profile RFQ for directed.
           buyerName: rfqForm.buyerName,
           buyerEmail: rfqForm.buyerEmail,
           quantity: Number(rfqForm.quantity),

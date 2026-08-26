@@ -244,14 +244,9 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
       return;
     }
     productId = product.id;
-    if (supplierId == null && product.supplierId != null) {
-      supplierId = product.supplierId;
-      const supplier = await prisma.supplier.findUnique({
-        where: { id: product.supplierId },
-        select: { companyName: true },
-      });
-      supplierName = supplier?.companyName ?? null;
-    }
+    // Do NOT auto-assign supplierId from the product — that made every product RFQ
+    // "directed" to one shop and invisible to all other sellers. Explicit supplierId
+    // from the client (supplier profile page) still creates a directed RFQ.
     if (categoryId == null && product.category) {
       categoryId = product.category.id;
       categoryName = product.category.name;

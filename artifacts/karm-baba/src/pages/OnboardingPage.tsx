@@ -108,7 +108,7 @@ export function OnboardingPage() {
     void applyAccountRole(pending, getToken, refreshProfile)
       .then(() => {
         if (pending === "seller") {
-          navigate("/seller/verify");
+          navigate(consumeAuthRedirect("/seller"));
           return;
         }
         navigate(consumeAuthRedirect("/buyer"));

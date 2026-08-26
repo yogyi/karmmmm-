@@ -57,7 +57,7 @@ export function useSwitchAccountRole() {
       try {
         await applyAccountRole(role, getToken, refreshProfile);
         if (role === "seller") {
-          navigate("/seller/verify");
+          navigate(consumeAuthRedirect("/seller"));
           return;
         }
         navigate(consumeAuthRedirect("/buyer"));
