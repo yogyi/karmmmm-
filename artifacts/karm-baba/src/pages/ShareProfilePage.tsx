@@ -443,35 +443,6 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
           </div>
         ) : null}
 
-        {isOwner && mediaDirty ? (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-white/95 px-4 py-3 shadow-sm">
-            <p className="text-sm text-muted-foreground">
-              You have unsaved shop photo changes.
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={mediaBusy}
-                onClick={() => cancelMediaChanges()}
-                className="rounded-xl border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={mediaBusy}
-                onClick={() => void saveMediaChanges()}
-                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
-              >
-                {mediaBusy ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : null}
-                {mediaBusy ? "Saving…" : "Save changes"}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
         <article className="bg-white/95 backdrop-blur-sm rounded-3xl overflow-hidden shadow-[0_20px_50px_-24px_rgba(26,39,68,0.45)] border border-white/70 ring-1 ring-black/[0.04]">
           {/* Hero */}
           <div className="relative group/cover">
@@ -523,7 +494,30 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
               </div>
             )}
 
-            <div className="absolute top-3 right-3 flex items-center gap-2 z-20">
+            <div className="absolute top-3 right-3 flex flex-wrap items-center justify-end gap-2 z-20 max-w-[min(100%,22rem)]">
+              {isOwner && mediaDirty ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={mediaBusy}
+                    onClick={() => cancelMediaChanges()}
+                    className="inline-flex items-center gap-1.5 bg-white/95 text-secondary text-sm font-semibold px-3.5 py-2 rounded-xl shadow-md border border-white/80 hover:bg-white transition-colors disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={mediaBusy}
+                    onClick={() => void saveMediaChanges()}
+                    className="inline-flex items-center gap-1.5 bg-primary text-white text-sm font-semibold px-3.5 py-2 rounded-xl shadow-md hover:bg-primary/90 transition-colors disabled:opacity-60"
+                  >
+                    {mediaBusy ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : null}
+                    {mediaBusy ? "Saving…" : "Save changes"}
+                  </button>
+                </>
+              ) : null}
               {isOwner ? (
                 <ImageSourcePicker
                   disabled={mediaBusy}
@@ -610,6 +604,34 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
                     <MapPin size={14} className="text-primary shrink-0" /> {place}
                   </p>
                 )}
+                {isOwner ? (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {mediaDirty
+                      ? "Preview only — tap Save changes to publish logo & cover."
+                      : "Use the camera icons to change logo or cover, then Save changes."}
+                  </p>
+                ) : null}
+                {isOwner && mediaDirty ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={mediaBusy}
+                      onClick={() => cancelMediaChanges()}
+                      className="rounded-xl border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={mediaBusy}
+                      onClick={() => void saveMediaChanges()}
+                      className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
+                    >
+                      {mediaBusy ? <Loader2 size={14} className="animate-spin" /> : null}
+                      {mediaBusy ? "Saving…" : "Save changes"}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -835,6 +857,35 @@ export function ShareProfilePage({ params }: { params: { slug: string } }) {
           </button>
         </p>
       </div>
+
+      {isOwner && mediaDirty ? (
+        <div className="fixed inset-x-0 bottom-0 z-[200] border-t border-border bg-white/95 backdrop-blur-md shadow-[0_-8px_30px_-12px_rgba(26,39,68,0.35)] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="max-w-4xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-medium text-secondary">
+              Unsaved logo / cover preview
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={mediaBusy}
+                onClick={() => cancelMediaChanges()}
+                className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-60 min-h-11"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={mediaBusy}
+                onClick={() => void saveMediaChanges()}
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60 min-h-11"
+              >
+                {mediaBusy ? <Loader2 size={16} className="animate-spin" /> : null}
+                {mediaBusy ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
