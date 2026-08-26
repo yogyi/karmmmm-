@@ -162,7 +162,7 @@ router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Reques
         driver === "blob" && !isBlobConfigured()
           ? "Vercel Blob is not linked. In Vercel → Storage → create/connect Blob, then redeploy (BLOB_READ_WRITE_TOKEN)."
           : driver === "local"
-            ? "Failed to generate local upload URL. Restart the API server and try again."
+            ? `Failed to prepare local upload (${error instanceof Error ? error.message : "unknown error"}). Restart the API with: pnpm --filter @workspace/api-server run dev`
             : `Failed to generate upload URL (driver=${driver}). Check OBJECT_STORAGE_DRIVER and cloud credentials.`,
     });
   }

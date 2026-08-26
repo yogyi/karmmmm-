@@ -1,6 +1,8 @@
 import app from "./app";
 import { attachFrontend } from "./frontend";
 import { logger } from "./lib/logger";
+import { getObjectStorageDriver } from "./lib/objectStorageBackend";
+import { isBlobConfigured } from "./lib/blobObjectStorage";
 
 // Local / container only. Vercel uses the default export from src/index.ts
 // (or the prebundled app.cjs) and never loads this file.
@@ -19,6 +21,15 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 await attachFrontend(app);
+
+logger.info(
+  {
+    driver: getObjectStorageDriver(),
+    blobConfigured: isBlobConfigured(),
+    nodeEnv: process.env.NODE_ENV ?? "undefined",
+  },
+  "Object storage ready",
+);
 
 app.listen(port, (err) => {
   if (err) {
