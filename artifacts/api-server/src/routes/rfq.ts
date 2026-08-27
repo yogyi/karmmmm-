@@ -18,6 +18,7 @@ import {
   parseLinkedSupplierId,
 } from "../lib/authorize";
 import { redactRfqForViewer } from "../lib/redact";
+import { buyerNeedsKyc } from "../lib/buyerKyc";
 import { sellerInboxWhere, sellerOpenMarketplaceWhere, sortRfqsForSellerInbox } from "../lib/rfqScope";
 import {
   awardRfqQuote,
@@ -221,7 +222,7 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
     });
     return;
   }
-  if (!dbUser.buyerKycCompleted) {
+  if (buyerNeedsKyc(dbUser)) {
     res.status(403).json({
       error: "Complete buyer verification first (about 2 minutes).",
       code: "BUYER_KYC_REQUIRED",

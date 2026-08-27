@@ -35,13 +35,14 @@ export function buyerKycPublicFields(
 export function buyerNeedsKyc(
   user: Pick<
     Prisma.UserGetPayload<object>,
-    "role" | "buyerEnabled" | "buyerKycCompleted"
+    "role" | "buyerEnabled" | "buyerKycCompleted" | "buyerCountry"
   >,
 ): boolean {
   if (user.role === "admin") return false;
   // Buyer workspace users who have not finished the light KYC gate.
   if (user.role !== "buyer" && !user.buyerEnabled) return false;
-  return user.buyerKycCompleted !== true;
+  if (user.buyerKycCompleted === true && user.buyerCountry) return false;
+  return true;
 }
 
 export function isOverseasBuyerCountry(country: string | null | undefined): boolean {

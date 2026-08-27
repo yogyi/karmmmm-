@@ -20,13 +20,17 @@ export function isIndiaBuyerActivated(userId: number | undefined): boolean {
 
 /** Buyers must finish the ~2 min verify (India one-tap or overseas OTP) before sourcing. */
 export function needsBuyerKyc(
-  user: Pick<AuthUser, "id" | "role" | "buyerKycCompleted"> | null | undefined,
+  user:
+    | Pick<AuthUser, "id" | "role" | "buyerKycCompleted" | "buyerCountry">
+    | null
+    | undefined,
 ): boolean {
   if (!user) return false;
   if (user.role === "admin") return false;
   if (user.role !== "buyer") return false;
-  if (user.buyerKycCompleted === true) return false;
   if (isIndiaBuyerActivated(user.id)) return false;
+  // Grandfathered accounts may have buyerKycCompleted without a region — show picker once.
+  if (user.buyerKycCompleted === true && user.buyerCountry) return false;
   return true;
 }
 
