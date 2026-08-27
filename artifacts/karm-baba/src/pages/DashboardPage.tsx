@@ -265,6 +265,9 @@ export function DashboardPage() {
         const s = (await res.json()) as {
           id?: number;
           verified?: boolean;
+          gstVerified?: boolean;
+          gstLiveVerifiedAt?: string | null;
+          gstBadge?: boolean;
           verificationStatus?: string;
           slug?: string | null;
           shareUrl?: string | null;
@@ -274,7 +277,11 @@ export function DashboardPage() {
         const status =
           typeof s.verificationStatus === "string" ? s.verificationStatus : "draft";
         setVerificationStatus(status);
-        setShopVerified(s.verified === true);
+        setShopVerified(
+          s.gstBadge === true ||
+            s.gstVerified === true ||
+            s.gstLiveVerifiedAt != null,
+        );
         setShareSlug(s.slug ?? null);
         if (typeof s.id === "number" && s.id > 0) {
           setShopSupplierId(s.id);

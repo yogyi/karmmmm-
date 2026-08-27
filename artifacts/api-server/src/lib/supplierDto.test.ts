@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertNoSensitiveSupplierFields,
+  hasGstApiVerifiedBadge,
   mapPublicSupplier,
 } from "./supplierDto";
 
@@ -18,6 +19,8 @@ const sample = {
   videoUrl: null,
   shareImageUrl: null,
   verified: true,
+  gstVerified: true,
+  gstLiveVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
   yearsInBusiness: 10,
   employeeCount: "50-100",
   mainProducts: ["Cotton"],
@@ -51,6 +54,26 @@ describe("mapPublicSupplier", () => {
     expect(dto).not.toHaveProperty("bankAccountName");
     expect(dto).not.toHaveProperty("bankIfsc");
     expect(dto).not.toHaveProperty("bankAccountNumber");
+    expect(dto).not.toHaveProperty("gstVerified");
+    expect(dto).not.toHaveProperty("gstLiveVerifiedAt");
     assertNoSensitiveSupplierFields(dto as Record<string, unknown>);
+  });
+
+  it("shows Verified badge only after GST API live check", () => {
+    expect(mapPublicSupplier(sample as never).verified).toBe(true);
+    expect(
+      mapPublicSupplier({
+        ...sample,
+        verified: true,
+        gstVerified: false,
+        gstLiveVerifiedAt: null,
+      } as never).verified,
+    ).toBe(false);
+    expect(
+      hasGstApiVerifiedBadge({
+        gstVerified: false,
+        gstLiveVerifiedAt: new Date(),
+      }),
+    ).toBe(true);
   });
 });

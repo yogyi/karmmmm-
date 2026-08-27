@@ -14,6 +14,7 @@ import {
 import { requireClerkAuth } from "../lib/auth";
 import { canAccessSupplier, getAuthenticatedDbUser, isAdmin, isSellerOrAdmin } from "../lib/authorize";
 import { findOrCreateCategory, readCustomCategory } from "../lib/categories";
+import { hasGstApiVerifiedBadge, GST_API_VERIFIED_WHERE } from "../lib/supplierDto";
 
 const router: IRouter = Router();
 
@@ -23,7 +24,13 @@ async function enrichProduct(product: ProductRow) {
   const [supplier, category] = await Promise.all([
     prisma.supplier.findUnique({
       where: { id: product.supplierId },
-      select: { companyName: true, verified: true, location: true },
+      select: {
+        companyName: true,
+        verified: true,
+        gstVerified: true,
+        gstLiveVerifiedAt: true,
+        location: true,
+      },
     }),
     prisma.category.findUnique({
       where: { id: product.categoryId },
@@ -37,7 +44,7 @@ async function enrichProduct(product: ProductRow) {
     maxPrice: toNumber(product.maxPrice) ?? 0,
     rating: toNumber(product.rating),
     supplierName: supplier?.companyName ?? null,
-    supplierVerified: supplier?.verified ?? null,
+    supplierVerified: supplier ? hasGstApiVerifiedBadge(supplier) : null,
     supplierLocation: supplier?.location ?? null,
     categoryName: category?.name ?? null,
     images: product.images ?? [],
@@ -82,7 +89,7 @@ router.get("/products", async (req, res): Promise<void> => {
 
   if (verifiedOnly) {
     const verified = await prisma.supplier.findMany({
-      where: { verified: true },
+      where: GST_API_VERIFIED_WHERE,
       select: { id: true },
     });
     const ids = verified.map((s) => s.id);

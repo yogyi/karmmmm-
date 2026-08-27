@@ -33,6 +33,7 @@ interface ShopProfile {
   website: string;
   gstin: string;
   gstLocked: boolean;
+  /** Public Verified badge — GST API live check only. */
   verified: boolean;
 }
 
@@ -152,7 +153,10 @@ export function ProfilePage() {
         website: String(s.website ?? ""),
         gstin: String(s.gstin ?? ""),
         gstLocked: s.gstLocked === true || s.verified === true,
-        verified: s.verified === true,
+        verified:
+          s.gstBadge === true ||
+          s.gstVerified === true ||
+          s.gstLiveVerifiedAt != null,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load profile");
@@ -804,7 +808,7 @@ export function ProfilePage() {
                   </label>
                   <p className="text-sm text-muted-foreground">
                     GSTIN is locked after verification. Changing it pauses your verified badge
-                    until you complete GST verification again.
+                    until you complete live GST verification again.
                   </p>
                   <button
                     type="button"
@@ -830,7 +834,7 @@ export function ProfilePage() {
                     placeholder="27AAPFU0939F1ZV"
                   />
                   <p className="text-sm text-muted-foreground">
-                    Finish seller verification to lock this GSTIN and get a verified badge.
+                    Finish seller verification and live GST check to unlock the verified badge.
                   </p>
                 </>
               )}

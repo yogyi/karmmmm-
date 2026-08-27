@@ -290,7 +290,8 @@ function fieldErrorsForStep(
 /**
  * Alibaba-style seller verification wizard.
  * Captures company → contact → GST (format/checksum) → bank → submit → pending review.
- * Verified badge is granted only after admin approval (not checksum alone).
+ * Verified badge is granted only after live GST API check (India GSTIN).
+ * Admin KYC approval does not grant the public badge by itself.
  */
 export function SellerVerificationPage() {
   const { user, isLoggedIn, isLoaded, profileReady, refreshProfile } = useAuth();

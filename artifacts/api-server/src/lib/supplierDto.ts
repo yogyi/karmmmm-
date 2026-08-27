@@ -16,7 +16,10 @@ export const PUBLIC_SUPPLIER_SELECT = {
   coverUrl: true,
   videoUrl: true,
   shareImageUrl: true,
+  /** Kept for ordering; public `verified` is computed from GST live fields below. */
   verified: true,
+  gstVerified: true,
+  gstLiveVerifiedAt: true,
   yearsInBusiness: true,
   employeeCount: true,
   mainProducts: true,
@@ -34,6 +37,22 @@ export type PublicSupplierRow = Prisma.SupplierGetPayload<{
   select: typeof PUBLIC_SUPPLIER_SELECT;
 }>;
 
+/**
+ * Public "Verified" badge = GSTIN checked live via our GST API only.
+ * Admin KYC / overseas email OTP must never show this badge.
+ */
+export function hasGstApiVerifiedBadge(s: {
+  gstVerified?: boolean | null;
+  gstLiveVerifiedAt?: Date | string | null;
+}): boolean {
+  return s.gstVerified === true || s.gstLiveVerifiedAt != null;
+}
+
+/** Prisma where-clause for suppliers that earned the GST Verified badge. */
+export const GST_API_VERIFIED_WHERE = {
+  OR: [{ gstVerified: true }, { gstLiveVerifiedAt: { not: null } }],
+} as const;
+
 const SENSITIVE_KEYS = [
   "gstin",
   "pan",
@@ -46,6 +65,8 @@ const SENSITIVE_KEYS = [
   "bankAccountName",
   "bankIfsc",
   "bankAccountNumber",
+  "gstVerified",
+  "gstLiveVerifiedAt",
 ] as const;
 
 /** Owner/admin DTO — includes verification + payout fields (never OTP secrets). */
@@ -60,6 +81,9 @@ export function mapOwnerSupplier(s: SupplierRow) {
     certifications: s.certifications ?? [],
     createdAt: s.createdAt.toISOString(),
     verifiedAt: s.verifiedAt ? s.verifiedAt.toISOString() : null,
+    gstLiveVerifiedAt: s.gstLiveVerifiedAt ? s.gstLiveVerifiedAt.toISOString() : null,
+    /** Public badge eligibility (GST API). Distinct from KYC `verificationStatus`. */
+    gstBadge: hasGstApiVerifiedBadge(s),
     businessEmailOtpExpiresAt: s.businessEmailOtpExpiresAt
       ? s.businessEmailOtpExpiresAt.toISOString()
       : null,
@@ -81,7 +105,7 @@ export function mapPublicSupplier(s: PublicSupplierRow | SupplierRow) {
     coverUrl: s.coverUrl,
     videoUrl: "videoUrl" in s ? s.videoUrl : null,
     shareImageUrl: "shareImageUrl" in s ? s.shareImageUrl : null,
-    verified: s.verified,
+    verified: hasGstApiVerifiedBadge(s),
     yearsInBusiness: s.yearsInBusiness,
     employeeCount: s.employeeCount,
     mainProducts: s.mainProducts ?? [],

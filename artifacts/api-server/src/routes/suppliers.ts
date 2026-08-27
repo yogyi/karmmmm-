@@ -48,6 +48,8 @@ import {
 } from "../lib/shop";
 import {
   PUBLIC_SUPPLIER_SELECT,
+  GST_API_VERIFIED_WHERE,
+  hasGstApiVerifiedBadge,
   mapOwnerSupplier,
   mapPublicSupplier,
 } from "../lib/supplierDto";
@@ -64,14 +66,21 @@ router.get("/suppliers", async (req, res): Promise<void> => {
 
   const where: Prisma.SupplierWhereInput = {};
   if (search) where.companyName = { contains: search, mode: "insensitive" };
-  if (verified !== undefined && verified !== null) where.verified = verified;
+  if (verified === true) {
+    Object.assign(where, GST_API_VERIFIED_WHERE);
+  } else if (verified === false) {
+    where.AND = [
+      { gstVerified: false },
+      { gstLiveVerifiedAt: null },
+    ];
+  }
 
   const [total, items] = await Promise.all([
     prisma.supplier.count({ where }),
     prisma.supplier.findMany({
       where,
       select: PUBLIC_SUPPLIER_SELECT,
-      orderBy: [{ verified: "desc" }, { rating: "desc" }],
+      orderBy: [{ gstVerified: "desc" }, { gstLiveVerifiedAt: "desc" }, { rating: "desc" }],
       take: limit,
       skip: (page - 1) * limit,
     }),
@@ -126,7 +135,7 @@ router.get("/suppliers/by-slug/:slug", requireClerkAuth, async (req, res): Promi
 
 router.get("/suppliers/featured", async (_req, res): Promise<void> => {
   const items = await prisma.supplier.findMany({
-    where: { verified: true },
+    where: GST_API_VERIFIED_WHERE,
     select: PUBLIC_SUPPLIER_SELECT,
     orderBy: { rating: "desc" },
     take: 8,
@@ -491,6 +500,9 @@ router.post("/suppliers/me/reverify-gst", requireClerkAuth, async (req, res): Pr
     data: {
       verified: false,
       gstVerified: false,
+      gstLiveVerifiedAt: null,
+      gstLiveStatus: null,
+      gstTradeName: null,
       verificationStatus: "draft",
       verificationStep: 3,
       verifiedAt: null,
@@ -891,6 +903,10 @@ router.post(
           patch.gstLiveStatus = live.record.status;
           patch.gstLiveVerifiedAt = new Date();
           patch.gstTradeName = live.record.tradeName;
+          // Public Verified badge unlocked by live GST API check.
+          patch.gstVerified = true;
+          patch.verified = true;
+          patch.verifiedAt = new Date();
           if (live.record.state && !existing.state) {
             patch.state = live.record.state;
           }
@@ -1054,10 +1070,25 @@ router.post(
         patch.gstVerified = false;
       }
 
-      patch.verified = false;
+      // Public Verified badge is GST-API-only. Keep it if already earned; otherwise clear.
+      const indiaSeller = isIndiaCountry(country);
+      const gstBadgeAlready =
+        indiaSeller &&
+        (existing.gstVerified === true ||
+          existing.gstLiveVerifiedAt != null ||
+          patch.gstLiveVerifiedAt != null ||
+          patch.gstVerified === true);
+      if (gstBadgeAlready) {
+        patch.gstVerified = true;
+        patch.verified = true;
+        patch.verifiedAt = existing.verifiedAt ?? new Date();
+      } else {
+        patch.verified = false;
+        patch.verifiedAt = null;
+        if (!indiaSeller) patch.gstVerified = false;
+      }
       patch.verificationStatus = "pending";
       patch.verificationStep = 5;
-      patch.verifiedAt = null;
       if (!existing.slug || isLegacyIdSlug(existing.slug, existing.companyName, supplierId)) {
         patch.slug = await resolveShareableSlug(
           existing.companyName,
@@ -1089,8 +1120,8 @@ router.post(
       message:
         updated.verificationStatus === "pending"
           ? indiaSeller
-            ? "Profile submitted. Verified badge appears after Karm Baba reviews your GSTIN."
-            : "Profile submitted. Company email verified. Verified badge appears after Karm Baba reviews your company details."
+            ? "Profile submitted. Verified badge stays active from your live GST check."
+            : "Profile submitted. Company email verified. Verified badge is for GST-verified India sellers only."
           : undefined,
     });
   },
@@ -1190,6 +1221,10 @@ router.post(
         gstLiveStatus: live.record.status,
         gstLiveVerifiedAt: new Date(),
         gstTradeName: live.record.tradeName,
+        // Public Verified badge is earned only via live GST API check.
+        gstVerified: true,
+        verified: true,
+        verifiedAt: new Date(),
         ...(live.record.state && !existing.state ? { state: live.record.state } : {}),
       },
     });
@@ -1212,7 +1247,7 @@ router.post(
         registrationDate: live.record.registrationDate,
       },
       supplier: mapOwnerSupplier(updated),
-      message: "GSTIN verified with GSTN",
+      message: "GSTIN verified with GSTN — Verified badge unlocked",
     });
   },
 );
@@ -1407,27 +1442,47 @@ router.post(
       res.status(404).json({ error: "Supplier not found" });
       return;
     }
+    const india = isIndiaCountry(existing.country);
     const gst = validateGstin(existing.gstin ?? "");
-    if (isIndiaCountry(existing.country) && !gst.ok) {
-      res.status(400).json({ error: "Supplier has no valid GSTIN on file" });
-      return;
+    if (india) {
+      if (!gst.ok) {
+        res.status(400).json({ error: "Supplier has no valid GSTIN on file" });
+        return;
+      }
+      if (!hasGstApiVerifiedBadge(existing)) {
+        res.status(400).json({
+          error:
+            "Verified badge requires live GST API check first. Ask the seller to verify GSTIN in Seller Central.",
+        });
+        return;
+      }
     }
+    // KYC review complete. Public Verified badge stays GST-API-only (already set for India).
     const updated = await prisma.supplier.update({
       where: { id },
       data: {
-        gstVerified: isIndiaCountry(existing.country) ? true : existing.gstVerified,
-        verified: true,
         verificationStatus: "verified",
         verificationStep: 5,
-        verifiedAt: new Date(),
-        pan: existing.pan || (gst.ok ? gst.pan : existing.pan),
+        // Overseas / non-GST: never grant the public Verified badge via admin alone.
+        ...(india
+          ? {
+              gstVerified: true,
+              verified: true,
+              verifiedAt: existing.verifiedAt ?? new Date(),
+              pan: existing.pan || (gst.ok ? gst.pan : existing.pan),
+            }
+          : {
+              verified: false,
+            }),
       },
     });
     await ensureFreeSubscription(updated.id);
     res.json({
       supplier: mapOwnerSupplier(updated),
-      verified: true,
-      message: "Supplier marked verified",
+      verified: hasGstApiVerifiedBadge(updated),
+      message: india
+        ? "KYC approved. Verified badge remains based on live GST check."
+        : "KYC approved. Verified badge is for GST-verified India sellers only.",
     });
   },
 );
