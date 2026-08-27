@@ -1567,11 +1567,22 @@ export function SellerVerificationPage() {
                     <div className="space-y-3 pt-1">
                       <KycDocumentUploader
                         value={form.gstCertificateDocumentUrl}
-                        onChange={(url) => update("gstCertificateDocumentUrl", url)}
+                        onChange={onGstCertificateUploaded}
                         label="GST registration certificate (for Verified badge)"
-                        hint="Upload official Form GST REG-06 / GSTN certificate PDF (multi-page OK). Upload alone does NOT verify — you must click Scan certificate (OCR) after live GSTN verify."
-                        uploadedNote="File saved only — not verified yet. Click Scan certificate (OCR) below."
-                        disabled={saving}
+                        hint="Upload official Form GST REG-06 / GSTN certificate PDF. After upload we call the GST OCR API automatically — random PDFs are rejected."
+                        uploadedNote={
+                          gstCertificateOcrBusy
+                            ? "Checking with GST OCR API…"
+                            : "Uploaded only — waiting for OCR API (not verified yet)"
+                        }
+                        apiVerified={
+                          gstCertificateOcrVerified
+                            ? true
+                            : form.gstCertificateDocumentUrl.trim()
+                              ? false
+                              : null
+                        }
+                        disabled={saving || gstCertificateOcrBusy}
                       />
                       <button
                         type="button"
@@ -1589,7 +1600,11 @@ export function SellerVerificationPage() {
                         ) : (
                           <FileCheck2 size={16} />
                         )}
-                        Scan certificate (OCR)
+                        {gstCertificateOcrBusy
+                          ? "Checking OCR API…"
+                          : gstCertificateOcrVerified
+                            ? "Re-scan certificate (OCR)"
+                            : "Scan certificate (OCR)"}
                       </button>
                       {!gstLiveVerified && form.gstCertificateDocumentUrl.trim() ? (
                         <p className="text-xs text-amber-900/90 bg-amber-50/80 border border-amber-200/70 rounded-xl px-3 py-2">
