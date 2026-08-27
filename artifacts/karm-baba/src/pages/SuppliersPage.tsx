@@ -4,6 +4,10 @@ import { Search, CheckCircle, ChevronLeft, ChevronRight, MapPin, Clock, ArrowRig
 import { motion } from "framer-motion";
 import { useListSuppliers } from "@workspace/api-client-react";
 import { StarRating } from "@/components/StarRating";
+import {
+  formatProductCount,
+  formatYearsInBusiness,
+} from "@/lib/supplierCardFormat";
 import { PageHero } from "@/components/PageHero";
 
 function SkeletonCard() {
@@ -126,7 +130,7 @@ export function SuppliersPage() {
         description={countLabel}
       />
 
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 py-6 sm:py-8 min-w-0">
+      <div className="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10 py-6 sm:py-8 min-w-0">
       {/* Search toolbar — clean white with navy/orange accents */}
       <div className="mb-6 rounded-2xl border border-secondary/10 bg-white p-3 sm:p-4 shadow-[0_12px_32px_-18px_rgba(26,39,68,0.35)]">
         <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
@@ -307,21 +311,34 @@ export function SuppliersPage() {
 
                   <StarRating rating={supplier.rating} reviewCount={supplier.reviewCount} />
 
-                  <div className="mt-3 grid grid-cols-2 gap-1.5 text-xs text-muted-foreground">
-                    {supplier.yearsInBusiness && (
-                      <span className="flex items-center gap-1">
-                        <Clock size={10} /> {supplier.yearsInBusiness}yr experience
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary/50" />{" "}
-                      {supplier.productCount} products
+                  <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                    <span className="font-medium text-foreground/80">
+                      {formatProductCount(supplier.productCount)}
                     </span>
-                    {supplier.responseRate && (
-                      <span className="flex items-center gap-1 col-span-2 text-green-600 font-medium">
-                        <CheckCircle size={10} /> {supplier.responseRate}% response rate
-                      </span>
-                    )}
+                    {(() => {
+                      const yearsLabel = formatYearsInBusiness(supplier.yearsInBusiness);
+                      return yearsLabel ? (
+                        <>
+                          <span className="text-border" aria-hidden>
+                            ·
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Clock size={10} />
+                            {yearsLabel}
+                          </span>
+                        </>
+                      ) : null;
+                    })()}
+                    {supplier.responseRate ? (
+                      <>
+                        <span className="text-border" aria-hidden>
+                          ·
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-green-600 font-medium">
+                          <CheckCircle size={10} /> {supplier.responseRate}% response
+                        </span>
+                      </>
+                    ) : null}
                   </div>
 
                   {supplier.mainProducts && supplier.mainProducts.length > 0 && (

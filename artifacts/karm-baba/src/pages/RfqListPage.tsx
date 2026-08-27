@@ -6,6 +6,7 @@ import { useListRfqs } from "@workspace/api-client-react";
 import { useAuth } from "@/context/AuthContext";
 import { subscribeRfqBroadcast } from "@/lib/rfqQueries";
 import { PageHero } from "@/components/PageHero";
+import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
 
 const statusConfig = {
   pending: { label: "Open for quotes", color: "bg-yellow-100 text-yellow-700 border-yellow-200", icon: <Clock size={12} /> },
@@ -18,6 +19,7 @@ const statusConfig = {
 export function RfqListPage() {
   const [, navigate] = useLocation();
   const { user, isLoggedIn, isLoaded, profileReady } = useAuth();
+  const { switchTo, switching } = useSwitchAccountRole();
   const isSeller = user?.role === "seller" || user?.role === "admin";
   const [manualRefreshing, setManualRefreshing] = useState(false);
 
@@ -42,6 +44,18 @@ export function RfqListPage() {
       staleTime: 20_000,
     } as any,
   });
+
+  // Sellers who also buy: own posts never appear in the incoming inbox (by design).
+  const { data: ownBuyerRfqs } = useListRfqs(
+    user && user.id > 0 ? { buyerId: user.id } : undefined,
+    {
+      query: {
+        enabled: !!user && user.id > 0 && profileReady && isSeller,
+        staleTime: 30_000,
+      } as any,
+    },
+  );
+  const ownPostedCount = (ownBuyerRfqs ?? []).length;
 
   useEffect(() => subscribeRfqBroadcast(() => void refetch()), [refetch]);
 
@@ -196,23 +210,37 @@ export function RfqListPage() {
           ))}
         </div>
       ) : sortedRfqs?.length === 0 ? (
-        <div className="text-center py-20 kb-card">
+        <div className="text-center py-16 kb-card">
           <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
             <FileText size={28} className="text-muted-foreground" />
           </div>
           <h3 className="text-lg font-heading font-bold mb-2">
             {isSeller ? "No incoming RFQs yet" : "No RFQs yet"}
           </h3>
-          <p className="text-muted-foreground text-sm mb-6 max-w-xs mx-auto">
+          <p className="text-muted-foreground text-sm mb-4 max-w-md mx-auto">
             {isSeller
-              ? "When buyers post product or open RFQs, they appear here. Share your shop card for direct inquiries too."
+              ? ownPostedCount > 0
+                ? `You posted ${ownPostedCount} RFQ${ownPostedCount === 1 ? "" : "s"} as a buyer — other sellers can see those. Your own posts never appear here (you can't quote yourself).`
+                : "When other buyers post open or product RFQs, they appear here. Share your shop card for direct inquiries too."
               : "Submit your first request for quotation to get wholesale quotes from verified suppliers"}
           </p>
+          {isSeller && ownPostedCount > 0 ? (
+            <div className="flex flex-wrap gap-3 justify-center mb-3">
+              <button
+                type="button"
+                disabled={switching}
+                onClick={() => void switchTo("buyer")}
+                className="kb-btn-primary px-6 py-2.5 text-sm disabled:opacity-60"
+              >
+                {switching ? "Switching…" : "Switch to buyer · My RFQs"}
+              </button>
+            </div>
+          ) : null}
           {isSeller ? (
             <button
               type="button"
               onClick={() => navigate("/seller/plans")}
-              className="bg-primary text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-primary/90 transition-colors"
+              className="text-sm font-semibold text-primary hover:underline"
             >
               Share profile card
             </button>

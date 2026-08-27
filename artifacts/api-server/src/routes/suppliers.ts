@@ -19,6 +19,11 @@ import {
   parseLinkedSupplierId,
 } from "../lib/authorize";
 import { GST_STATE_CODES, validateGstin } from "../lib/gstin";
+import {
+  gstLegalNameMatches,
+  isGstLiveVerifyConfigured,
+  verifyGstinLive,
+} from "../lib/gstVerifyApi";
 import { isIndiaCountry, isValidContactPhone } from "../lib/country";
 import { validateBusinessEmail } from "../lib/businessEmail";
 import {
@@ -155,6 +160,21 @@ router.get("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> =>
 function readTrimmed(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   return value.trim();
+}
+
+/** KYC document URL from private upload finalize (/api/storage/… or Blob https). */
+function readKycDocumentUrl(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const url = raw.trim();
+  if (!url || url.length > 2048) return null;
+  if (
+    !url.startsWith("/api/storage/") &&
+    !url.startsWith("https://") &&
+    !url.startsWith("http://")
+  ) {
+    return null;
+  }
+  return url;
 }
 
 /** Logo / cover / share-card image URLs (storage path or absolute http(s)). */
@@ -556,7 +576,7 @@ router.post(
       });
       await prisma.user.update({
         where: { id: dbUser.id },
-        data: { supplierId: created.id, role: "seller" },
+        data: { supplierId: created.id, role: "seller", sellerEnabled: true },
       });
       await ensureFreeSubscription(created.id);
       res.json({ supplier: mapOwnerSupplier(withSlug), nextStep: 2 });
@@ -736,26 +756,100 @@ router.post(
         patch.gstin = gst.gstin;
         patch.pan = gst.pan;
         patch.gstVerified = false;
-        const stateName = GST_STATE_CODES[gst.stateCode];
-        if (stateName && !existing.state) patch.state = stateName;
-      } else {
-        // Overseas: company-domain email OTP replaces GST. Tax ID optional.
-        if (!existing.businessEmailVerified) {
+        const aadhaarUrl = readKycDocumentUrl(data.aadhaarDocumentUrl);
+        if (!aadhaarUrl) {
           res.status(400).json({
-            error:
-              "Verify your company-domain email with the OTP we sent before continuing",
+            error: "Upload your Aadhaar card (JPEG, PNG, or PDF) before continuing",
           });
           return;
         }
-        const taxId =
-          typeof data.gstin === "string" ? data.gstin.trim().slice(0, 32) : "";
-        patch.gstin = taxId || null;
-        patch.pan = null;
-        patch.gstVerified = false;
+        patch.aadhaarDocumentUrl = aadhaarUrl;
+
+          if (isGstLiveVerifyConfigured()) {
+          const live = await verifyGstinLive(gst.gstin);
+          if (!live.ok) {
+            res.status(live.httpStatus && live.httpStatus >= 400 && live.httpStatus < 500
+              ? live.httpStatus
+              : 400).json({ error: live.error });
+            return;
+          }
+          const registeredState = (existing.state ?? "").trim();
+          if (registeredState) {
+            const expectedName = GST_STATE_CODES[gst.stateCode];
+            const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+            if (
+              expectedName &&
+              norm(registeredState) !== norm(expectedName) &&
+              live.record.state &&
+              norm(registeredState) !== norm(live.record.state)
+            ) {
+              res.status(400).json({
+                error: `GSTIN belongs to ${live.record.state ?? expectedName}, but company profile state is ${registeredState}`,
+              });
+              return;
+            }
+          }
+          const formLegal =
+            typeof data.legalName === "string" && data.legalName.trim()
+              ? data.legalName.trim()
+              : existing.legalName ?? "";
+          if (formLegal && !gstLegalNameMatches(formLegal, live.record.legalName)) {
+            res.status(400).json({
+              error:
+                "Legal entity name does not match GST records. Use the name on your GST certificate.",
+              gstLegalName: live.record.legalName,
+            });
+            return;
+          }
+          patch.gstin = live.record.gstin;
+          patch.pan = live.record.pan ?? gst.pan;
+          patch.gstLiveStatus = live.record.status;
+          patch.gstLiveVerifiedAt = new Date();
+          patch.gstTradeName = live.record.tradeName;
+          if (live.record.state && !existing.state) {
+            patch.state = live.record.state;
+          }
+        } else {
+          const stateName = GST_STATE_CODES[gst.stateCode];
+          if (stateName && !existing.state) patch.state = stateName;
+        }
+      } else {
+        // Overseas step 3: business registration (email OTP verified on step 2).
+        if (!existing.businessEmailVerified) {
+          res.status(400).json({
+            error:
+              "Verify your company-domain email with OTP on the Contact step before continuing",
+          });
+          return;
+        }
+        const regUrl = readKycDocumentUrl(data.businessRegistrationDocumentUrl);
+        if (!regUrl) {
+          res.status(400).json({
+            error: "Upload your business registration document before continuing",
+          });
+          return;
+        }
+        const regNum =
+          typeof data.businessRegistrationNumber === "string"
+            ? data.businessRegistrationNumber.trim().slice(0, 64)
+            : "";
+        if (!regNum) {
+          res.status(400).json({
+            error: "Registration / licence number is required",
+          });
+          return;
+        }
+        patch.businessRegistrationDocumentUrl = regUrl;
+        patch.businessRegistrationNumber = regNum;
       }
     }
 
     if (step === 4) {
+      const country =
+        (typeof patch.country === "string" ? patch.country : null) ??
+        existing.country ??
+        "India";
+      if (isIndiaCountry(country)) {
       const bankAccountName =
         typeof data.bankAccountName === "string" ? data.bankAccountName.trim() : "";
       const bankIfsc =
@@ -764,11 +858,6 @@ router.post(
         res.status(400).json({ error: "Account holder name is required" });
         return;
       }
-      const country =
-        (typeof patch.country === "string" ? patch.country : null) ??
-        existing.country ??
-        "India";
-      if (isIndiaCountry(country)) {
         if (!bankIfsc || !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankIfsc)) {
           res.status(400).json({
             error: "Valid IFSC code is required (e.g. HDFC0001234)",
@@ -776,21 +865,22 @@ router.post(
           return;
         }
         patch.bankIfsc = bankIfsc;
+        patch.bankAccountName = bankAccountName;
+        if (Array.isArray(data.certifications)) {
+          patch.certifications = data.certifications.filter(
+            (x): x is string => typeof x === "string" && x.trim().length > 0,
+          );
+        }
       } else {
-        // SWIFT/BIC optional for foreign sellers
-        if (bankIfsc && !/^[A-Z0-9]{8,11}$/.test(bankIfsc.replace(/\s/g, ""))) {
-          res.status(400).json({
-            error: "Bank code should look like a SWIFT/BIC (8–11 characters) if provided",
-          });
+        const taxId =
+          typeof data.gstin === "string" ? data.gstin.trim().slice(0, 32) : "";
+        if (!taxId || taxId.length < 2) {
+          res.status(400).json({ error: "Tax ID is required for overseas sellers" });
           return;
         }
-        patch.bankIfsc = bankIfsc || null;
-      }
-      patch.bankAccountName = bankAccountName;
-      if (Array.isArray(data.certifications)) {
-        patch.certifications = data.certifications.filter(
-          (x): x is string => typeof x === "string" && x.trim().length > 0,
-        );
+        patch.gstin = taxId;
+        patch.pan = null;
+        patch.gstVerified = false;
       }
     }
 
@@ -821,11 +911,42 @@ router.post(
         }
         patch.gstin = gst.gstin;
         patch.pan = gst.pan;
+        if (isGstLiveVerifyConfigured() && !existing.gstLiveVerifiedAt) {
+          res.status(400).json({
+            error: "Complete live GST verification on the GST step before submitting",
+          });
+          return;
+        }
+        if (!existing.aadhaarDocumentUrl) {
+          res.status(400).json({
+            error: "Upload your Aadhaar card on the GST step before submitting",
+          });
+          return;
+        }
       } else {
         if (!existing.businessEmailVerified) {
           res.status(400).json({
             error:
               "Verify your company-domain email with OTP before submitting (overseas KYC).",
+          });
+          return;
+        }
+        if (!existing.businessRegistrationDocumentUrl) {
+          res.status(400).json({
+            error: "Upload business registration on step 3 before submitting",
+          });
+          return;
+        }
+        if (!existing.businessRegistrationNumber?.trim()) {
+          res.status(400).json({
+            error: "Business registration number is required before submitting",
+          });
+          return;
+        }
+        const taxId = (patch.gstin as string | undefined) ?? existing.gstin ?? "";
+        if (!taxId.trim() || taxId.trim().length < 2) {
+          res.status(400).json({
+            error: "Tax ID is required on step 4 before submitting",
           });
           return;
         }
@@ -870,6 +991,68 @@ router.post(
             ? "Profile submitted. Verified badge appears after Karm Baba reviews your GSTIN."
             : "Profile submitted. Company email verified. Verified badge appears after Karm Baba reviews your company details."
           : undefined,
+    });
+  },
+);
+
+/** Live GSTIN lookup (GSTVerify) — seller must be authenticated. */
+router.post(
+  "/suppliers/me/verification/gst-verify",
+  requireClerkAuth,
+  async (req, res): Promise<void> => {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (!isSellerOrAdmin(dbUser)) {
+      res.status(403).json({ error: "Forbidden — sellers only" });
+      return;
+    }
+    if (!isGstLiveVerifyConfigured()) {
+      res.status(503).json({
+        error: "Live GST verification is not configured. Set GST_VERIFY_API_KEY on the server.",
+      });
+      return;
+    }
+
+    const body = req.body as { gstin?: string; legalName?: string };
+    const gstinRaw = typeof body.gstin === "string" ? body.gstin : "";
+    const legalName =
+      typeof body.legalName === "string" ? body.legalName.trim() : "";
+
+    const live = await verifyGstinLive(gstinRaw);
+    if (!live.ok) {
+      res.status(live.httpStatus && live.httpStatus >= 400 && live.httpStatus < 500
+        ? live.httpStatus
+        : 400).json({ error: live.error });
+      return;
+    }
+
+    const format = validateGstin(live.record.gstin);
+    const nameMatches =
+      !legalName || gstLegalNameMatches(legalName, live.record.legalName);
+
+    res.json({
+      verified: true,
+      cached: live.record.cached,
+      nameMatches,
+      record: {
+        gstin: live.record.gstin,
+        legalName: live.record.legalName,
+        tradeName: live.record.tradeName,
+        status: live.record.status,
+        pan: live.record.pan,
+        state: live.record.state,
+        stateCode: live.record.stateCode,
+        address: live.record.address,
+        constitution: live.record.constitution,
+        taxpayerType: live.record.taxpayerType,
+        registrationDate: live.record.registrationDate,
+      },
+      message: nameMatches
+        ? "GSTIN verified with GSTN"
+        : "GSTIN is active but legal name differs from your form — update legal entity name to match GST records.",
     });
   },
 );
@@ -1152,7 +1335,7 @@ router.post("/suppliers", requireClerkAuth, async (req, res): Promise<void> => {
   if (!isAdmin(dbUser)) {
     await prisma.user.update({
       where: { id: dbUser.id },
-      data: { supplierId: supplier.id, role: "seller" },
+      data: { supplierId: supplier.id, role: "seller", sellerEnabled: true },
     });
   }
 

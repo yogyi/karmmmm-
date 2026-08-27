@@ -112,7 +112,12 @@ export async function createShopOnFreePlan(input: {
   });
   await prisma.user.update({
     where: { id: input.userId },
-    data: { supplierId: created.id, role: "seller", company: companyName },
+    data: {
+      supplierId: created.id,
+      role: "seller",
+      company: companyName,
+      sellerEnabled: true,
+    },
   });
   await prisma.shopSubscription.upsert({
     where: { supplierId: created.id },

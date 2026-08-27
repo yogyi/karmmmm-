@@ -22,6 +22,7 @@ import { ProductFormModal } from "@/components/ProductFormModal";
 import { ProductImage } from "@/components/ProductImage";
 import { PageHero } from "@/components/PageHero";
 import { subscribeRfqBroadcast } from "@/lib/rfqQueries";
+import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
 import { toast } from "@/hooks/use-toast";
 
 const statusConfig = {
@@ -167,6 +168,7 @@ export function DashboardPage() {
   const searchString = useSearch();
   const { user, isLoaded } = useAuth();
   const { getToken } = useClerkAuth();
+  const { switchTo, switching } = useSwitchAccountRole();
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
   const queryClient = useQueryClient();
@@ -353,6 +355,17 @@ export function DashboardPage() {
       } as any,
     },
   );
+
+  const { data: ownBuyerRfqs } = useListRfqs(
+    user && user.id > 0 ? { buyerId: user.id } : undefined,
+    {
+      query: {
+        enabled: !!user && user.id > 0 && isSupplier,
+        staleTime: 30_000,
+      } as any,
+    },
+  );
+  const ownPostedCount = (ownBuyerRfqs ?? []).length;
 
   useEffect(() => subscribeRfqBroadcast(() => void refetchInboxRfqs()), [refetchInboxRfqs]);
 
@@ -885,7 +898,23 @@ export function DashboardPage() {
                 </div>
                 <div className="divide-y divide-border">
                   {recentRfqs.length === 0 ? (
-                    <div className="p-8 text-center text-muted-foreground text-sm">No RFQs yet</div>
+                    <div className="p-8 text-center text-sm space-y-3">
+                      <p className="text-muted-foreground">
+                        {isSupplier && ownPostedCount > 0
+                          ? `No incoming RFQs from other buyers. You posted ${ownPostedCount} RFQ${ownPostedCount === 1 ? "" : "s"} yourself — other sellers can see those, but they stay under your buyer inbox.`
+                          : "No RFQs yet"}
+                      </p>
+                      {isSupplier && ownPostedCount > 0 ? (
+                        <button
+                          type="button"
+                          disabled={switching}
+                          onClick={() => void switchTo("buyer")}
+                          className="text-primary font-semibold hover:underline disabled:opacity-60"
+                        >
+                          {switching ? "Switching…" : "Switch to buyer · view My RFQs"}
+                        </button>
+                      ) : null}
+                    </div>
                   ) : (
                     recentRfqs.map((rfq) => {
                     const status = statusConfig[rfq.status as keyof typeof statusConfig] ?? statusConfig.pending;

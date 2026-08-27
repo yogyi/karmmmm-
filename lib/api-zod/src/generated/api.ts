@@ -685,6 +685,8 @@ export const LoginUserResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "supplierId": zod.number().nullish(),
   "onboardingCompleted": zod.boolean(),
+  "buyerEnabled": zod.boolean(),
+  "sellerEnabled": zod.boolean(),
   "createdAt": zod.string()
 })
 
@@ -703,6 +705,8 @@ export const SyncUserResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "supplierId": zod.number().nullish(),
   "onboardingCompleted": zod.boolean(),
+  "buyerEnabled": zod.boolean(),
+  "sellerEnabled": zod.boolean(),
   "createdAt": zod.string()
 })
 
@@ -719,6 +723,8 @@ export const GetCurrentUserResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "supplierId": zod.number().nullish(),
   "onboardingCompleted": zod.boolean(),
+  "buyerEnabled": zod.boolean(),
+  "sellerEnabled": zod.boolean(),
   "createdAt": zod.string()
 })
 
@@ -742,6 +748,8 @@ export const UpdateCurrentUserResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "supplierId": zod.number().nullish(),
   "onboardingCompleted": zod.boolean(),
+  "buyerEnabled": zod.boolean(),
+  "sellerEnabled": zod.boolean(),
   "createdAt": zod.string()
 })
 
@@ -765,6 +773,8 @@ export const CompleteUserOnboardingResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "supplierId": zod.number().nullish(),
   "onboardingCompleted": zod.boolean(),
+  "buyerEnabled": zod.boolean(),
+  "sellerEnabled": zod.boolean(),
   "createdAt": zod.string()
 })
 
@@ -785,6 +795,8 @@ export const GetUserResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "supplierId": zod.number().nullish(),
   "onboardingCompleted": zod.boolean(),
+  "buyerEnabled": zod.boolean(),
+  "sellerEnabled": zod.boolean(),
   "createdAt": zod.string()
 })
 

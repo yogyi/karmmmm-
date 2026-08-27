@@ -49,6 +49,11 @@ if (clerkEnabled) {
 
 app.use("/api", router);
 
+/** Unmatched /api paths must return JSON — never fall through to Vite/static (POST would hang). */
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "API route not found" });
+});
+
 /** Always return JSON for API failures — never Express HTML error pages. */
 app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   if (res.headersSent) return;

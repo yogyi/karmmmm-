@@ -37,6 +37,9 @@ export type PublicSupplierRow = Prisma.SupplierGetPayload<{
 const SENSITIVE_KEYS = [
   "gstin",
   "pan",
+  "aadhaarDocumentUrl",
+  "businessRegistrationDocumentUrl",
+  "businessRegistrationNumber",
   "contactPhone",
   "contactEmail",
   "contactPerson",

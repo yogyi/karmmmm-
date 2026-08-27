@@ -1377,7 +1377,7 @@ components:
 
     User:
       type: object
-      required: [id, name, email, role, onboardingCompleted, createdAt]
+      required: [id, name, email, role, onboardingCompleted, buyerEnabled, sellerEnabled, createdAt]
       properties:
         id:
           type: integer
@@ -1396,6 +1396,12 @@ components:
           type: ["integer", "null"]
         onboardingCompleted:
           type: boolean
+        buyerEnabled:
+          type: boolean
+          description: True when this user has set up a buyer account (required for free switch to buyer).
+        sellerEnabled:
+          type: boolean
+          description: True when this user has set up a seller account (required for free switch to seller).
         createdAt:
           type: string
 

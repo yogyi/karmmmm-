@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Search, Shield, TrendingUp, Headphones, ArrowRight, CheckCircle, Package, Cpu, Shirt, Leaf, Wrench, Zap, Home, Car, Activity, Star, BadgeCheck, Sparkles, Globe, Users } from "lucide-react";
+import { Search, Shield, TrendingUp, Headphones, ArrowRight, CheckCircle, Package, Cpu, Shirt, Leaf, Wrench, Zap, Home, Car, Activity, Star, BadgeCheck, Sparkles, Globe, Users, MessageSquareQuote, Factory, Trophy } from "lucide-react";
 import { motion } from "framer-motion";
 import { useGetFeaturedProducts, useGetFeaturedSuppliers, useListCategories, useGetDashboardStats, useListProducts, useListSuppliers } from "@workspace/api-client-react";
 import { StarRating } from "@/components/StarRating";
 import { ProductImage } from "@/components/ProductImage";
+import { SupplierCard } from "@/components/SupplierCard";
 
 const categoryIcons: Record<string, React.ReactNode> = {
   Cpu: <Cpu size={24} />,
@@ -193,7 +194,7 @@ export function HomePage() {
         </section>
       )}
 
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 py-8 sm:py-12 space-y-12 sm:space-y-16 min-w-0">
+      <div className="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10 py-8 sm:py-12 space-y-12 sm:space-y-16 min-w-0">
 
         {/* Categories */}
         {Array.isArray(categories) && categories.length > 0 && (
@@ -327,139 +328,148 @@ export function HomePage() {
           )}
         </section>
 
-        {/* Featured Suppliers */}
-        <section>
-          <div className="flex items-center justify-between mb-7">
-            <div>
-              <h2 className="font-heading text-2xl font-bold text-foreground">Top Verified Suppliers</h2>
-              <p className="text-muted-foreground text-sm mt-1">
-                KYC-checked manufacturers with strong response rates — like IndiaMART’s trusted sellers
-              </p>
-            </div>
-            <button onClick={() => navigate("/suppliers?verified=true")} className="text-primary text-sm font-semibold flex items-center gap-1.5 hover:gap-2.5 transition-all group">
-              View All <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {loadingSuppliers && suppliers.length === 0
-              ? Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="kb-card p-5 animate-pulse">
-                  <div className="flex gap-3 mb-4">
-                    <div className="w-14 h-14 bg-muted rounded-2xl flex-shrink-0" />
-                    <div className="flex-1 space-y-2 pt-1">
-                      <div className="h-4 bg-muted rounded-full w-3/4" />
-                      <div className="h-3 bg-muted rounded-full w-1/2" />
-                    </div>
-                  </div>
-                  <div className="h-3 bg-muted rounded-full w-full mb-2" />
-                  <div className="h-3 bg-muted rounded-full w-2/3" />
+        {/* Suppliers + shortcuts — tinted band so white cards aren’t washed out */}
+        <div className="relative overflow-hidden rounded-[1.75rem] border border-secondary/10 bg-gradient-to-br from-[#dce6f4] via-[#e8eef7] to-[#f3e6d8] p-5 sm:p-7 lg:p-8 space-y-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-50"
+            style={{
+              backgroundImage:
+                "radial-gradient(ellipse 55% 45% at 0% 0%, rgba(255,122,0,0.18), transparent 55%), radial-gradient(ellipse 45% 40% at 100% 100%, rgba(26,39,68,0.12), transparent 50%)",
+            }}
+            aria-hidden
+          />
+
+          <section className="relative">
+            <div className="flex items-center justify-between mb-6 gap-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-secondary/90 text-white text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 mb-2.5 shadow-sm">
+                  <BadgeCheck size={12} className="text-emerald-300" /> Verified network
                 </div>
-              ))
-              : featuredSuppliersError && suppliers.length === 0
-                ? null
-              : suppliers.map((supplier, i) => (
-                <motion.button
-                  key={supplier.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.08 }}
-                  onClick={() => navigate(`/suppliers/${supplier.id}`)}
-                  className="kb-card-interactive p-5 text-left group"
-                >
-                  <div className="flex items-start gap-3 mb-4">
-                    {supplier.logoUrl ? (
-                      <img src={supplier.logoUrl} alt={supplier.companyName} className="w-14 h-14 rounded-2xl object-cover flex-shrink-0 border border-border" />
-                    ) : (
-                      <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${categoryGradients[i % categoryGradients.length]} flex items-center justify-center flex-shrink-0 shadow-sm`}>
-                        <span className="text-xl font-bold text-white">{supplier.companyName[0]}</span>
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1 pt-0.5">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <h3 className="font-bold text-sm text-foreground truncate">{supplier.companyName}</h3>
-                      </div>
-                      {supplier.verified && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full mt-1">
-                          <CheckCircle size={9} /> Verified
-                        </span>
-                      )}
-                      <div className="text-xs text-muted-foreground mt-1 truncate">{supplier.location}</div>
-                    </div>
-                  </div>
-                  <StarRating rating={supplier.rating} reviewCount={supplier.reviewCount} />
-                  <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-                    <span className="font-medium">{supplier.productCount} products</span>
-                    <span>{supplier.yearsInBusiness}yr in business</span>
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
-                    <span className="text-xs font-semibold text-primary group-hover:underline flex items-center gap-1">
-                      View Profile <ArrowRight size={11} />
-                    </span>
-                    <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
-                      Request quote
-                    </span>
-                  </div>
-                </motion.button>
-              ))}
-          </div>
-          {featuredSuppliersError && suppliers.length === 0 && (
-            <div className="text-center py-10 text-sm border border-red-100 bg-red-50 rounded-2xl space-y-3">
-              <p className="text-red-800">Couldn’t load featured suppliers.</p>
+                <h2 className="font-heading text-2xl font-bold text-secondary">Top Verified Suppliers</h2>
+                <p className="text-secondary/65 text-sm mt-1">
+                  KYC-checked manufacturers ready to quote
+                </p>
+              </div>
               <button
-                type="button"
-                className="text-primary font-semibold"
-                onClick={() => void refetchFeaturedSuppliers()}
+                onClick={() => navigate("/suppliers?verified=true")}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-white/80 hover:bg-white border border-secondary/15 text-secondary text-sm font-semibold px-3.5 py-2.5 transition-colors group shadow-sm"
               >
-                Try again
+                View All <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
               </button>
             </div>
-          )}
-          {!loadingSuppliers && !featuredSuppliersError && suppliers.length === 0 && (
-            <div className="text-center py-10 text-sm text-muted-foreground border border-dashed border-border rounded-2xl">
-              No suppliers yet.{" "}
-              <button className="text-primary font-semibold" onClick={() => navigate("/suppliers")}>Browse directory →</button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 sm:gap-6">
+              {loadingSuppliers && suppliers.length === 0
+                ? Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="kb-card overflow-hidden animate-pulse h-full border border-secondary/12">
+                    <div className="px-5 pt-5 pb-4 bg-gradient-to-br from-[#fff7ef] via-white to-[#f3f6fb]">
+                      <div className="flex gap-3.5">
+                        <div className="w-14 h-14 bg-muted rounded-2xl flex-shrink-0" />
+                        <div className="flex-1 space-y-2 pt-1">
+                          <div className="h-3.5 bg-muted rounded-full w-3/4" />
+                          <div className="h-3 bg-muted rounded-full w-1/2" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="px-5 pb-5 pt-1 space-y-3.5">
+                      <div className="h-3 bg-muted rounded-full w-2/3" />
+                      <div className="h-8" />
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="h-10 bg-muted rounded-xl" />
+                        <div className="h-10 bg-muted rounded-xl" />
+                      </div>
+                    </div>
+                  </div>
+                ))
+                : featuredSuppliersError && suppliers.length === 0
+                  ? null
+                : suppliers.map((supplier, i) => (
+                  <motion.div
+                    key={supplier.id}
+                    className="h-full"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.06 }}
+                  >
+                    <SupplierCard
+                      supplier={supplier}
+                      index={i}
+                      className="h-full"
+                      onClick={() => navigate(`/suppliers/${supplier.id}`)}
+                    />
+                  </motion.div>
+                ))}
             </div>
-          )}
-        </section>
+            {featuredSuppliersError && suppliers.length === 0 && (
+              <div className="text-center py-10 text-sm border border-red-100 bg-red-50 rounded-2xl space-y-3 mt-4">
+                <p className="text-red-800">Couldn’t load featured suppliers.</p>
+                <button
+                  type="button"
+                  className="text-primary font-semibold"
+                  onClick={() => void refetchFeaturedSuppliers()}
+                >
+                  Try again
+                </button>
+              </div>
+            )}
+            {!loadingSuppliers && !featuredSuppliersError && suppliers.length === 0 && (
+              <div className="text-center py-10 text-sm text-secondary/70 border border-dashed border-secondary/25 rounded-2xl mt-4 bg-white/50">
+                No suppliers yet.{" "}
+                <button className="text-primary font-semibold" onClick={() => navigate("/suppliers")}>Browse directory →</button>
+              </div>
+            )}
+          </section>
 
-        {/* Marketplace shortcuts — Alibaba / IndiaMART inspired */}
-        <section className="grid sm:grid-cols-3 gap-4">
-          {[
-            {
-              title: "Request a quote",
-              desc: "Post your requirement once — suppliers compete with quotes.",
-              cta: "Request quote",
-              path: "/rfq/new",
-              tone: "bg-orange-50 border-orange-100 text-orange-900",
-            },
-            {
-              title: "Verified Manufacturers",
-              desc: "Source only from KYC-checked suppliers with ratings.",
-              cta: "Browse suppliers",
-              path: "/suppliers?verified=true",
-              tone: "bg-green-50 border-green-100 text-green-900",
-            },
-            {
-              title: "Top Ranking Products",
-              desc: "Discover featured wholesale picks trending this week.",
-              cta: "View products",
-              path: "/products",
-              tone: "bg-blue-50 border-blue-100 text-blue-900",
-            },
-          ].map((card) => (
-            <button
-              key={card.title}
-              onClick={() => navigate(card.path)}
-              className={`text-left rounded-2xl border p-5 hover:shadow-md transition-all ${card.tone}`}
-            >
-              <h3 className="font-heading font-bold text-lg mb-1">{card.title}</h3>
-              <p className="text-sm opacity-80 mb-3">{card.desc}</p>
-              <span className="text-sm font-semibold inline-flex items-center gap-1">
-                {card.cta} <ArrowRight size={14} />
-              </span>
-            </button>
-          ))}
-        </section>
+          <section className="relative grid sm:grid-cols-3 gap-4">
+            {[
+              {
+                title: "Request a quote",
+                desc: "Post your requirement once — suppliers compete with quotes.",
+                cta: "Request quote",
+                path: "/rfq/new",
+                icon: MessageSquareQuote,
+                card: "bg-gradient-to-br from-primary to-amber-600 text-white border-transparent shadow-[0_14px_32px_-14px_rgba(255,122,0,0.65)] hover:brightness-105",
+                descClass: "text-white/85",
+              },
+              {
+                title: "Verified Manufacturers",
+                desc: "Source only from KYC-checked suppliers with ratings.",
+                cta: "Browse suppliers",
+                path: "/suppliers?verified=true",
+                icon: Factory,
+                card: "bg-gradient-to-br from-emerald-700 to-teal-600 text-white border-transparent shadow-[0_14px_32px_-14px_rgba(4,120,87,0.55)] hover:brightness-105",
+                descClass: "text-emerald-50/90",
+              },
+              {
+                title: "Top Ranking Products",
+                desc: "Discover featured wholesale picks trending this week.",
+                cta: "View products",
+                path: "/products",
+                icon: Trophy,
+                card: "bg-gradient-to-br from-secondary to-[#2a3f66] text-white border-transparent shadow-[0_14px_32px_-14px_rgba(26,39,68,0.55)] hover:brightness-105",
+                descClass: "text-white/80",
+              },
+            ].map((card) => {
+              const Icon = card.icon;
+              return (
+                <button
+                  key={card.title}
+                  onClick={() => navigate(card.path)}
+                  className={`group text-left rounded-2xl border p-5 sm:p-6 transition-all ${card.card}`}
+                >
+                  <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-4 bg-white/15 backdrop-blur-sm">
+                    <Icon size={20} />
+                  </div>
+                  <h3 className="font-heading font-bold text-lg mb-1.5">{card.title}</h3>
+                  <p className={`text-sm mb-4 leading-relaxed ${card.descClass}`}>{card.desc}</p>
+                  <span className="text-sm font-semibold inline-flex items-center gap-1.5 text-white">
+                    {card.cta}
+                    <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                  </span>
+                </button>
+              );
+            })}
+          </section>
+        </div>
 
         {/* Trade Assurance — trust layer */}
         <section className="rounded-3xl border border-border bg-white p-8 sm:p-10 shadow-sm">

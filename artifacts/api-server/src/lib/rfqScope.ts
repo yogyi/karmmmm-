@@ -5,13 +5,17 @@ import type { Prisma } from "@workspace/db";
  * - Directed / awarded RFQs for this shop
  * - Open marketplace RFQs (collecting, awaiting confirm, or closed) via openMarketplace flag
  * - RFQs this shop already quoted on
- * Never includes the viewer's own buyer RFQs.
+ *
+ * Own buyer RFQs are excluded from the *quotable* inbox (pass excludeViewerBuyerId=true).
+ * Callers that need awareness of self-posted RFQs should query buyerId separately.
  */
 export function sellerInboxWhere(
   supplierId: number,
   status?: string | null,
   viewerUserId?: number | null,
+  opts?: { excludeViewerBuyerId?: boolean },
 ): Prisma.RfqWhereInput {
+  const excludeOwn = opts?.excludeViewerBuyerId !== false;
   const marketplaceStatuses = ["pending", "responded", "pending_confirm", "accepted"] as const;
   const marketplaceVisible: Prisma.RfqWhereInput = status
     ? {
@@ -44,7 +48,7 @@ export function sellerInboxWhere(
         ],
       };
 
-  if (viewerUserId != null && viewerUserId > 0) {
+  if (excludeOwn && viewerUserId != null && viewerUserId > 0) {
     return {
       AND: [{ NOT: { buyerId: viewerUserId } }, opportunityOr],
     };

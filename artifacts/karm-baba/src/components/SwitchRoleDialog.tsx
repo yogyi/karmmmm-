@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth as useClerkAuth } from "@clerk/react";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, type AuthUser } from "@/context/AuthContext";
 import { clearStoredAuthMode, type AuthMode } from "@/lib/authMode";
 import { consumeAuthRedirect } from "@/lib/authRedirect";
 import { useAppDialog } from "@/components/AppDialog";
@@ -36,7 +36,39 @@ export async function applyAccountRole(
   await refreshProfile();
 }
 
-/** Instant buyer ↔ seller switch (no confirmation dialog). */
+/** True when this Clerk user has finished setup for the given marketplace side. */
+export function hasRoleAccount(
+  user: AuthUser | null | undefined,
+  role: AuthMode,
+): boolean {
+  if (!user) return false;
+  if (role === "buyer") return Boolean(user.buyerEnabled);
+  return Boolean(user.sellerEnabled);
+}
+
+/**
+ * Free buyer ↔ seller toggle is only allowed when both sides are set up
+ * on the same Clerk user.
+ */
+export function canSwitchRolesFreely(user: AuthUser | null | undefined): boolean {
+  return Boolean(user?.buyerEnabled && user?.sellerEnabled);
+}
+
+/** Where to send users who still need to create the other marketplace side. */
+export function missingRoleEntryPath(role: AuthMode): string {
+  // Seller side → sign in as seller; buyer side → create buyer account.
+  return role === "seller" ? "/login?mode=seller" : "/register?mode=buyer";
+}
+
+type SwitchOptions = {
+  /**
+   * When true (login/register “Continue as…”), allow first-time activation of
+   * the missing side instead of redirecting away.
+   */
+  activateIfMissing?: boolean;
+};
+
+/** Instant buyer ↔ seller switch only when both accounts exist. */
 export function useSwitchAccountRole() {
   const { user, refreshProfile } = useAuth();
   const { getToken } = useClerkAuth();
@@ -45,7 +77,7 @@ export function useSwitchAccountRole() {
   const [switching, setSwitching] = useState(false);
 
   const switchTo = useCallback(
-    async (target?: AuthMode) => {
+    async (target?: AuthMode, options?: SwitchOptions) => {
       if (switching) return;
       const role: AuthMode =
         target ?? (user?.role === "seller" ? "buyer" : "seller");
@@ -53,6 +85,17 @@ export function useSwitchAccountRole() {
         navigate(role === "seller" ? "/seller" : "/buyer");
         return;
       }
+
+      const freeSwitch = canSwitchRolesFreely(user);
+      const fromAuthEntry = Boolean(options?.activateIfMissing);
+
+      // Header / in-app switch: only when both buyer + seller sides exist.
+      // Login / register "Continue as…": may activate the missing side.
+      if (!freeSwitch && !fromAuthEntry) {
+        navigate(missingRoleEntryPath(role));
+        return;
+      }
+
       setSwitching(true);
       try {
         await applyAccountRole(role, getToken, refreshProfile);
@@ -63,14 +106,22 @@ export function useSwitchAccountRole() {
         navigate(consumeAuthRedirect("/buyer"));
       } catch (e) {
         await alert({
-          title: "Could not switch account",
+          title: fromAuthEntry && !hasRoleAccount(user, role)
+            ? "Could not create account"
+            : "Could not switch account",
           message: e instanceof Error ? e.message : "Could not switch account",
         });
         setSwitching(false);
       }
     },
-    [switching, user?.role, getToken, refreshProfile, navigate, alert],
+    [switching, user, getToken, refreshProfile, navigate, alert],
   );
 
-  return { switchTo, switching };
+  return {
+    switchTo,
+    switching,
+    canSwitchFreely: canSwitchRolesFreely(user),
+    hasBuyerAccount: hasRoleAccount(user, "buyer"),
+    hasSellerAccount: hasRoleAccount(user, "seller"),
+  };
 }

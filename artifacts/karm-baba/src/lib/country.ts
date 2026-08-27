@@ -49,5 +49,10 @@ export const COUNTRY_OPTIONS = [
   "Germany",
   "France",
   "Australia",
+  "Iraq",
+  "Ethiopia",
+  "Tanzania",
+  "Uganda",
+  "Turkey",
   "Other",
 ] as const;

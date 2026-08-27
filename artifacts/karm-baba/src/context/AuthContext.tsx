@@ -23,6 +23,10 @@ export interface AuthUser {
   avatarUrl?: string | null;
   supplierId?: number | null;
   onboardingCompleted?: boolean;
+  /** Set up buyer side — required (with sellerEnabled) for free role switch. */
+  buyerEnabled?: boolean;
+  /** Set up seller side — required (with buyerEnabled) for free role switch. */
+  sellerEnabled?: boolean;
   clerkId?: string | null;
 }
 

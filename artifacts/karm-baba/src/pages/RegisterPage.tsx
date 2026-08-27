@@ -24,7 +24,7 @@ export function RegisterPage() {
   const search = useSearch();
   const { isSignedIn, isLoaded: clerkLoaded } = useClerkAuth();
   const { user, isLoaded, profileReady } = useAuth();
-  const { switchTo, switching } = useSwitchAccountRole();
+  const { switchTo, switching, hasBuyerAccount, hasSellerAccount } = useSwitchAccountRole();
   const [mode, setMode] = useState<AuthMode>(() => resolveInitialAuthMode("buyer"));
   const [continuing, setContinuing] = useState(false);
   const clerkRedirects = clerkAuthRedirectUrls(search);
@@ -58,7 +58,7 @@ export function RegisterPage() {
         navigate(consumeAuthRedirect(workspaceHomePath(user.role)));
         return;
       }
-      await switchTo(mode);
+      await switchTo(mode, { activateIfMissing: true });
     } finally {
       setContinuing(false);
     }
@@ -127,7 +127,11 @@ export function RegisterPage() {
           ) : alreadySignedIn ? (
             <div className="rounded-2xl border border-border bg-white shadow-xl p-6 space-y-4">
               <p className="text-sm text-muted-foreground text-center">
-                You&apos;re already signed in. Choose Buyer or Seller above, then continue.
+                {mode === "seller" && !hasSellerAccount
+                  ? "Create a seller account on this login to list products and quote RFQs."
+                  : mode === "buyer" && !hasBuyerAccount
+                    ? "Create a buyer account on this login to source suppliers and post RFQs."
+                    : "You're already signed in. Choose Buyer or Seller above, then continue."}
               </p>
               <button
                 type="button"
@@ -138,7 +142,11 @@ export function RegisterPage() {
                 {(continuing || switching) && (
                   <Loader2 size={16} className="animate-spin" />
                 )}
-                Continue as {mode === "seller" ? "Seller" : "Buyer"}
+                {mode === "seller" && !hasSellerAccount
+                  ? "Create seller account"
+                  : mode === "buyer" && !hasBuyerAccount
+                    ? "Create buyer account"
+                    : `Continue as ${mode === "seller" ? "Seller" : "Buyer"}`}
               </button>
             </div>
           ) : (

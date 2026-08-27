@@ -4,6 +4,7 @@
  */
 
 import { isIndiaCountry } from "./country";
+import { getCompanyProfileLabels } from "./companyProfileLabels";
 
 /** Official / common India state & UT names (matched case-insensitively). */
 export const INDIAN_STATES = [
@@ -171,8 +172,9 @@ export function validateCompanyProfile(input: CompanyProfileInput): FieldErrors 
   }
 
   const state = input.state.trim();
+  const profileLabels = getCompanyProfileLabels(input.country);
   if (!state) {
-    errors.state = india ? "State is required" : "State / province / region is required";
+    errors.state = `${profileLabels.stateLabel.replace(" *", "")} is required`;
   } else if (india) {
     if (!normalizeIndianState(state)) {
       errors.state = "Select a valid Indian state or union territory";
@@ -188,8 +190,10 @@ export function validateCompanyProfile(input: CompanyProfileInput): FieldErrors 
     } else if (!isValidIndianPincode(pin)) {
       errors.pincode = "Enter a valid 6-digit Indian PIN (e.g. 395003)";
     }
+  } else if (profileLabels.postalRequired && !pin) {
+    errors.pincode = `${profileLabels.postalLabel.replace(" *", "")} is required`;
   } else if (pin && !isValidOverseasPostal(pin)) {
-    errors.pincode = "Enter a valid postal / ZIP code (3–12 characters)";
+    errors.pincode = `Enter a valid ${profileLabels.postalLabel.replace(" *", "").toLowerCase()} (3–12 characters)`;
   }
 
   if (!input.country.trim()) {

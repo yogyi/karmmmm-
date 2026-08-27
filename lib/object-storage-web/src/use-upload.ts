@@ -20,6 +20,8 @@ export interface UseUploadOptions {
   /** Base path where object storage routes are mounted (default: "/api/storage") */
   basePath?: string;
   getToken?: () => Promise<string | null> | string | null;
+  /** ACL on finalize — use private for KYC documents (default: public). */
+  finalizeVisibility?: "public" | "private";
   onSuccess?: (response: UploadResponse) => void;
   onError?: (error: Error) => void;
 }
@@ -196,7 +198,7 @@ export function useUpload(options: UseUploadOptions = {}) {
           credentials: "include",
           body: JSON.stringify({
             objectPath: uploadResponse.objectPath,
-            visibility: "public",
+            visibility: options.finalizeVisibility ?? "public",
           }),
         });
         if (!finalizeRes.ok) {

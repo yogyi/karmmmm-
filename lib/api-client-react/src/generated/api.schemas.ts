@@ -301,6 +301,10 @@ export interface User {
   /** @nullable */
   supplierId?: number | null;
   onboardingCompleted: boolean;
+  /** True when this user has set up a buyer account (required for free switch to buyer). */
+  buyerEnabled: boolean;
+  /** True when this user has set up a seller account (required for free switch to seller). */
+  sellerEnabled: boolean;
   createdAt: string;
 }
 

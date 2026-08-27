@@ -238,6 +238,9 @@ router.post(
         role: parsed.data.role,
         company,
         onboardingCompleted: true,
+        ...(parsed.data.role === "buyer"
+          ? { buyerEnabled: true }
+          : { sellerEnabled: true }),
       },
     });
 
@@ -282,6 +285,9 @@ router.post(
         ...parsed.data,
         password: passwordHash,
         onboardingCompleted: true,
+        ...(parsed.data.role === "seller"
+          ? { sellerEnabled: true }
+          : { buyerEnabled: true }),
       },
     });
     res.status(201).json(GetUserResponse.parse(safeUser(user)));

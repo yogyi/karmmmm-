@@ -34,6 +34,10 @@ model User {
   avatarUrl           String?  @map("avatar_url")
   supplierId          Int?     @map("supplier_id")
   onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  /// True once this Clerk user has completed buyer-side setup (can free-switch to buyer).
+  buyerEnabled        Boolean  @default(false) @map("buyer_enabled")
+  /// True once this Clerk user has completed seller-side setup (can free-switch to seller).
+  sellerEnabled       Boolean  @default(false) @map("seller_enabled")
   createdAt           DateTime @default(now()) @map("created_at")
 
   supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
@@ -66,6 +70,15 @@ model Supplier {
   verifiedAt         DateTime? @map("verified_at")
   gstin              String?   @unique
   pan                String?
+  /// Last live GSTN status from verification API (e.g. Active, Cancelled).
+  gstLiveStatus      String?   @map("gst_live_status")
+  gstLiveVerifiedAt  DateTime? @map("gst_live_verified_at")
+  gstTradeName       String?   @map("gst_trade_name")
+  /// KYC: uploaded Aadhaar card (image/PDF) — owner/admin only, not public.
+  aadhaarDocumentUrl String?   @map("aadhaar_document_url")
+  /// Overseas KYC: trade licence / CR / incorporation certificate (private).
+  businessRegistrationDocumentUrl String? @map("business_registration_document_url")
+  businessRegistrationNumber      String? @map("business_registration_number")
   gstVerified        Boolean   @default(false) @map("gst_verified")
   contactPerson      String?   @map("contact_person")
   contactPhone       String?   @map("contact_phone")

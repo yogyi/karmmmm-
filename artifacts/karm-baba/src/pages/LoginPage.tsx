@@ -24,7 +24,7 @@ export function LoginPage() {
   const search = useSearch();
   const { isSignedIn, isLoaded: clerkLoaded } = useClerkAuth();
   const { user, isLoaded, profileReady } = useAuth();
-  const { switchTo, switching } = useSwitchAccountRole();
+  const { switchTo, switching, hasBuyerAccount, hasSellerAccount } = useSwitchAccountRole();
   const [mode, setMode] = useState<AuthMode>(() => resolveInitialAuthMode("buyer"));
   const [continuing, setContinuing] = useState(false);
   const clerkRedirects = clerkAuthRedirectUrls(search);
@@ -60,7 +60,7 @@ export function LoginPage() {
         navigate(consumeAuthRedirect(workspaceHomePath(user.role)));
         return;
       }
-      await switchTo(mode);
+      await switchTo(mode, { activateIfMissing: true });
     } finally {
       setContinuing(false);
     }
@@ -156,7 +156,12 @@ export function LoginPage() {
                     ({user.role})
                   </>
                 ) : null}
-                . Choose Buyer or Seller above, then continue.
+                .{" "}
+                {mode === "seller" && !hasSellerAccount
+                  ? "Continue to create your seller account on this login."
+                  : mode === "buyer" && !hasBuyerAccount
+                    ? "Continue to create your buyer account on this login."
+                    : "Choose Buyer or Seller above, then continue."}
               </p>
               <button
                 type="button"
@@ -167,7 +172,11 @@ export function LoginPage() {
                 {(continuing || switching) && (
                   <Loader2 size={16} className="animate-spin" />
                 )}
-                Continue as {mode === "seller" ? "Seller" : "Buyer"}
+                {mode === "seller" && !hasSellerAccount
+                  ? "Create seller account"
+                  : mode === "buyer" && !hasBuyerAccount
+                    ? "Create buyer account"
+                    : `Continue as ${mode === "seller" ? "Seller" : "Buyer"}`}
               </button>
             </div>
           ) : (

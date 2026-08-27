@@ -145,8 +145,12 @@ router.get("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
     }
 
     // Role-strict listing: buyer mode → own RFQs only; seller mode → inbox only.
+    // Exception: seller may pass buyerId=self to list RFQs they posted as a buyer
+    // (Incoming inbox still excludes those so they cannot quote themselves).
     if (dbUser.role === "seller") {
-      if (linkedSupplierId != null) {
+      if (buyerId != null && buyerId === dbUser.id) {
+        where.buyerId = dbUser.id;
+      } else if (linkedSupplierId != null) {
         Object.assign(where, sellerInboxWhere(linkedSupplierId, status, dbUser.id));
         delete where.status;
         sellerInbox = true;

@@ -29,7 +29,7 @@ export function Header() {
   const searchString = useSearch();
   const { user, logout, isLoggedIn } = useAuth();
   const { user: clerkUser } = useUser();
-  const { switchTo, switching } = useSwitchAccountRole();
+  const { switchTo, switching, canSwitchFreely } = useSwitchAccountRole();
   const [searchQuery, setSearchQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -206,7 +206,7 @@ export function Header() {
   }
 
   /** Shared content column — top bar, logo row, category nav, and page body share this edge. */
-  const shell = "max-w-7xl mx-auto w-full px-3 sm:px-4 min-w-0";
+  const shell = "max-w-7xl mx-auto w-full px-5 sm:px-8 lg:px-10 min-w-0";
 
   return (
     <>
@@ -472,8 +472,10 @@ export function Header() {
                         }}
                         className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors disabled:opacity-50"
                       >
-                        <Building2 size={15} className="text-muted-foreground" /> Sell on
-                        Karm Baba
+                        <Building2 size={15} className="text-muted-foreground" />{" "}
+                        {canSwitchFreely
+                          ? "Switch to seller"
+                          : "Create seller account"}
                       </button>
                     )}
                     {user?.role === "seller" && (
@@ -486,8 +488,10 @@ export function Header() {
                         }}
                         className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors disabled:opacity-50"
                       >
-                        <User size={15} className="text-muted-foreground" /> Switch to
-                        buyer
+                        <User size={15} className="text-muted-foreground" />{" "}
+                        {canSwitchFreely
+                          ? "Switch to buyer"
+                          : "Create buyer account"}
                       </button>
                     )}
                     <button
@@ -676,6 +680,53 @@ export function Header() {
                 {item.label}
               </button>
             ))}
+            {isLoggedIn ? (
+              <div className="pt-2 mt-1 border-t border-border space-y-1">
+                {isSeller ? (
+                  <button
+                    type="button"
+                    disabled={switching}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void switchTo("buyer");
+                    }}
+                    className="flex w-full items-center gap-2.5 min-h-11 py-3 px-3 rounded-xl text-sm font-medium hover:bg-muted disabled:opacity-50"
+                  >
+                    <User size={15} className="text-muted-foreground" />
+                    {canSwitchFreely
+                      ? "Switch to buyer"
+                      : "Create buyer account"}
+                  </button>
+                ) : null}
+                {isBuyer ? (
+                  <button
+                    type="button"
+                    disabled={switching}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void switchTo("seller");
+                    }}
+                    className="flex w-full items-center gap-2.5 min-h-11 py-3 px-3 rounded-xl text-sm font-medium hover:bg-muted disabled:opacity-50"
+                  >
+                    <Building2 size={15} className="text-muted-foreground" />
+                    {canSwitchFreely
+                      ? "Switch to seller"
+                      : "Create seller account"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    logout();
+                  }}
+                  className="flex w-full items-center gap-2.5 min-h-11 py-3 px-3 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50"
+                >
+                  <LogOut size={15} />
+                  Sign Out
+                </button>
+              </div>
+            ) : null}
             {!isLoggedIn && (
               <div className="pt-2 space-y-2">
                 <div className="flex gap-2">
