@@ -20,6 +20,10 @@ import {
 } from "../lib/authorize";
 import { GST_STATE_CODES, validateGstin } from "../lib/gstin";
 import {
+  ensureGstinAvailableForSupplier,
+  gstinClashError,
+} from "../lib/gstinClash";
+import {
   gstLegalNameMatches,
   isGstLiveVerifyConfigured,
   verifyGstinLive,
@@ -517,11 +521,9 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
     if (india) {
       const gst = validateGstin(incomingGst);
       if (gst.ok) {
-        const clash = await prisma.supplier.findFirst({
-          where: { gstin: gst.gstin, NOT: { id: supplierId } },
-        });
-        if (clash) {
-          res.status(409).json({ error: "This GSTIN is already registered to another seller" });
+        const available = await ensureGstinAvailableForSupplier(gst.gstin, supplierId);
+        if (!available.ok) {
+          res.status(409).json({ error: gstinClashError(available.companyName) });
           return;
         }
         patch.gstin = gst.gstin;
@@ -929,12 +931,10 @@ router.post(
             res.status(400).json({ error: gst.error });
             return;
           }
-          const clash = await prisma.supplier.findFirst({
-            where: { gstin: gst.gstin, NOT: { id: supplierId } },
-          });
-          if (clash) {
+          const available = await ensureGstinAvailableForSupplier(gst.gstin, supplierId);
+          if (!available.ok) {
             res.status(409).json({
-              error: "This GSTIN is already registered to another seller",
+              error: gstinClashError(available.companyName),
             });
             return;
           }
@@ -1274,12 +1274,13 @@ router.post(
       return;
     }
 
-    const clash = await prisma.supplier.findFirst({
-      where: { gstin: live.record.gstin, NOT: { id: supplierId } },
-    });
-    if (clash) {
+    const available = await ensureGstinAvailableForSupplier(
+      live.record.gstin,
+      supplierId,
+    );
+    if (!available.ok) {
       res.status(409).json({
-        error: "This GSTIN is already registered to another seller",
+        error: gstinClashError(available.companyName),
       });
       return;
     }

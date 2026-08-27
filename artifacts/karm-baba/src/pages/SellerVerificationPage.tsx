@@ -1514,6 +1514,11 @@ export function SellerVerificationPage() {
                           "Optional — skip to continue, or enter GSTIN and verify for the badge"
                         )}
                       </p>
+                      {error && !gstLiveVerified ? (
+                        <p className="mt-2 text-sm text-red-700 bg-red-50/90 border border-red-200/80 rounded-xl px-3 py-2.5">
+                          {error}
+                        </p>
+                      ) : null}
                     </div>
 
                     {gstLiveRecord ? (
