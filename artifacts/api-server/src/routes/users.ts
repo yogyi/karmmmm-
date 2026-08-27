@@ -227,8 +227,35 @@ router.post(
       return;
     }
 
-    // Login / register /auth/continue always may set buyer or seller.
-    // In-app free-switch gating stays on the client (both sides enabled).
+    // Login / register /auth/continue may activate a missing side (`source: auth_entry`).
+    // In-app switches require both sides already enabled (enforced here, not only on client).
+    const bodyRaw = (req.body ?? {}) as { source?: unknown };
+    const fromAuthEntry = bodyRaw.source === "auth_entry";
+    const activatingSeller = parsed.data.role === "seller" && !user.sellerEnabled;
+    const activatingBuyer = parsed.data.role === "buyer" && !user.buyerEnabled;
+    if (
+      !fromAuthEntry &&
+      !activatingSeller &&
+      !activatingBuyer &&
+      parsed.data.role !== user.role &&
+      (!user.buyerEnabled || !user.sellerEnabled)
+    ) {
+      res.status(403).json({
+        error:
+          "Set up both buyer and seller profiles before switching roles in the app. Use login/register to activate the missing side.",
+      });
+      return;
+    }
+    // First-time activation of the other side is only allowed from auth entry
+    // (login/register/continue), not from the in-app header toggle.
+    if (!fromAuthEntry && (activatingSeller || activatingBuyer)) {
+      res.status(403).json({
+        error:
+          "Activate the missing buyer or seller side from login/register, then you can switch freely in the app.",
+      });
+      return;
+    }
+
     const company =
       typeof parsed.data.company === "string" && parsed.data.company.trim()
         ? parsed.data.company.trim()

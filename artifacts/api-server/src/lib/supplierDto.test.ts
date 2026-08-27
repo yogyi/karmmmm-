@@ -7,9 +7,11 @@ import {
 import {
   assertGstCertificateOcrAuthentic,
   gstCertificateMatchesEntered,
+  gstCertificateNameConsistentWithLive,
   normalizeOcrDocumentPayload,
   parseGstCertificateOcrPayload,
 } from "./gstCertificateOcr";
+import { gstinClashError, isGstinUniqueViolation } from "./gstinClash";
 
 const sample = {
   id: 1,
@@ -114,6 +116,29 @@ describe("gst certificate OCR helpers", () => {
     );
     expect(noName.ok).toBe(false);
 
+    // Structured fields alone must NOT pass without GST certificate markers.
+    const structuredOnly = assertGstCertificateOcrAuthentic(
+      {
+        gstin: "27AAPFU0939F1ZV",
+        legalName: "ACME TRADING PRIVATE LIMITED",
+        tradeName: "ACME",
+        address: "Mumbai",
+        pan: "AAPFU0939F",
+        status: "Active",
+      },
+      {
+        result: {
+          gstin: "27AAPFU0939F1ZV",
+          legal_name: "ACME TRADING PRIVATE LIMITED",
+          trade_name: "ACME",
+          address: "Mumbai",
+          pan: "AAPFU0939F",
+          status: "Active",
+        },
+      },
+    );
+    expect(structuredOnly.ok).toBe(false);
+
     const real = assertGstCertificateOcrAuthentic(
       {
         gstin: "27AAPFU0939F1ZV",
@@ -135,6 +160,46 @@ describe("gst certificate OCR helpers", () => {
       },
     );
     expect(real.ok).toBe(true);
+  });
+
+  it("checks OCR legal/trade name against live GSTN names", () => {
+    expect(
+      gstCertificateNameConsistentWithLive({
+        ocrLegalName: "ACME TRADING PRIVATE LIMITED",
+        ocrTradeName: null,
+        liveLegalName: "Acme Trading Pvt Ltd",
+        liveTradeName: null,
+      }),
+    ).toBe(true);
+    expect(
+      gstCertificateNameConsistentWithLive({
+        ocrLegalName: "TOTALLY DIFFERENT CO",
+        ocrTradeName: null,
+        liveLegalName: "Acme Trading Private Limited",
+        liveTradeName: null,
+      }),
+    ).toBe(false);
+    expect(
+      gstCertificateNameConsistentWithLive({
+        ocrLegalName: null,
+        ocrTradeName: "ACME",
+        liveLegalName: null,
+        liveTradeName: "Acme",
+      }),
+    ).toBe(true);
+  });
+
+  it("detects GSTIN unique violations and formats clash errors", () => {
+    expect(gstinClashError("Acme")).toContain("Acme");
+    expect(
+      isGstinUniqueViolation(
+        Object.assign(new Error("Unique constraint failed on gstin"), {
+          code: "P2002",
+          meta: { target: ["gstin"] },
+        }),
+      ),
+    ).toBe(true);
+    expect(isGstinUniqueViolation(new Error("nope"))).toBe(false);
   });
 
   it("normalizes data URLs to raw base64 and allows PDF", () => {

@@ -69,7 +69,9 @@ export function AuthContinuePage() {
         // Always POST the chosen mode so Postgres role matches the login toggle,
         // even when the account was previously a seller.
         if (current.role !== mode || !current.onboardingCompleted) {
-          await applyAccountRole(mode, getToken, refreshProfile);
+          await applyAccountRole(mode, getToken, refreshProfile, {
+            source: "auth_entry",
+          });
         } else {
           clearStoredAuthMode();
         }

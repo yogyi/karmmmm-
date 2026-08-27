@@ -10,6 +10,7 @@ export async function applyAccountRole(
   role: AuthMode,
   getToken: () => Promise<string | null>,
   refreshProfile: () => Promise<void>,
+  options?: { source?: "auth_entry" | "app" },
 ) {
   const token = await getToken();
   if (!token) {
@@ -21,7 +22,12 @@ export async function applyAccountRole(
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ role }),
+    body: JSON.stringify({
+      role,
+      // auth_entry = login/register/continue may activate missing side.
+      // app = in-app switch only when both sides already enabled.
+      source: options?.source ?? "auth_entry",
+    }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -100,7 +106,9 @@ export function useSwitchAccountRole() {
 
       setSwitching(true);
       try {
-        await applyAccountRole(role, getToken, refreshProfile);
+        await applyAccountRole(role, getToken, refreshProfile, {
+          source: fromAuthEntry ? "auth_entry" : "app",
+        });
         if (role === "seller") {
           navigate(consumeAuthRedirect("/seller"));
           return;

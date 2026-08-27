@@ -58,6 +58,7 @@ export function OnboardingPage() {
       body: JSON.stringify({
         role,
         company: companyName?.trim() || undefined,
+        source: "auth_entry",
       }),
     });
     if (!res.ok) {
@@ -121,7 +122,9 @@ export function OnboardingPage() {
         setAutoTried(true);
         setSaving(true);
         setPendingWorkspace(pending);
-        void applyAccountRole(pending, getToken, refreshProfile)
+        void applyAccountRole(pending, getToken, refreshProfile, {
+          source: "auth_entry",
+        })
           .then(() => {
             window.location.replace(
               resolvePostAuthPath(
@@ -152,7 +155,9 @@ export function OnboardingPage() {
     setAutoTried(true);
     setSaving(true);
     setPendingWorkspace(pending);
-    void applyAccountRole(pending, getToken, refreshProfile)
+    void applyAccountRole(pending, getToken, refreshProfile, {
+      source: "auth_entry",
+    })
       .then(() => {
         window.location.replace(
           resolvePostAuthPath(

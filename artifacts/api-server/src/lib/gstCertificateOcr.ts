@@ -332,8 +332,8 @@ async function callRapidApiOcr(
 
 /**
  * Reject random PDFs/photos that are not a GST registration certificate.
- * Requires a checksum-valid GSTIN, a business legal name, and GST-certificate
- * markers in the OCR payload (or enough structured GST fields).
+ * Requires a checksum-valid GSTIN, a business legal name, and at least one
+ * GST-certificate marker in OCR text values (not JSON keys alone).
  */
 export function assertGstCertificateOcrAuthentic(
   fields: GstCertificateOcrFields,
@@ -388,15 +388,9 @@ export function assertGstCertificateOcrAuthentic(
 
   const blob = collectOcrTextBlob(raw);
   const markerHits = GST_CERTIFICATE_MARKERS.filter((re) => re.test(blob)).length;
-  const structuredScore =
-    (fields.address ? 1 : 0) +
-    (fields.tradeName ? 1 : 0) +
-    (fields.pan ? 1 : 0) +
-    (fields.status ? 1 : 0);
-
-  // Need either clear GST-certificate language in the OCR text, or enough
-  // structured GST fields that only a real REG certificate OCR returns.
-  if (markerHits < 1 && structuredScore < 2) {
+  // Always require GST-certificate language — structured fields alone are not enough
+  // (invoices / letterheads can invent address + trade name + PAN).
+  if (markerHits < 1) {
     return {
       ok: false,
       error:
@@ -415,6 +409,7 @@ export function assertGstCertificateOcrAuthentic(
   };
 }
 
+/** Collect OCR string *values* only (skip object keys — avoids false marker hits). */
 function collectOcrTextBlob(raw: unknown): string {
   const parts: string[] = [];
   const walk = (node: unknown, depth: number) => {
@@ -433,8 +428,7 @@ function collectOcrTextBlob(raw: unknown): string {
     }
     const rec = asRecord(node);
     if (!rec) return;
-    for (const [k, v] of Object.entries(rec)) {
-      parts.push(k);
+    for (const v of Object.values(rec)) {
       walk(v, depth + 1);
     }
   };

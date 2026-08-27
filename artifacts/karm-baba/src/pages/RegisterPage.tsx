@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { AuthModeToggle } from "@/components/AuthModeToggle";
 import {
   type AuthMode,
+  getAuthModeFromUrl,
   resolveInitialAuthMode,
   setStoredAuthMode,
 } from "@/lib/authMode";
@@ -83,6 +84,7 @@ export function RegisterPage() {
 
   useEffect(() => {
     if (!alreadySignedIn || autoContinued.current || continuing || switching) return;
+    if (!getAuthModeFromUrl()) return;
     autoContinued.current = true;
     continueSignedIn();
   }, [alreadySignedIn, mode, continuing, switching]);

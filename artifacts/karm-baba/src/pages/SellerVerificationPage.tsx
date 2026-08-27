@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
   Building2,
@@ -343,6 +343,7 @@ export function SellerVerificationPage() {
     gstin: string | null;
     legalName: string | null;
   } | null>(null);
+  const gstOcrAutoTimer = useRef<number | null>(null);
   /** India pending KYC without certificate OCR — nudge toward badge upload. */
   const [needsGstCertOcr, setNeedsGstCertOcr] = useState(false);
   const [countryAutoDetected, setCountryAutoDetected] = useState(false);
@@ -656,10 +657,18 @@ export function SellerVerificationPage() {
 
   function onGstCertificateUploaded(url: string) {
     update("gstCertificateDocumentUrl", url);
+    if (gstOcrAutoTimer.current != null) {
+      window.clearTimeout(gstOcrAutoTimer.current);
+      gstOcrAutoTimer.current = null;
+    }
     if (!url.trim()) return;
-    // Always hit the OCR API after upload — upload alone never unlocks Verified.
+    // Debounce auto-OCR so Replace file doesn't burn the rate limit.
     if (gstLiveVerified && validateGstin(form.gstin).ok) {
-      void scanGstCertificateOcr(url);
+      setGstCertificateOcrMsg("File saved — running GST certificate OCR API check…");
+      gstOcrAutoTimer.current = window.setTimeout(() => {
+        gstOcrAutoTimer.current = null;
+        void scanGstCertificateOcr(url);
+      }, 900);
     } else {
       setGstCertificateOcrMsg(
         "File saved only. Verify GSTIN with GSTN first, then OCR will check the certificate.",

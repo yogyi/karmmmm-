@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { AuthModeToggle } from "@/components/AuthModeToggle";
 import {
   type AuthMode,
+  getAuthModeFromUrl,
   resolveInitialAuthMode,
   setStoredAuthMode,
 } from "@/lib/authMode";
@@ -95,9 +96,11 @@ export function LoginPage() {
   const authReady = clerkLoaded && isLoaded && profileReady;
   const alreadySignedIn = Boolean(authReady && isSignedIn && user);
 
-  // Session already open (Google "Last used"): apply Buyer/Seller immediately.
+  // Only auto-continue when ?mode= is explicit — avoids forcing a stale stored
+  // seller mode before the user can tap Buyer.
   useEffect(() => {
     if (!alreadySignedIn || autoContinued.current || continuing || switching) return;
+    if (!getAuthModeFromUrl()) return;
     autoContinued.current = true;
     continueSignedIn();
   }, [alreadySignedIn, mode, continuing, switching]);

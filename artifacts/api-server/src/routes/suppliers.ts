@@ -22,6 +22,7 @@ import { GST_STATE_CODES, validateGstin } from "../lib/gstin";
 import {
   ensureGstinAvailableForSupplier,
   gstinClashError,
+  isGstinUniqueViolation,
 } from "../lib/gstinClash";
 import {
   gstLegalNameMatches,
@@ -536,10 +537,22 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
     }
   }
 
-  const updated = await prisma.supplier.update({
-    where: { id: supplierId },
-    data: patch,
-  });
+  let updated;
+  try {
+    updated = await prisma.supplier.update({
+      where: { id: supplierId },
+      data: patch,
+    });
+  } catch (err) {
+    if (incomingGst && isGstinUniqueViolation(err)) {
+      res.status(409).json({
+        error:
+          "This GSTIN was just claimed by another seller. Try again or use a different GSTIN.",
+      });
+      return;
+    }
+    throw err;
+  }
   res.json({
     ...mapOwnerSupplier(updated),
     username: updated.slug,
@@ -1183,10 +1196,22 @@ router.post(
       patch.verificationStep = Math.min(5, Math.max(step + 1, existing.verificationStep));
     }
 
-    const updated = await prisma.supplier.update({
-      where: { id: supplierId },
-      data: patch,
-    });
+    let updated;
+    try {
+      updated = await prisma.supplier.update({
+        where: { id: supplierId },
+        data: patch,
+      });
+    } catch (err) {
+      if (isGstinUniqueViolation(err)) {
+        res.status(409).json({
+          error:
+            "This GSTIN was just claimed by another seller. Try again or use a different GSTIN.",
+        });
+        return;
+      }
+      throw err;
+    }
     // Free plan once profile is submitted (pending), not only when verified.
     if (updated.verificationStatus === "pending" || updated.verified) {
       await ensureFreeSubscription(updated.id);
@@ -1314,7 +1339,17 @@ router.post(
           ? { businessAddress: live.record.address }
           : {}),
       },
+    }).catch((err) => {
+      if (isGstinUniqueViolation(err)) return null;
+      throw err;
     });
+    if (!updated) {
+      res.status(409).json({
+        error:
+          "This GSTIN was just claimed by another seller. Try again or use a different GSTIN.",
+      });
+      return;
+    }
 
     res.json({
       ok: true,
