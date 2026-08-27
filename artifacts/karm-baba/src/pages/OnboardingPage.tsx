@@ -6,7 +6,9 @@ import { useAuth } from "@/context/AuthContext";
 import {
   type AuthMode,
   clearStoredAuthMode,
+  getAuthModeFromUrl,
   getStoredAuthMode,
+  setStoredAuthMode,
 } from "@/lib/authMode";
 import { consumeAuthRedirect } from "@/lib/authRedirect";
 import {
@@ -14,6 +16,10 @@ import {
   useSwitchAccountRole,
 } from "@/components/SwitchRoleDialog";
 import logoUrl from "@assets/logo_1780688383558.png";
+
+function readPendingAuthMode(): AuthMode | null {
+  return getAuthModeFromUrl() ?? getStoredAuthMode();
+}
 
 export function OnboardingPage() {
   const { user, isLoggedIn, isLoaded, profileReady, refreshProfile } = useAuth();
@@ -24,12 +30,18 @@ export function OnboardingPage() {
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("change");
 
-  const [choice, setChoice] = useState<AuthMode | null>(() => getStoredAuthMode());
+  const [choice, setChoice] = useState<AuthMode | null>(() => readPendingAuthMode());
   const [company, setCompany] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoTried, setAutoTried] = useState(false);
   const [switchTried, setSwitchTried] = useState(false);
+
+  // Persist ?mode= from Clerk redirect so Buyer/Seller survives OAuth.
+  useEffect(() => {
+    const fromUrl = getAuthModeFromUrl();
+    if (fromUrl) setStoredAuthMode(fromUrl);
+  }, []);
 
   async function applyRole(role: AuthMode, companyName?: string) {
     const token = await getToken();
@@ -88,20 +100,43 @@ export function OnboardingPage() {
   ]);
 
   // Alibaba-style: mode chosen on login/register → apply automatically after Clerk.
+  // Must honor Buyer/Seller even when the user already completed onboarding as the
+  // other side (e.g. seller signs in via /login?mode=buyer).
   useEffect(() => {
     if (!isLoaded || !profileReady || !isLoggedIn || !user || user.id <= 0) return;
     if (user.role === "admin") {
       navigate(consumeAuthRedirect("/"));
       return;
     }
-    if (user.onboardingCompleted && !changing) {
+    if (changing) return;
+
+    const pending = readPendingAuthMode();
+
+    if (user.onboardingCompleted) {
+      if (pending && pending !== user.role) {
+        if (autoTried) return;
+        setAutoTried(true);
+        setSaving(true);
+        void applyAccountRole(pending, getToken, refreshProfile)
+          .then(() => {
+            navigate(
+              consumeAuthRedirect(pending === "seller" ? "/seller" : "/buyer"),
+            );
+          })
+          .catch((e) => {
+            setChoice(pending);
+            setError(e instanceof Error ? e.message : "Something went wrong");
+            setSaving(false);
+          });
+        return;
+      }
+      if (pending === user.role) clearStoredAuthMode();
       navigate(
         consumeAuthRedirect(user.role === "seller" ? "/seller" : "/buyer"),
       );
       return;
     }
-    if (changing) return;
-    const pending = getStoredAuthMode();
+
     if (!pending || autoTried) return;
     setAutoTried(true);
     setSaving(true);
@@ -146,7 +181,7 @@ export function OnboardingPage() {
     );
   }
 
-  if (user?.onboardingCompleted && !changing) {
+  if (user?.onboardingCompleted && !changing && !error) {
     return (
       <div className="min-h-screen flex items-center justify-center kb-page">
         <Loader2 className="animate-spin text-primary" size={28} />
@@ -154,12 +189,12 @@ export function OnboardingPage() {
     );
   }
 
-  if (saving && getStoredAuthMode()) {
+  if (saving && readPendingAuthMode()) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center kb-page gap-3">
         <Loader2 className="animate-spin text-primary" size={28} />
         <p className="text-sm text-muted-foreground">
-          Setting up your {getStoredAuthMode()} account…
+          Setting up your {readPendingAuthMode()} account…
         </p>
       </div>
     );

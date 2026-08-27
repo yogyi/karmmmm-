@@ -27,8 +27,17 @@ export function LoginPage() {
   const { switchTo, switching, hasBuyerAccount, hasSellerAccount } = useSwitchAccountRole();
   const [mode, setMode] = useState<AuthMode>(() => resolveInitialAuthMode("buyer"));
   const [continuing, setContinuing] = useState(false);
-  const clerkRedirects = clerkAuthRedirectUrls(search);
   const redirect = redirectFromSearch(search);
+  // Keep Clerk post-auth URL in sync with the Buyer/Seller toggle (wouter
+  // search can lag behind history.replaceState when toggling mode).
+  const clerkSearch = (() => {
+    const params = new URLSearchParams(
+      search.startsWith("?") ? search.slice(1) : search,
+    );
+    params.set("mode", mode);
+    return `?${params.toString()}`;
+  })();
+  const clerkRedirects = clerkAuthRedirectUrls(clerkSearch);
 
   useEffect(() => {
     setStoredAuthMode(mode);

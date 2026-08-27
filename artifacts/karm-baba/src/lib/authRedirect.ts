@@ -54,8 +54,15 @@ export function clerkAuthRedirectUrls(search: string): {
     search.startsWith("?") ? search.slice(1) : search,
   );
   rememberAuthRedirect(params.get("redirect"));
+  // Carry Buyer/Seller choice through OAuth — sessionStorage alone can be lost
+  // across Clerk redirect hosts.
+  const mode = params.get("mode");
+  const onboarding =
+    mode === "buyer" || mode === "seller"
+      ? `/onboarding?mode=${mode}`
+      : "/onboarding";
   return {
-    fallbackRedirectUrl: "/onboarding",
-    forceRedirectUrl: "/onboarding",
+    fallbackRedirectUrl: onboarding,
+    forceRedirectUrl: onboarding,
   };
 }

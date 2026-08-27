@@ -27,8 +27,15 @@ export function RegisterPage() {
   const { switchTo, switching, hasBuyerAccount, hasSellerAccount } = useSwitchAccountRole();
   const [mode, setMode] = useState<AuthMode>(() => resolveInitialAuthMode("buyer"));
   const [continuing, setContinuing] = useState(false);
-  const clerkRedirects = clerkAuthRedirectUrls(search);
   const redirect = redirectFromSearch(search);
+  const clerkSearch = (() => {
+    const params = new URLSearchParams(
+      search.startsWith("?") ? search.slice(1) : search,
+    );
+    params.set("mode", mode);
+    return `?${params.toString()}`;
+  })();
+  const clerkRedirects = clerkAuthRedirectUrls(clerkSearch);
 
   useEffect(() => {
     setStoredAuthMode(mode);
