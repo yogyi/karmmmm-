@@ -40,6 +40,7 @@ import {
 import { sendMail } from "../lib/mail";
 import { rateLimit } from "../lib/rateLimit";
 import {
+  checkUsernameAvailability,
   ensureFreeSubscription,
   ensureUniqueSupplierSlug,
   isLegacyIdSlug,
@@ -84,19 +85,32 @@ router.get("/suppliers/by-slug/:slug", requireClerkAuth, async (req, res): Promi
   const slug = String(req.params.slug || "");
   const supplier = await prisma.supplier.findUnique({
     where: { slug },
-    select: PUBLIC_SUPPLIER_SELECT,
+    select: {
+      ...PUBLIC_SUPPLIER_SELECT,
+      verificationStatus: true,
+    },
   });
   if (!supplier) {
     res.status(404).json({ error: "Supplier not found" });
     return;
   }
+  // Draft KYC shops keep an internal slug but are not publicly shareable yet.
+  const shareReady =
+    supplier.verified === true ||
+    supplier.verificationStatus === "pending" ||
+    supplier.verificationStatus === "verified";
+  if (!shareReady) {
+    res.status(404).json({ error: "Supplier profile is not available yet" });
+    return;
+  }
+  const { verificationStatus: _verificationStatus, ...publicFields } = supplier;
   const products = await prisma.product.findMany({
     where: { supplierId: supplier.id, inStock: true },
     orderBy: { createdAt: "desc" },
     take: 6,
   });
   res.json({
-    supplier: mapPublicSupplier(supplier),
+    supplier: mapPublicSupplier(publicFields),
     products: products.map((p) => ({
       id: p.id,
       name: p.name,
@@ -150,11 +164,58 @@ router.get("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> =>
       data: { slug: desiredSlug },
     });
   }
+
+  // Optional Instagram-style username availability check on the same auth'd route.
+  const checkRaw =
+    typeof req.query.checkUsername === "string"
+      ? req.query.checkUsername
+      : typeof req.query.username === "string"
+        ? req.query.username
+        : "";
+  let usernameCheck: Awaited<ReturnType<typeof checkUsernameAvailability>> | undefined;
+  if (checkRaw.trim()) {
+    try {
+      usernameCheck = await checkUsernameAvailability(checkRaw, supplierId);
+    } catch (err) {
+      req.log?.error({ err }, "username check failed");
+      usernameCheck = {
+        username: checkRaw.trim().toLowerCase() || null,
+        available: false,
+        error: "Could not check username — try again",
+        suggestions: [],
+      };
+    }
+  }
+
   res.json({
     ...mapOwnerSupplier(supplier),
+    username: supplier.slug,
     gstLocked: supplier.verified || supplier.gstVerified || supplier.verificationStatus === "pending",
     shareUrl: supplier.slug ? `/s/${supplier.slug}` : null,
+    ...(usernameCheck ? { usernameCheck } : {}),
   });
+});
+
+/** Check whether a share username is available; returns alternatives if taken. */
+router.get("/suppliers/me/username/check", requireClerkAuth, async (req, res): Promise<void> => {
+  try {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (!isSellerOrAdmin(dbUser)) {
+      res.status(403).json({ error: "Forbidden — sellers only" });
+      return;
+    }
+    const supplierId = parseLinkedSupplierId(dbUser);
+    const raw = typeof req.query.username === "string" ? req.query.username : "";
+    const result = await checkUsernameAvailability(raw, supplierId);
+    res.json(result);
+  } catch (err) {
+    req.log?.error({ err }, "username check failed");
+    res.status(500).json({ error: "Could not check username — try again" });
+  }
 });
 
 function readTrimmed(value: unknown): string | undefined {
@@ -246,6 +307,21 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
   }
 
   const patch: Prisma.SupplierUpdateInput = {};
+  const usernameRaw =
+    readTrimmed(body.username) ?? readTrimmed(body.slug);
+  if (usernameRaw !== undefined) {
+    const availability = await checkUsernameAvailability(usernameRaw, supplierId);
+    if (!availability.available || !availability.username) {
+      res.status(409).json({
+        error: availability.error || "Username is taken",
+        code: "USERNAME_TAKEN",
+        username: availability.username,
+        suggestions: availability.suggestions,
+      });
+      return;
+    }
+    patch.slug = availability.username;
+  }
   const companyName = readTrimmed(body.companyName);
   if (companyName) patch.companyName = companyName;
   const legalName = readTrimmed(body.legalName);
@@ -379,6 +455,7 @@ router.patch("/suppliers/me", requireClerkAuth, async (req, res): Promise<void> 
   });
   res.json({
     ...mapOwnerSupplier(updated),
+    username: updated.slug,
     gstLocked:
       updated.verified ||
       updated.gstVerified ||
@@ -446,6 +523,14 @@ router.post("/suppliers/me/share-link", requireClerkAuth, async (req, res): Prom
   const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
   if (!supplier) {
     res.status(404).json({ error: "Supplier not found" });
+    return;
+  }
+  const shareReady =
+    supplier.verified === true ||
+    supplier.verificationStatus === "pending" ||
+    supplier.verificationStatus === "verified";
+  if (!shareReady) {
+    res.status(403).json({ error: "Complete seller verification first to get a shareable profile" });
     return;
   }
   const slug = await resolveShareableSlug(
@@ -923,6 +1008,22 @@ router.post(
           });
           return;
         }
+        const bankAccountName =
+          (patch.bankAccountName as string | undefined) ?? existing.bankAccountName ?? "";
+        const bankIfsc =
+          (patch.bankIfsc as string | undefined) ?? existing.bankIfsc ?? "";
+        if (!bankAccountName.trim()) {
+          res.status(400).json({
+            error: "Account holder name is required before verification. Complete the Bank step.",
+          });
+          return;
+        }
+        if (!bankIfsc.trim() || !/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(bankIfsc.trim())) {
+          res.status(400).json({
+            error: "Valid IFSC code is required before verification. Complete the Bank step.",
+          });
+          return;
+        }
       } else {
         if (!existing.businessEmailVerified) {
           res.status(400).json({
@@ -995,10 +1096,18 @@ router.post(
   },
 );
 
-/** Live GSTIN lookup (GSTVerify) — seller must be authenticated. */
+/** Live GSTIN lookup — persists verification on the supplier row. */
 router.post(
   "/suppliers/me/verification/gst-verify",
   requireClerkAuth,
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 12,
+    key: (req) => {
+      const uid = (req as { clerkUserId?: string }).clerkUserId || "unknown";
+      return `gst-verify:user:${uid}`;
+    },
+  }),
   async (req, res): Promise<void> => {
     const dbUser = await getAuthenticatedDbUser(req);
     if (!dbUser) {
@@ -1007,6 +1116,20 @@ router.post(
     }
     if (!isSellerOrAdmin(dbUser)) {
       res.status(403).json({ error: "Forbidden — sellers only" });
+      return;
+    }
+    const supplierId = parseLinkedSupplierId(dbUser);
+    if (supplierId == null) {
+      res.status(404).json({ error: "No supplier profile linked yet" });
+      return;
+    }
+    const existing = await prisma.supplier.findUnique({ where: { id: supplierId } });
+    if (!existing) {
+      res.status(404).json({ error: "Supplier not found" });
+      return;
+    }
+    if (!isIndiaCountry(existing.country)) {
+      res.status(400).json({ error: "Live GST verification is for Indian sellers only" });
       return;
     }
     if (!isGstLiveVerifyConfigured()) {
@@ -1019,7 +1142,9 @@ router.post(
     const body = req.body as { gstin?: string; legalName?: string };
     const gstinRaw = typeof body.gstin === "string" ? body.gstin : "";
     const legalName =
-      typeof body.legalName === "string" ? body.legalName.trim() : "";
+      typeof body.legalName === "string" && body.legalName.trim()
+        ? body.legalName.trim()
+        : existing.legalName ?? "";
 
     const live = await verifyGstinLive(gstinRaw);
     if (!live.ok) {
@@ -1030,13 +1155,49 @@ router.post(
     }
 
     const format = validateGstin(live.record.gstin);
+    if (!format.ok) {
+      res.status(400).json({ error: format.error });
+      return;
+    }
+
+    const clash = await prisma.supplier.findFirst({
+      where: { gstin: live.record.gstin, NOT: { id: supplierId } },
+    });
+    if (clash) {
+      res.status(409).json({
+        error: "This GSTIN is already registered to another seller",
+      });
+      return;
+    }
+
     const nameMatches =
       !legalName || gstLegalNameMatches(legalName, live.record.legalName);
+    if (!nameMatches) {
+      res.status(400).json({
+        error:
+          "Legal entity name does not match GST records. Use the name on your GST certificate.",
+        gstLegalName: live.record.legalName,
+        nameMatches: false,
+      });
+      return;
+    }
+
+    const updated = await prisma.supplier.update({
+      where: { id: supplierId },
+      data: {
+        gstin: live.record.gstin,
+        pan: live.record.pan ?? format.pan,
+        gstLiveStatus: live.record.status,
+        gstLiveVerifiedAt: new Date(),
+        gstTradeName: live.record.tradeName,
+        ...(live.record.state && !existing.state ? { state: live.record.state } : {}),
+      },
+    });
 
     res.json({
       verified: true,
       cached: live.record.cached,
-      nameMatches,
+      nameMatches: true,
       record: {
         gstin: live.record.gstin,
         legalName: live.record.legalName,
@@ -1050,9 +1211,8 @@ router.post(
         taxpayerType: live.record.taxpayerType,
         registrationDate: live.record.registrationDate,
       },
-      message: nameMatches
-        ? "GSTIN verified with GSTN"
-        : "GSTIN is active but legal name differs from your form — update legal entity name to match GST records.",
+      supplier: mapOwnerSupplier(updated),
+      message: "GSTIN verified with GSTN",
     });
   },
 );

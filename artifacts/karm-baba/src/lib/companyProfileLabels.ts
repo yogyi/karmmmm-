@@ -4,6 +4,7 @@ export interface CompanyProfileLabels {
   legalNamePlaceholder: string;
   stateLabel: string;
   statePlaceholder: string;
+  stateRequired: boolean;
   postalLabel: string;
   postalPlaceholder: string;
   postalRequired: boolean;
@@ -26,6 +27,7 @@ const DEFAULT_OVERSEAS: CompanyProfileLabels = {
   legalNamePlaceholder: "As on company registration certificate",
   stateLabel: "State / province / region *",
   statePlaceholder: "Province or region",
+  stateRequired: true,
   postalLabel: "Postal / ZIP code",
   postalPlaceholder: "Postal code",
   postalRequired: false,
@@ -37,6 +39,7 @@ const INDIA: CompanyProfileLabels = {
   legalNamePlaceholder: "As on GST certificate",
   stateLabel: "State *",
   statePlaceholder: "Select state / UT",
+  stateRequired: true,
   postalLabel: "PIN code *",
   postalPlaceholder: "395003",
   postalRequired: true,
@@ -238,8 +241,9 @@ export function getCompanyProfileLabels(country: string): CompanyProfileLabels {
     return {
       ...DEFAULT_OVERSEAS,
       legalNamePlaceholder: "As on ACRA business profile",
-      stateLabel: "Region",
-      statePlaceholder: "Optional — island city-state",
+      stateLabel: "Region (optional)",
+      statePlaceholder: "Island city-state — leave blank if N/A",
+      stateRequired: false,
       postalLabel: "Postal code *",
       postalPlaceholder: "018956",
       postalRequired: true,

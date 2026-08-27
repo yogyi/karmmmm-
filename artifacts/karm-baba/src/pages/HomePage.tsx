@@ -112,20 +112,27 @@ export function HomePage() {
             onSubmit={handleSearch}
             className="max-w-2xl mx-auto"
           >
-            <div className="flex items-center bg-white rounded-2xl overflow-hidden shadow-2xl ring-4 ring-white/20 min-w-0">
-              <Search size={18} className="ml-3 sm:ml-5 text-muted-foreground flex-shrink-0" />
+            <div className="relative flex items-center bg-white rounded-2xl overflow-hidden shadow-2xl ring-4 ring-white/20 min-w-0">
+              <Search
+                size={18}
+                aria-hidden
+                className="pointer-events-none absolute left-3.5 sm:left-5 top-1/2 -translate-y-1/2 text-muted-foreground z-[1]"
+              />
               <input
-                type="search"
+                type="text"
+                enterKeyHint="search"
+                autoComplete="off"
                 placeholder="Search products…"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 aria-label="Search products, suppliers, and categories"
-                className="flex-1 min-w-0 px-2 sm:px-4 py-3.5 sm:py-4 text-foreground outline-none text-sm sm:text-base placeholder:text-muted-foreground"
+                className="flex-1 min-w-0 pl-11 sm:pl-12 pr-2 sm:pr-4 py-3.5 sm:py-4 text-foreground outline-none text-sm sm:text-base placeholder:text-muted-foreground"
+                style={{ caretColor: "hsl(var(--foreground))" }}
               />
               <button
                 type="submit"
                 aria-label="Search"
-                className="bg-primary hover:bg-primary/90 text-white px-4 sm:px-6 py-3.5 sm:py-4 font-semibold text-base transition-all flex-shrink-0 flex items-center gap-2 rounded-r-2xl min-h-11"
+                className="relative z-[1] bg-primary hover:bg-primary/90 text-white px-4 sm:px-6 py-3.5 sm:py-4 font-semibold text-base transition-all flex-shrink-0 flex items-center gap-2 rounded-r-2xl min-h-11"
               >
                 <Search size={16} />
                 <span className="hidden sm:inline">Search</span>

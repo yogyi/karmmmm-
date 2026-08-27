@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { Loader2, BadgeCheck, Lock, Camera } from "lucide-react";
+import { Loader2, BadgeCheck, Lock, Camera, Check, X } from "lucide-react";
 import { useAuth as useClerkAuth, useUser } from "@clerk/react";
 import { useUpload } from "@workspace/object-storage-web";
 import { useAuth } from "@/context/AuthContext";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface ShopProfile {
+  username: string;
   companyName: string;
   legalName: string;
   businessAddress: string;
@@ -35,22 +36,13 @@ interface ShopProfile {
   verified: boolean;
 }
 
-const emptyShop: ShopProfile = {
-  companyName: "",
-  legalName: "",
-  businessAddress: "",
-  city: "",
-  state: "",
-  pincode: "",
-  country: "India",
-  description: "",
-  contactPerson: "",
-  contactPhone: "",
-  contactEmail: "",
-  website: "",
-  gstin: "",
-  gstLocked: false,
-  verified: false,
+type UsernameCheck = {
+  username: string | null;
+  available: boolean;
+  error?: string;
+  suggestions: string[];
+  /** True when the API/network failed — not the same as "taken". */
+  checkFailed?: boolean;
 };
 
 export function ProfilePage() {
@@ -78,6 +70,10 @@ export function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [gstConfirmOpen, setGstConfirmOpen] = useState(false);
+  const [usernameCheck, setUsernameCheck] = useState<UsernameCheck | null>(null);
+  const [usernameChecking, setUsernameChecking] = useState(false);
+  const [savedUsername, setSavedUsername] = useState("");
+  const [usernameCheckNonce, setUsernameCheckNonce] = useState(0);
 
   const isSeller = user?.role === "seller" || user?.role === "admin";
   const avatarDirty = pendingAvatarFile != null || pendingAvatarRemoved;
@@ -137,7 +133,11 @@ export function ProfilePage() {
       }
       const s = (await res.json()) as Record<string, unknown>;
       setHasShop(true);
+      const username = String(s.username ?? s.slug ?? "");
+      setSavedUsername(username);
+      setUsernameCheck(null);
       setShop({
+        username,
         companyName: String(s.companyName ?? ""),
         legalName: String(s.legalName ?? ""),
         businessAddress: String(s.businessAddress ?? ""),
@@ -166,6 +166,98 @@ export function ProfilePage() {
     setSaved(false);
     setError(null);
   }
+
+  useEffect(() => {
+    if (!hasShop || !shop) return;
+    const raw = shop.username.trim().toLowerCase();
+    if (!raw) {
+      setUsernameCheck(null);
+      setUsernameChecking(false);
+      return;
+    }
+
+    // Current saved username is always available to this seller.
+    if (raw === savedUsername) {
+      setUsernameCheck({
+        username: raw,
+        available: true,
+        suggestions: [],
+      });
+      setUsernameChecking(false);
+      return;
+    }
+
+    let cancelled = false;
+    setUsernameCheck(null);
+    setUsernameChecking(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const fail = (error: string): UsernameCheck => ({
+          username: raw,
+          available: false,
+          checkFailed: true,
+          error,
+          suggestions: [],
+        });
+
+        try {
+          const token = await getToken();
+          if (cancelled) return;
+          if (!token) {
+            setUsernameCheck(fail("Sign in again to check username"));
+            return;
+          }
+          const res = await fetch(
+            `/api/suppliers/me?checkUsername=${encodeURIComponent(raw)}`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          if (cancelled) return;
+          const body = (await res.json().catch(() => null)) as
+            | {
+                error?: string;
+                usernameCheck?: UsernameCheck;
+              }
+            | null;
+          if (!res.ok) {
+            setUsernameCheck(
+              fail(
+                body?.error ||
+                  (res.status === 401
+                    ? "Sign in again to check username"
+                    : `Could not check username (${res.status})`),
+              ),
+            );
+            return;
+          }
+          const data = body?.usernameCheck;
+          if (!data || typeof data.available !== "boolean") {
+            setUsernameCheck(fail("Could not check username — try again"));
+            return;
+          }
+          setUsernameCheck({
+            username: data.username ?? raw,
+            available: data.available,
+            error: data.error,
+            suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
+            checkFailed: false,
+          });
+        } catch {
+          if (!cancelled) {
+            setUsernameCheck(fail("Could not check username — try again"));
+          }
+        } finally {
+          if (!cancelled) setUsernameChecking(false);
+        }
+      })();
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // Intentionally omit getToken — Clerk may return a new function each render,
+    // which would cancel the check before it finishes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shop?.username, savedUsername, hasShop, usernameCheckNonce]);
 
   /** Clerk avatar sync — timed out so it can never leave the UI stuck. */
   async function syncClerkAvatar(file: File | null): Promise<void> {
@@ -222,6 +314,21 @@ export function ProfilePage() {
     if (name.trim().length < 2) {
       setError("Enter your name (at least 2 characters)");
       return;
+    }
+    if (hasShop && shop) {
+      const u = shop.username.trim().toLowerCase();
+      if (u.length < 3) {
+        setError("Choose a username (at least 3 characters) for your shareable profile link");
+        return;
+      }
+      if (u !== savedUsername && usernameCheck && !usernameCheck.available && !usernameCheck.checkFailed) {
+        setError(usernameCheck.error || "That username is taken — pick a suggestion below");
+        return;
+      }
+      if (usernameChecking) {
+        setError("Wait a moment while we check if that username is available");
+        return;
+      }
     }
     setSaving(true);
     setError(null);
@@ -283,6 +390,7 @@ export function ProfilePage() {
           method: "PATCH",
           headers,
           body: JSON.stringify({
+            username: shop.username.trim().toLowerCase(),
             companyName: shop.companyName,
             legalName: shop.legalName,
             businessAddress: shop.businessAddress,
@@ -299,9 +407,25 @@ export function ProfilePage() {
           }),
         });
         if (!shopRes.ok) {
-          const body = (await shopRes.json().catch(() => null)) as { error?: string } | null;
+          const body = (await shopRes.json().catch(() => null)) as {
+            error?: string;
+            suggestions?: string[];
+          } | null;
+          if (body?.suggestions?.length) {
+            setUsernameCheck({
+              username: shop.username.trim().toLowerCase(),
+              available: false,
+              error: body.error || "Username is taken",
+              suggestions: body.suggestions,
+            });
+          }
           throw new Error(body?.error ?? "Could not save shop details");
         }
+        const savedShop = (await shopRes.json()) as { username?: string; slug?: string };
+        const nextUsername = String(savedShop.username ?? savedShop.slug ?? shop.username);
+        setSavedUsername(nextUsername);
+        setShop((prev) => (prev ? { ...prev, username: nextUsername } : prev));
+        setUsernameCheck(null);
       }
 
       if (clerkFile !== undefined) {
@@ -502,6 +626,108 @@ export function ProfilePage() {
                   </span>
                 )}
               </div>
+              <label className="block">
+                <span className="text-sm font-medium text-foreground mb-1.5 block">
+                  Username * <span className="font-normal text-muted-foreground">(share link)</span>
+                </span>
+                <div className="relative">
+                  <input
+                    value={shop.username}
+                    onChange={(e) =>
+                      updateShop(
+                        "username",
+                        e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""),
+                      )
+                    }
+                    placeholder="e.g. yogesh"
+                    autoComplete="off"
+                    spellCheck={false}
+                    maxLength={30}
+                    className={`w-full rounded-xl border-2 px-3.5 pr-10 py-2.5 text-sm bg-white font-mono outline-none ring-0 shadow-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none ${
+                      usernameCheck?.checkFailed
+                        ? "border-amber-400 focus:border-amber-500 focus-visible:border-amber-500"
+                        : usernameCheck && !usernameCheck.available
+                          ? "border-red-500 focus:border-red-500 focus-visible:border-red-500"
+                          : usernameCheck?.available
+                            ? "border-green-500 focus:border-green-500 focus-visible:border-green-500"
+                            : "border-border focus:border-primary focus-visible:border-primary"
+                    }`}
+                    style={{ outline: "none", boxShadow: "none" }}
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2">
+                    {usernameChecking ? (
+                      <Loader2 size={14} className="animate-spin text-muted-foreground" />
+                    ) : usernameCheck?.available ? (
+                      <Check size={14} className="text-green-600" />
+                    ) : usernameCheck?.checkFailed ? (
+                      <X size={14} className="text-amber-600" />
+                    ) : usernameCheck && !usernameCheck.available ? (
+                      <X size={14} className="text-red-600" />
+                    ) : null}
+                  </span>
+                </div>
+                {shop.username.trim() ? (
+                  <div className="mt-2 space-y-2">
+                    {usernameCheck?.available ? (
+                      <p className="text-sm font-semibold text-green-700">
+                        Available — you can use this username
+                      </p>
+                    ) : usernameCheck?.checkFailed ? (
+                      <div className="space-y-2">
+                        <p className="text-sm font-semibold text-amber-800">
+                          Couldn’t verify right now
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {usernameCheck.error || "Check failed"} — you can still Save; we’ll confirm
+                          uniqueness then.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setUsernameCheckNonce((n) => n + 1)}
+                          className="text-xs font-semibold text-primary underline underline-offset-2"
+                        >
+                          Retry check
+                        </button>
+                      </div>
+                    ) : usernameCheck && !usernameCheck.available ? (
+                      <>
+                        <p className="text-sm font-semibold text-red-700">
+                          Not available — try another
+                        </p>
+                        {usernameCheck.error &&
+                        usernameCheck.error !== "Not available — try another" &&
+                        usernameCheck.error !== "Username is taken" ? (
+                          <p className="text-xs text-muted-foreground">{usernameCheck.error}</p>
+                        ) : null}
+                        {usernameCheck.suggestions.length > 0 ? (
+                          <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                            <p className="text-xs font-medium text-foreground">
+                              Suggested usernames you can take:
+                            </p>
+                            <div className="flex flex-col gap-2">
+                              {usernameCheck.suggestions.map((suggestion) => (
+                                <button
+                                  key={suggestion}
+                                  type="button"
+                                  onClick={() => updateShop("username", suggestion)}
+                                  className="inline-flex items-center justify-between gap-3 text-sm font-semibold px-3 py-2.5 rounded-lg border border-green-200 bg-white text-foreground hover:bg-green-50 font-mono"
+                                >
+                                  <span>{suggestion}</span>
+                                  <span className="text-[11px] font-bold uppercase tracking-wide text-green-700">
+                                    Available
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="text-sm font-semibold text-muted-foreground">Checking…</p>
+                    )}
+                  </div>
+                ) : null}
+              </label>
               <Field
                 label="Trade / display name"
                 value={shop.companyName}

@@ -16,15 +16,15 @@ const router: IRouter = Router();
 
 // Public catalog (homepage / browse) + health. Mutating routes keep requireClerkAuth.
 router.use(healthRouter);
-router.use(storagePublicRouter);
+router.use(storagePublicRouter); // Blob webhook + ACL-gated object GET only
 router.use(categoriesRouter);
-router.use(productsRouter);
-router.use(suppliersRouter);
-router.use(reviewsRouter);
-router.use(dashboardRouter);
-router.use(shopRouter);
+router.use(productsRouter); // public GETs; POST/PATCH/DELETE use requireClerkAuth
+router.use(suppliersRouter); // public GETs; mutations /me /approve use requireClerkAuth
+router.use(reviewsRouter); // public GET; POST uses requireClerkAuth
+router.use(dashboardRouter); // public aggregates; supplier dash uses requireClerkAuth
+router.use(shopRouter); // public plans; setup/subscription use requireClerkAuth
 
-// Auth-gated areas
+// Auth-gated areas (defense in depth — routes also re-check Clerk)
 router.use(requireClerkAuth);
 router.use(rfqRouter);
 router.use(usersRouter);

@@ -338,7 +338,9 @@ export function Header() {
           <form onSubmit={handleSearch} className="hidden md:flex flex-1 items-center min-w-0" role="search">
             <div className="flex w-full border border-border rounded-xl overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all shadow-sm">
               <input
-                type="search"
+                type="text"
+                enterKeyHint="search"
+                autoComplete="off"
                 aria-label="Search products"
                 placeholder={
                   isBuyer
@@ -347,7 +349,8 @@ export function Header() {
                 }
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="flex-1 min-w-0 px-4 py-2.5 text-sm outline-none focus-visible:ring-0 bg-white placeholder:text-muted-foreground"
+                className="flex-1 min-w-0 px-4 py-2.5 text-sm outline-none focus-visible:ring-0 bg-white text-foreground placeholder:text-muted-foreground"
+                style={{ caretColor: "hsl(var(--foreground))" }}
               />
               <button
                 type="submit"
@@ -560,12 +563,15 @@ export function Header() {
           <form onSubmit={handleSearch} className="md:hidden mt-2.5" role="search">
             <div className="flex w-full border border-border rounded-xl overflow-hidden focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 shadow-sm">
               <input
-                type="search"
+                type="text"
+                enterKeyHint="search"
+                autoComplete="off"
                 aria-label="Search products"
                 placeholder="Search products…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="flex-1 min-w-0 px-3 py-2.5 text-sm outline-none bg-white placeholder:text-muted-foreground"
+                className="flex-1 min-w-0 px-3 py-2.5 text-sm outline-none bg-white text-foreground placeholder:text-muted-foreground"
+                style={{ caretColor: "hsl(var(--foreground))" }}
               />
               <button
                 type="submit"

@@ -9,6 +9,8 @@ import {
   Send,
   Package,
   Trophy,
+  BadgeCheck,
+  Loader2,
 } from "lucide-react";
 import {
   useGetRfq,
@@ -130,6 +132,8 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   const [success, setSuccess] = useState("");
   const [qtySeeded, setQtySeeded] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [sellerVerified, setSellerVerified] = useState<boolean | null>(null);
+  const [sellerVerificationStatus, setSellerVerificationStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (!rfq || qtySeeded) return;
@@ -165,6 +169,43 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   const linkedShop =
     !!user && user.role === "seller" && typeof user.supplierId === "number" && user.supplierId > 0;
 
+  useEffect(() => {
+    if (user?.role === "admin") {
+      setSellerVerified(true);
+      return;
+    }
+    if (!linkedShop) {
+      setSellerVerified(null);
+      setSellerVerificationStatus(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetch("/api/suppliers/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok || cancelled) return;
+        const s = (await res.json()) as {
+          verified?: boolean;
+          verificationStatus?: string;
+        };
+        if (cancelled) return;
+        setSellerVerificationStatus(s.verificationStatus ?? null);
+        setSellerVerified(
+          s.verified === true || s.verificationStatus === "verified",
+        );
+      } catch {
+        if (!cancelled) setSellerVerified(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedShop, user?.role, getToken]);
+
   const isOpenForQuotes = !!rfq && (rfq.status === "pending" || rfq.status === "responded");
   const awaitingSellerConfirm = rfq?.status === "pending_confirm";
   const isOwnBuyerRfq = !!user && !!rfq && user.id === rfq.buyerId;
@@ -173,8 +214,17 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
     !!rfq &&
     isOpenForQuotes &&
     !isOwnBuyerRfq &&
+    sellerVerified === true &&
     (user.role === "admin" ||
       (linkedShop && (rfq.supplierId == null || rfq.supplierId === user.supplierId)));
+  const showVerifyGate =
+    !!user &&
+    !!rfq &&
+    isOpenForQuotes &&
+    !isOwnBuyerRfq &&
+    linkedShop &&
+    user.role === "seller" &&
+    sellerVerified === false;
 
   const myQuote = useMemo(() => {
     if (!rfq || !user?.supplierId || user.role !== "seller") return null;
@@ -670,6 +720,41 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
           <div className="text-xl font-heading font-bold">
             {formatMoney(myQuote.unitPrice, myQuote.currency)} / {myQuote.unit}
           </div>
+        </div>
+      )}
+
+      {isLoggedIn && showVerifyGate && (
+        <div className="kb-card p-6 space-y-4 border border-amber-200/80 bg-amber-50/40">
+          <div className="flex gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <BadgeCheck size={20} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-heading font-bold text-lg text-[#1a2744]">
+                Verification required to quote
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                {sellerVerificationStatus === "pending"
+                  ? "Your documents are under review. Once Karm Baba verifies your shop, you can send quotes to buyers."
+                  : "Buyers only receive quotes from verified sellers. Complete KYC (GST for India, or registration + tax ID overseas) to unlock Send Quote."}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate("/seller/verify")}
+            className="inline-flex items-center gap-2 px-5 min-h-11 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary/90"
+          >
+            <BadgeCheck size={16} />
+            {sellerVerificationStatus === "pending" ? "View verification status" : "Complete verification"}
+          </button>
+        </div>
+      )}
+
+      {isLoggedIn && linkedShop && sellerVerified === null && user?.role === "seller" && isOpenForQuotes && !isOwnBuyerRfq && (
+        <div className="kb-card p-6 flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 size={16} className="animate-spin" />
+          Checking seller verification…
         </div>
       )}
 

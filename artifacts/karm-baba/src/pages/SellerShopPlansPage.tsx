@@ -360,7 +360,7 @@ export function SellerShopPlansPage() {
             <h2 className="font-semibold mb-3 flex items-center gap-2">
               <Share2 size={16} /> Shareable profile card
             </h2>
-            {shareUrl ? (
+            {shareUrl && kycDone ? (
               <>
                 <p className="text-sm text-muted-foreground mb-3 break-all font-mono text-xs bg-muted px-3 py-2 rounded-lg">
                   {shareUrl}

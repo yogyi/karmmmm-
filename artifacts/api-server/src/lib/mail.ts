@@ -49,7 +49,8 @@ export async function sendMail(
   if (process.env.NODE_ENV === "production") {
     return {
       ok: false,
-      error: "Email delivery is not configured (RESEND_API_KEY missing)",
+      error:
+        "Email delivery is not configured. Ask the platform admin to set RESEND_API_KEY and EMAIL_FROM on the server.",
     };
   }
 

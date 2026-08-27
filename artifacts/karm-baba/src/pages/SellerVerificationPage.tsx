@@ -521,13 +521,7 @@ export function SellerVerificationPage() {
         setGstLiveRecord(body.record);
         setGstLiveVerified(true);
       }
-      if (body.nameMatches === false) {
-        setError(
-          body.message ||
-            "Legal name on your form does not match GST records — update Step 1 legal entity name.",
-        );
-        setGstLiveVerified(false);
-      }
+      await refreshProfile();
     } catch (e) {
       setGstLiveVerified(false);
       setGstLiveRecord(null);
@@ -602,10 +596,12 @@ export function SellerVerificationPage() {
     return validateStepForForm(form, current, verifyOpts);
   }
 
-  const maxUnlockedStep = useMemo(
-    (): Step => Math.min(5, highestSavedStep + 1) as Step,
-    [highestSavedStep],
-  );
+  const maxUnlockedStep = useMemo((): Step => {
+    const fromSave = Math.min(5, highestSavedStep + 1) as Step;
+    const firstBad = firstIncompleteStep(form, verifyOpts);
+    const fromValid = (firstBad === 5 ? 5 : firstBad) as Step;
+    return Math.min(fromSave, fromValid) as Step;
+  }, [highestSavedStep, form, verifyOpts]);
   const stepValid = validateLocal(step) === null;
   /** Live check across steps 1–4 — used to lock submit even after prior saves. */
   const submitReady = useMemo(
@@ -678,7 +674,12 @@ export function SellerVerificationPage() {
         setOtpHint(body.message || `Code sent to ${body.email ?? biz.email}`);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send code");
+      const msg = e instanceof Error ? e.message : "Could not send code";
+      setError(
+        msg.includes("RESEND_API_KEY") || msg.includes("Email delivery is not configured")
+          ? "Company email OTP is not set up on the server yet. Contact support or try again later."
+          : msg,
+      );
     } finally {
       setOtpSending(false);
     }

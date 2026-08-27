@@ -1,5 +1,26 @@
 import { prisma } from "@workspace/db";
 
+const RESERVED_USERNAMES = new Set([
+  "admin",
+  "api",
+  "account",
+  "buyer",
+  "dashboard",
+  "help",
+  "karm",
+  "karmbaba",
+  "login",
+  "me",
+  "null",
+  "rfq",
+  "root",
+  "seller",
+  "shop",
+  "support",
+  "undefined",
+  "www",
+]);
+
 /** URL-safe shop slug from company name (no database id). */
 export function slugifyCompany(name: string): string {
   return (
@@ -9,6 +30,157 @@ export function slugifyCompany(name: string): string {
       .replace(/^-|-$/g, "")
       .slice(0, 48) || "shop"
   );
+}
+
+/**
+ * Normalize a seller-chosen share username (`/s/{username}`).
+ * Letters, numbers, underscore, hyphen — must start with a letter.
+ */
+export function normalizeUsername(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "")
+    .replace(/^[^a-z]+/, "")
+    .slice(0, 30);
+}
+
+export function validateUsername(
+  raw: string,
+): { ok: true; username: string } | { ok: false; error: string } {
+  const username = normalizeUsername(raw);
+  if (username.length < 3) {
+    return { ok: false, error: "Username must be at least 3 characters" };
+  }
+  if (!/^[a-z][a-z0-9_-]{2,29}$/.test(username)) {
+    return {
+      ok: false,
+      error: "Use letters, numbers, _ or - (must start with a letter)",
+    };
+  }
+  if (RESERVED_USERNAMES.has(username)) {
+    return { ok: false, error: "That username is reserved" };
+  }
+  return { ok: true, username };
+}
+
+/** Build alternate usernames when the preferred one is taken (Instagram-style). */
+export function buildUsernameSuggestions(
+  baseRaw: string,
+  taken: Set<string>,
+  limit = 8,
+): string[] {
+  const base = normalizeUsername(baseRaw) || "seller";
+  const out: string[] = [];
+  const tryAdd = (candidate: string) => {
+    if (out.length >= limit) return;
+    const v = validateUsername(candidate);
+    if (!v.ok) return;
+    if (taken.has(v.username) || out.includes(v.username)) return;
+    out.push(v.username);
+  };
+
+  // Prefer short, memorable variants first (like Instagram).
+  for (let n = 1; n <= 99 && out.length < limit; n += 1) {
+    tryAdd(`${base}${n}`);
+  }
+  tryAdd(`${base}_`);
+  tryAdd(`${base}__`);
+  tryAdd(`${base}_official`);
+  tryAdd(`${base}_in`);
+  tryAdd(`${base}_co`);
+  tryAdd(`${base}_mart`);
+  tryAdd(`${base}shop`);
+  tryAdd(`${base}store`);
+  tryAdd(`the${base}`);
+  tryAdd(`real${base}`);
+  if (base.length < 28) {
+    tryAdd(`${base}${base.slice(-1)}`);
+    tryAdd(`${base}${base.slice(-1)}${base.slice(-1)}`);
+  }
+  tryAdd(`${base}${new Date().getFullYear()}`);
+  for (let i = 0; i < 50 && out.length < limit; i += 1) {
+    const suffix = Math.floor(10 + Math.random() * 90);
+    tryAdd(`${base}${suffix}`);
+  }
+  return out;
+}
+
+async function collectTakenUsernames(
+  candidates: string[],
+  excludeSupplierId?: number | null,
+): Promise<Set<string>> {
+  const unique = [...new Set(candidates.filter(Boolean))];
+  if (unique.length === 0) return new Set();
+  const rows = await prisma.supplier.findMany({
+    where: {
+      slug: { in: unique },
+      ...(excludeSupplierId != null ? { NOT: { id: excludeSupplierId } } : {}),
+    },
+    select: { slug: true },
+  });
+  return new Set(rows.map((r) => r.slug).filter((s): s is string => Boolean(s)));
+}
+
+export async function checkUsernameAvailability(
+  raw: string,
+  excludeSupplierId?: number | null,
+): Promise<{
+  username: string | null;
+  available: boolean;
+  error?: string;
+  suggestions: string[];
+}> {
+  const validated = validateUsername(raw);
+  if (!validated.ok) {
+    const draft = normalizeUsername(raw) || "seller";
+    const candidates = buildUsernameSuggestions(draft, new Set([draft]), 16);
+    const taken = await collectTakenUsernames(candidates, excludeSupplierId);
+    return {
+      username: normalizeUsername(raw) || null,
+      available: false,
+      error: validated.error,
+      suggestions: candidates.filter((s) => !taken.has(s)).slice(0, 8),
+    };
+  }
+
+  const { username } = validated;
+  const clash = await prisma.supplier.findFirst({
+    where: {
+      slug: username,
+      ...(excludeSupplierId != null ? { NOT: { id: excludeSupplierId } } : {}),
+    },
+    select: { id: true },
+  });
+
+  if (!clash) {
+    return { username, available: true, suggestions: [] };
+  }
+
+  // Username taken — offer verified-free alternates (same base + suffix).
+  const seedTaken = new Set<string>([username]);
+  let suggestions: string[] = [];
+  for (let round = 0; round < 3 && suggestions.length < 8; round += 1) {
+    const candidates = buildUsernameSuggestions(username, seedTaken, 24);
+    const taken = await collectTakenUsernames(
+      [username, ...candidates],
+      excludeSupplierId,
+    );
+    for (const c of taken) seedTaken.add(c);
+    for (const c of candidates) {
+      if (!seedTaken.has(c) && !suggestions.includes(c)) {
+        suggestions.push(c);
+      }
+      if (suggestions.length >= 8) break;
+    }
+  }
+
+  return {
+    username,
+    available: false,
+    error: "Not available — try another",
+    suggestions: suggestions.slice(0, 8),
+  };
 }
 
 /**

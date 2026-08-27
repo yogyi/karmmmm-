@@ -32,11 +32,21 @@ import {
   claimUploadObject,
   getUploadClaimOwner,
 } from "../lib/uploadClaims";
+import { rateLimit } from "../lib/rateLimit";
 import express from "express";
 
 const router: IRouter = Router();
 export const storagePublicRouter: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
+
+const uploadMutateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  key: (req) => {
+    const uid = (req as { clerkUserId?: string }).clerkUserId || "unknown";
+    return `storage-upload:user:${uid}`;
+  },
+});
 
 const BLOB_ALLOWED_CONTENT_TYPES = [
   "image/jpeg",
@@ -125,7 +135,11 @@ async function getObjectEntityFileWithRetry(
  * The client sends JSON metadata (name, size, contentType) — NOT the file.
  * Then uploads the file directly to the returned upload URL (or Blob client flow).
  */
-router.post("/storage/uploads/request-url", requireClerkAuth, async (req: Request, res: Response) => {
+router.post(
+  "/storage/uploads/request-url",
+  requireClerkAuth,
+  uploadMutateLimiter,
+  async (req: Request, res: Response) => {
   const parsed = RequestUploadUrlBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Missing or invalid required fields" });
@@ -234,7 +248,17 @@ storagePublicRouter.post("/storage/uploads/blob", async (req: Request, res: Resp
         }
         const objectPath =
           typeof clientPayload === "string" && clientPayload.length > 0
-            ? clientPayload
+            ? (() => {
+                try {
+                  if (clientPayload.trim().startsWith("{")) {
+                    const p = JSON.parse(clientPayload) as { objectPath?: string };
+                    return typeof p.objectPath === "string" ? p.objectPath : clientPayload;
+                  }
+                } catch {
+                  /* plain path */
+                }
+                return clientPayload;
+              })()
             : `/objects/uploads/${pathname.split("/").pop()}`;
         if (!isOwnedUploadObjectPath(objectPath)) {
           throw new Error("Invalid objectPath in clientPayload");
@@ -249,12 +273,23 @@ storagePublicRouter.post("/storage/uploads/blob", async (req: Request, res: Resp
           throw new Error("Upload object belongs to another user");
         }
         claimUploadObject(objectId, userId);
+        let visibility: "public" | "private" = "private";
+        try {
+          if (typeof clientPayload === "string" && clientPayload.trim().startsWith("{")) {
+            const payload = JSON.parse(clientPayload) as { visibility?: string };
+            if (payload.visibility === "public" || payload.visibility === "private") {
+              visibility = payload.visibility;
+            }
+          }
+        } catch {
+          /* keep private default */
+        }
         return {
           allowedContentTypes: BLOB_ALLOWED_CONTENT_TYPES,
           maximumSizeInBytes: MAX_UPLOAD_BYTES,
           addRandomSuffix: false,
           allowOverwrite: false,
-          tokenPayload: JSON.stringify({ userId, objectPath }),
+          tokenPayload: JSON.stringify({ userId, objectPath, visibility }),
         };
       },
       onUploadCompleted: async ({ blob, tokenPayload }) => {
@@ -267,12 +302,14 @@ storagePublicRouter.post("/storage/uploads/blob", async (req: Request, res: Resp
             const parsed = JSON.parse(tokenPayload) as {
               userId?: string;
               objectPath?: string;
+              visibility?: "public" | "private";
             };
             if (parsed.userId) {
               const object = getStoredObject("karmbaba-blob", blob.pathname);
+              // Always private until explicit finalize — KYC must not be world-readable early.
               await setObjectAclPolicy(object, {
                 owner: parsed.userId,
-                visibility: "public",
+                visibility: "private",
               });
             }
           }
@@ -298,7 +335,11 @@ storagePublicRouter.post("/storage/uploads/blob", async (req: Request, res: Resp
  * (and public-read if requested) can download via /storage/objects/*.
  * Restricted to /objects/uploads/<uuid>; cannot steal another owner's ACL.
  */
-router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, res: Response) => {
+router.post(
+  "/storage/uploads/finalize",
+  requireClerkAuth,
+  uploadMutateLimiter,
+  async (req: Request, res: Response) => {
   const parsed = parseFinalizeBody(req.body);
   if (!parsed) {
     res.status(400).json({ error: "Missing or invalid objectPath" });
@@ -321,20 +362,25 @@ router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, 
 
   const objectId = normalized.split("/").pop() || "";
   const claimOwner = getUploadClaimOwner(objectId);
-  if (claimOwner && claimOwner !== userId) {
-    res.status(403).json({ error: "Forbidden — object belongs to another user" });
-    return;
-  }
-  if (!claimOwner) {
-    // Require a prior request-url claim in production-like envs.
-    claimUploadObject(objectId, userId);
-  }
 
   try {
     const objectFile = await getObjectEntityFileWithRetry(normalized);
     const existingAcl = await getObjectAclPolicy(objectFile);
+
+    if (claimOwner && claimOwner !== userId) {
+      res.status(403).json({ error: "Forbidden — object belongs to another user" });
+      return;
+    }
     if (existingAcl && existingAcl.owner !== userId) {
       res.status(403).json({ error: "Forbidden — object belongs to another user" });
+      return;
+    }
+    // Require an in-memory claim OR durable ACL ownership from upload-complete webhook.
+    // Never invent a claim for a stranger who guessed a UUID.
+    if (!claimOwner && (!existingAcl || existingAcl.owner !== userId)) {
+      res.status(403).json({
+        error: "Forbidden — request an upload URL before finalizing",
+      });
       return;
     }
 
@@ -374,6 +420,7 @@ router.post("/storage/uploads/finalize", requireClerkAuth, async (req: Request, 
 router.put(
   "/storage/uploads/put/:objectId",
   requireClerkAuth,
+  uploadMutateLimiter,
   express.raw({ type: "*/*", limit: `${MAX_UPLOAD_BYTES}b` }),
   async (req: Request, res: Response) => {
     const driver = getObjectStorageDriver();

@@ -104,6 +104,36 @@ function canSellerQuote(
   return rfq.supplierId === linked;
 }
 
+/** Verified sellers only — matches buyer-facing “verified suppliers” promise. */
+async function assertSellerVerifiedToQuote(
+  supplierId: number,
+  isAdminUser: boolean,
+): Promise<{ ok: true; companyName: string } | { ok: false; status: number; error: string }> {
+  const shop = await prisma.supplier.findUnique({
+    where: { id: supplierId },
+    select: { companyName: true, verified: true, verificationStatus: true },
+  });
+  if (!shop) {
+    return { ok: false, status: 400, error: "Supplier shop not found" };
+  }
+  if (isAdminUser) {
+    return { ok: true, companyName: shop.companyName };
+  }
+  const verified =
+    shop.verified === true || shop.verificationStatus === "verified";
+  if (!verified) {
+    const pending = shop.verificationStatus === "pending";
+    return {
+      ok: false,
+      status: 403,
+      error: pending
+        ? "Your verification is under review. You can quote buyers after Karm Baba approves your shop."
+        : "Complete seller verification before sending quotes. Buyers only receive quotes from verified suppliers.",
+    };
+  }
+  return { ok: true, companyName: shop.companyName };
+}
+
 router.get("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
   const parsed = ListRfqsQueryParams.safeParse(req.query);
   if (!parsed.success) {
@@ -359,12 +389,9 @@ router.post("/rfq/:id/quotes", requireClerkAuth, async (req, res): Promise<void>
     return;
   }
 
-  const shop = await prisma.supplier.findUnique({
-    where: { id: linkedSupplierId },
-    select: { companyName: true },
-  });
-  if (!shop) {
-    res.status(400).json({ error: "Supplier shop not found" });
+  const gate = await assertSellerVerifiedToQuote(linkedSupplierId, isAdmin(dbUser));
+  if (!gate.ok) {
+    res.status(gate.status).json({ error: gate.error });
     return;
   }
 
@@ -373,7 +400,7 @@ router.post("/rfq/:id/quotes", requireClerkAuth, async (req, res): Promise<void>
     const updated = await submitSellerQuote({
       rfqId,
       supplierId: linkedSupplierId,
-      supplierName: shop.companyName,
+      supplierName: gate.companyName,
       input: {
         unitPrice: Number(body.unitPrice),
         currency: typeof body.currency === "string" ? body.currency : "INR",
@@ -589,15 +616,16 @@ router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
       res.status(400).json({ error: "Link a supplier shop before sending quotes" });
       return;
     }
-    const shop = await prisma.supplier.findUnique({
-      where: { id: linkedSupplierId },
-      select: { companyName: true },
-    });
+    const gate = await assertSellerVerifiedToQuote(linkedSupplierId, admin);
+    if (!gate.ok) {
+      res.status(gate.status).json({ error: gate.error });
+      return;
+    }
     try {
       const updated = await submitSellerQuote({
         rfqId: existing.id,
         supplierId: linkedSupplierId,
-        supplierName: shop?.companyName ?? body.supplierName ?? "Supplier",
+        supplierName: gate.companyName,
         input: {
           unitPrice: Number(body.quotedPrice ?? existing.quotedPrice ?? 0),
           quantity: existing.quantity,

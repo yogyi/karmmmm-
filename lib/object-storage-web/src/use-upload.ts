@@ -156,7 +156,10 @@ export function useUpload(options: UseUploadOptions = {}) {
       await blobClientUpload(pathname, file, {
         access: "public",
         handleUploadUrl: blobHandleUploadUrl(basePath, uploadResponse.uploadURL),
-        clientPayload: uploadResponse.objectPath,
+        clientPayload: JSON.stringify({
+          objectPath: uploadResponse.objectPath,
+          visibility: options.finalizeVisibility ?? "public",
+        }),
         contentType,
         multipart: file.size > 4 * 1024 * 1024,
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -167,7 +170,7 @@ export function useUpload(options: UseUploadOptions = {}) {
         },
       });
     },
-    [basePath, options.getToken],
+    [basePath, options.getToken, options.finalizeVisibility],
   );
 
   const uploadFile = useCallback(

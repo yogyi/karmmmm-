@@ -174,7 +174,9 @@ export function validateCompanyProfile(input: CompanyProfileInput): FieldErrors 
   const state = input.state.trim();
   const profileLabels = getCompanyProfileLabels(input.country);
   if (!state) {
-    errors.state = `${profileLabels.stateLabel.replace(" *", "")} is required`;
+    if (profileLabels.stateRequired) {
+      errors.state = `${profileLabels.stateLabel.replace(" *", "").replace(" (optional)", "")} is required`;
+    }
   } else if (india) {
     if (!normalizeIndianState(state)) {
       errors.state = "Select a valid Indian state or union territory";

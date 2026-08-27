@@ -225,6 +225,19 @@
 
 @layer utilities {
   input[type="search"]::-webkit-search-cancel-button { @apply hidden; }
+  input[type="search"]::-webkit-search-decoration,
+  input[type="search"]::-webkit-search-results-button,
+  input[type="search"]::-webkit-search-results-decoration {
+    -webkit-appearance: none;
+    display: none;
+  }
+
+  /* Keep typing caret dark on light fields (not brand orange / ring color). */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea {
+    caret-color: hsl(var(--foreground)) !important;
+    accent-color: hsl(var(--primary));
+  }
 
   /*
    * Overlay stack — keep nested menus/cameras ABOVE app modals.
