@@ -14,6 +14,13 @@ type KycDocumentUploaderProps = {
   disabled?: boolean;
   /** Shown under the uploaded file — use to stress upload ≠ verification. */
   uploadedNote?: string;
+  /**
+   * When set, controls success styling:
+   * - true = API-verified (green)
+   * - false = uploaded only / rejected (amber)
+   * - undefined = neutral upload (default)
+   */
+  apiVerified?: boolean | null;
 };
 
 const ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
@@ -30,6 +37,7 @@ export function KycDocumentUploader({
   error,
   disabled,
   uploadedNote,
+  apiVerified,
 }: KycDocumentUploaderProps) {
   const docName = documentShortName(label);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -43,6 +51,8 @@ export function KycDocumentUploader({
   const isPdf = value.toLowerCase().includes(".pdf") || value.includes("pdf");
   const showError = error || localError;
   const DocIcon = isPdf ? FileText : IdCard;
+  const verified = apiVerified === true;
+  const pendingVerify = apiVerified === false;
 
   async function handleFile(file: File) {
     setLocalError(null);
@@ -78,17 +88,56 @@ export function KycDocumentUploader({
       </div>
 
       {value ? (
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-white/80 p-4">
-          <div className="w-12 h-12 rounded-xl bg-muted/40 border border-border flex items-center justify-center shrink-0">
-            <DocIcon size={22} className="text-foreground/70" />
+        <div
+          className={cn(
+            "flex items-center gap-3 rounded-xl border p-4",
+            verified
+              ? "border-emerald-200/80 bg-emerald-50/50"
+              : pendingVerify
+                ? "border-amber-200/80 bg-amber-50/40"
+                : "border-border bg-white/80",
+          )}
+        >
+          <div
+            className={cn(
+              "w-12 h-12 rounded-xl border flex items-center justify-center shrink-0",
+              verified
+                ? "bg-white border-emerald-100"
+                : pendingVerify
+                  ? "bg-white border-amber-100"
+                  : "bg-muted/40 border-border",
+            )}
+          >
+            <DocIcon
+              size={22}
+              className={
+                verified
+                  ? "text-emerald-700"
+                  : pendingVerify
+                    ? "text-amber-800"
+                    : "text-foreground/70"
+              }
+            />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-[#1a3a4a] flex items-center gap-1.5">
-              <Check size={14} className="text-muted-foreground shrink-0" />
-              {isPdf ? `${docName} (PDF) uploaded` : `${docName} uploaded`}
+              <Check
+                size={14}
+                className={cn(
+                  "shrink-0",
+                  verified ? "text-emerald-600" : "text-muted-foreground",
+                )}
+              />
+              {verified
+                ? `${docName} verified via API`
+                : isPdf
+                  ? `${docName} (PDF) uploaded — not verified`
+                  : `${docName} uploaded — not verified`}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {uploadedNote || "Saved to your verification profile"}
+              {verified
+                ? "Official GST certificate checked by OCR API"
+                : uploadedNote || "Saved only — API verification still required"}
             </p>
           </div>
           {!disabled ? (

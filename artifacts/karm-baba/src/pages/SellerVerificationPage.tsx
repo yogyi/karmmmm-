@@ -549,19 +549,26 @@ export function SellerVerificationPage() {
     if (key === "gstCertificateDocumentUrl") {
       setGstCertificateOcrVerified(false);
       setGstCertificateOcrFields(null);
-      setGstCertificateOcrMsg(null);
+      setGstCertificateOcrMsg(
+        value
+          ? "File saved — running GST certificate OCR API check…"
+          : null,
+      );
     }
     setError(null);
     setShowFieldErrors(false);
   }
 
-  async function scanGstCertificateOcr() {
-    if (!form.gstCertificateDocumentUrl.trim()) {
+  async function scanGstCertificateOcr(documentUrlOverride?: string) {
+    const documentUrl = (documentUrlOverride ?? form.gstCertificateDocumentUrl).trim();
+    if (!documentUrl) {
       setGstCertificateOcrMsg("Upload your GST registration certificate first");
       return;
     }
     if (!gstLiveVerified) {
-      setGstCertificateOcrMsg("Verify GSTIN with GSTN first, then scan the certificate");
+      setGstCertificateOcrMsg(
+        "Verify GSTIN with GSTN first — then upload/scan the official GST certificate",
+      );
       return;
     }
     const gst = validateGstin(form.gstin);
@@ -571,7 +578,7 @@ export function SellerVerificationPage() {
       return;
     }
     setGstCertificateOcrBusy(true);
-    setGstCertificateOcrMsg(null);
+    setGstCertificateOcrMsg("Checking certificate with GST OCR API…");
     setError(null);
     try {
       const token = await getToken();
@@ -583,7 +590,7 @@ export function SellerVerificationPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          documentUrl: form.gstCertificateDocumentUrl,
+          documentUrl,
           gstin: form.gstin,
         }),
         signal: AbortSignal.timeout(120_000),
@@ -609,7 +616,7 @@ export function SellerVerificationPage() {
         setGstCertificateOcrMsg(
           body.error ||
             body.message ||
-            "GST certificate OCR not done — upload a clearer certificate and try again",
+            "GST certificate OCR rejected this file — upload official Form GST REG-06, not a random PDF",
         );
         return;
       }
@@ -644,6 +651,19 @@ export function SellerVerificationPage() {
       }
     } finally {
       setGstCertificateOcrBusy(false);
+    }
+  }
+
+  function onGstCertificateUploaded(url: string) {
+    update("gstCertificateDocumentUrl", url);
+    if (!url.trim()) return;
+    // Always hit the OCR API after upload — upload alone never unlocks Verified.
+    if (gstLiveVerified && validateGstin(form.gstin).ok) {
+      void scanGstCertificateOcr(url);
+    } else {
+      setGstCertificateOcrMsg(
+        "File saved only. Verify GSTIN with GSTN first, then OCR will check the certificate.",
+      );
     }
   }
 
