@@ -1549,7 +1549,8 @@ export function SellerVerificationPage() {
                         value={form.gstCertificateDocumentUrl}
                         onChange={(url) => update("gstCertificateDocumentUrl", url)}
                         label="GST registration certificate (for Verified badge)"
-                        hint="PDF recommended for multi-page GST certificates (up to ~3 pages). JPEG/PNG also work. Scan after live GSTN verify."
+                        hint="Upload official Form GST REG-06 / GSTN certificate PDF (multi-page OK). Upload alone does NOT verify — you must click Scan certificate (OCR) after live GSTN verify."
+                        uploadedNote="File saved only — not verified yet. Click Scan certificate (OCR) below."
                         disabled={saving}
                       />
                       <button
@@ -1570,6 +1571,11 @@ export function SellerVerificationPage() {
                         )}
                         Scan certificate (OCR)
                       </button>
+                      {!gstLiveVerified && form.gstCertificateDocumentUrl.trim() ? (
+                        <p className="text-xs text-amber-900/90 bg-amber-50/80 border border-amber-200/70 rounded-xl px-3 py-2">
+                          Verify GSTIN with GSTN first — OCR stays locked until live verify succeeds.
+                        </p>
+                      ) : null}
                       {gstCertificateOcrVerified ? (
                         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 flex items-start gap-2">
                           <Check size={16} className="shrink-0 mt-0.5" />

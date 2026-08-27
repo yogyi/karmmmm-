@@ -7,11 +7,28 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { normalizeGstin } from "./gstin";
+import { normalizeGstin, validateGstin } from "./gstin";
+import { gstLegalNameMatches } from "./gstVerifyApi";
 
 const DEFAULT_HOST = "gst-certificate-ocr.p.rapidapi.com";
 const DEFAULT_PATH = "/v3/tasks/sync/extract/ind_gst_certificate";
 const MAX_PDF_PAGES = 5;
+
+/** Phrases that appear on official GST registration certificates (Form GST REG-06 etc.). */
+const GST_CERTIFICATE_MARKERS = [
+  /goods\s+and\s+services\s+tax/i,
+  /gst\s*in\s*india/i,
+  /form\s*gst\s*reg[-\s]?0?6/i,
+  /registration\s+certificate/i,
+  /certificate\s+of\s+registration/i,
+  /central\s+board\s+of\s+indirect\s+taxes/i,
+  /gstn\s+portal/i,
+  /provisional\s+registration/i,
+  /valid\s+upto/i,
+  /date\s+of\s+liability/i,
+  /principal\s+place\s+of\s+business/i,
+  /gstin\s*\/\s*uin/i,
+];
 
 export type GstCertificateOcrFields = {
   gstin: string | null;
@@ -300,17 +317,129 @@ async function callRapidApiOcr(
   }
 
   const fields = parseGstCertificateOcrPayload(raw);
-  if (!fields.gstin) {
+  const authenticity = assertGstCertificateOcrAuthentic(fields, raw);
+  if (!authenticity.ok) {
     return {
       ok: false,
-      error:
-        "OCR could not find a GSTIN on the certificate — upload a clear official GST registration PDF or photo",
+      error: authenticity.error,
       httpStatus: 400,
       raw,
     };
   }
 
-  return { ok: true, fields, raw };
+  return { ok: true, fields: authenticity.fields, raw };
+}
+
+/**
+ * Reject random PDFs/photos that are not a GST registration certificate.
+ * Requires a checksum-valid GSTIN, a business legal name, and GST-certificate
+ * markers in the OCR payload (or enough structured GST fields).
+ */
+export function assertGstCertificateOcrAuthentic(
+  fields: GstCertificateOcrFields,
+  raw: unknown,
+): { ok: true; fields: GstCertificateOcrFields } | { ok: false; error: string } {
+  if (!fields.gstin) {
+    return {
+      ok: false,
+      error:
+        "OCR could not find a GSTIN on this file — upload the official GST registration certificate (Form GST REG-06), not a random PDF",
+    };
+  }
+
+  const gst = validateGstin(fields.gstin);
+  if (!gst.ok) {
+    return {
+      ok: false,
+      error:
+        "OCR found an invalid GSTIN — this does not look like a genuine GST registration certificate",
+    };
+  }
+
+  const legalName = fields.legalName?.trim() || null;
+  if (!legalName || legalName.length < 3) {
+    return {
+      ok: false,
+      error:
+        "OCR could not read the legal business name — upload a clear official GST certificate PDF (all pages)",
+    };
+  }
+
+  // Reject generic junk names often returned when the model invents fields.
+  if (/^(n\/?a|null|none|test|unknown|undefined)$/i.test(legalName)) {
+    return {
+      ok: false,
+      error:
+        "OCR did not extract a real legal name — upload the official GST registration certificate",
+    };
+  }
+
+  const panFromGstin = gst.pan;
+  if (fields.pan) {
+    const pan = fields.pan.replace(/\s+/g, "").toUpperCase();
+    if (pan.length === 10 && pan !== panFromGstin) {
+      return {
+        ok: false,
+        error:
+          "PAN on the certificate does not match the GSTIN — upload the correct GST registration certificate",
+      };
+    }
+  }
+
+  const blob = collectOcrTextBlob(raw);
+  const markerHits = GST_CERTIFICATE_MARKERS.filter((re) => re.test(blob)).length;
+  const structuredScore =
+    (fields.address ? 1 : 0) +
+    (fields.tradeName ? 1 : 0) +
+    (fields.pan ? 1 : 0) +
+    (fields.status ? 1 : 0);
+
+  // Need either clear GST-certificate language in the OCR text, or enough
+  // structured GST fields that only a real REG certificate OCR returns.
+  if (markerHits < 1 && structuredScore < 2) {
+    return {
+      ok: false,
+      error:
+        "This file does not look like a GST registration certificate. Upload Form GST REG-06 / official GSTN certificate PDF — invoices, Aadhaar, or random PDFs are rejected.",
+    };
+  }
+
+  return {
+    ok: true,
+    fields: {
+      ...fields,
+      gstin: gst.gstin,
+      legalName,
+      pan: fields.pan ? fields.pan.replace(/\s+/g, "").toUpperCase() : panFromGstin,
+    },
+  };
+}
+
+function collectOcrTextBlob(raw: unknown): string {
+  const parts: string[] = [];
+  const walk = (node: unknown, depth: number) => {
+    if (depth > 10 || node == null) return;
+    if (typeof node === "string") {
+      if (node.length > 0 && node.length < 4000) parts.push(node);
+      return;
+    }
+    if (typeof node === "number" || typeof node === "boolean") {
+      parts.push(String(node));
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, depth + 1);
+      return;
+    }
+    const rec = asRecord(node);
+    if (!rec) return;
+    for (const [k, v] of Object.entries(rec)) {
+      parts.push(k);
+      walk(v, depth + 1);
+    }
+  };
+  walk(raw, 0);
+  return parts.join(" ");
 }
 
 /** Rasterize PDF pages to JPEG base64 strings (for OCR fallback). */
@@ -407,4 +536,32 @@ export function gstCertificateMatchesEntered(
   const a = normalizeGstin(ocrGstin ?? "");
   const b = normalizeGstin(enteredGstin);
   return Boolean(a && b && a === b);
+}
+
+/**
+ * After GSTIN match, optionally require OCR legal/trade name to align with
+ * the live GSTN legal name already stored on the supplier.
+ */
+export function gstCertificateNameConsistentWithLive(args: {
+  ocrLegalName: string | null | undefined;
+  ocrTradeName: string | null | undefined;
+  liveLegalName: string | null | undefined;
+  liveTradeName: string | null | undefined;
+}): boolean {
+  const liveLegal = args.liveLegalName?.trim() || "";
+  const liveTrade = args.liveTradeName?.trim() || "";
+  if (!liveLegal && !liveTrade) return true; // no live name to compare
+
+  const ocrLegal = args.ocrLegalName?.trim() || "";
+  const ocrTrade = args.ocrTradeName?.trim() || "";
+  if (!ocrLegal && !ocrTrade) return false;
+
+  const candidates = [ocrLegal, ocrTrade].filter(Boolean);
+  const targets = [liveLegal, liveTrade].filter(Boolean);
+  for (const c of candidates) {
+    for (const t of targets) {
+      if (gstLegalNameMatches(c, t)) return true;
+    }
+  }
+  return false;
 }

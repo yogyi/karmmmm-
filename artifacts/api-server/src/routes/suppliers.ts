@@ -31,6 +31,7 @@ import {
 import {
   extractGstCertificateOcr,
   gstCertificateMatchesEntered,
+  gstCertificateNameConsistentWithLive,
   isGstCertificateOcrConfigured,
 } from "../lib/gstCertificateOcr";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -1416,6 +1417,17 @@ router.post(
         });
         return;
       }
+      // Live-verified GSTIN on file must match what we're scanning against.
+      if (
+        existing.gstin &&
+        !gstCertificateMatchesEntered(existing.gstin, gst.gstin)
+      ) {
+        res.status(400).json({
+          error:
+            "Entered GSTIN does not match the GSTIN already verified with GSTN. Re-verify GSTIN first.",
+        });
+        return;
+      }
 
       const prepared = await documentUrlToDataUrl(documentUrl);
       if (!prepared.ok) {
@@ -1468,6 +1480,38 @@ router.post(
           error: `Certificate GSTIN (${ocr.fields.gstin}) does not match entered GSTIN (${gst.gstin})`,
           fields: ocr.fields,
           message: "GST certificate OCR not done — GSTIN on certificate must match",
+        });
+        return;
+      }
+
+      if (
+        !gstCertificateNameConsistentWithLive({
+          ocrLegalName: ocr.fields.legalName,
+          ocrTradeName: ocr.fields.tradeName,
+          liveLegalName: existing.legalName,
+          liveTradeName: existing.gstTradeName,
+        })
+      ) {
+        await prisma.supplier.update({
+          where: { id: supplierId },
+          data: {
+            gstCertificateDocumentUrl: documentUrl,
+            gstCertificateOcrVerifiedAt: null,
+            gstCertificateOcrGstin: ocr.fields.gstin,
+            gstCertificateOcrLegalName: ocr.fields.legalName,
+            gstCertificateOcrRaw: JSON.stringify(ocr.raw).slice(0, 8000),
+            gstVerified: false,
+            verified: false,
+            verifiedAt: null,
+          },
+        });
+        res.status(400).json({
+          ok: false,
+          status: "not_done",
+          error:
+            "Legal name on the certificate does not match the GSTN legal name. Upload the official GST registration certificate for this GSTIN.",
+          fields: ocr.fields,
+          message: "GST certificate OCR not done — legal name mismatch",
         });
         return;
       }

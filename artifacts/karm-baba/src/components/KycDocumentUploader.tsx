@@ -12,6 +12,8 @@ type KycDocumentUploaderProps = {
   hint?: string;
   error?: string;
   disabled?: boolean;
+  /** Shown under the uploaded file — use to stress upload ≠ verification. */
+  uploadedNote?: string;
 };
 
 const ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
@@ -27,6 +29,7 @@ export function KycDocumentUploader({
   hint = "Upload front and back in one PDF, or a clear photo. Stored securely — only you and Karm Baba admins can access it.",
   error,
   disabled,
+  uploadedNote,
 }: KycDocumentUploaderProps) {
   const docName = documentShortName(label);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -75,16 +78,18 @@ export function KycDocumentUploader({
       </div>
 
       {value ? (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-200/70 bg-emerald-50/40 p-4">
-          <div className="w-12 h-12 rounded-xl bg-white border border-emerald-100 flex items-center justify-center shrink-0 shadow-sm">
-            <DocIcon size={22} className="text-emerald-700" />
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-white/80 p-4">
+          <div className="w-12 h-12 rounded-xl bg-muted/40 border border-border flex items-center justify-center shrink-0">
+            <DocIcon size={22} className="text-foreground/70" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-[#1a3a4a] flex items-center gap-1.5">
-              <Check size={14} className="text-emerald-600 shrink-0" />
-              {isPdf ? `${docName} (PDF)` : `${docName} uploaded`}
+              <Check size={14} className="text-muted-foreground shrink-0" />
+              {isPdf ? `${docName} (PDF) uploaded` : `${docName} uploaded`}
             </p>
-            <p className="text-xs text-muted-foreground mt-0.5">Saved to your verification profile</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {uploadedNote || "Saved to your verification profile"}
+            </p>
           </div>
           {!disabled ? (
             <button

@@ -5,6 +5,7 @@ import {
   mapPublicSupplier,
 } from "./supplierDto";
 import {
+  assertGstCertificateOcrAuthentic,
   gstCertificateMatchesEntered,
   normalizeOcrDocumentPayload,
   parseGstCertificateOcrPayload,
@@ -84,6 +85,56 @@ describe("gst certificate OCR helpers", () => {
     expect(fields.gstin).toBe("27AAPFU0939F1ZV");
     expect(gstCertificateMatchesEntered(fields.gstin, "27AAPFU0939F1ZV")).toBe(true);
     expect(gstCertificateMatchesEntered(fields.gstin, "29AAAAA0000A1Z5")).toBe(false);
+  });
+
+  it("rejects random PDFs that are not GST registration certificates", () => {
+    const junk = assertGstCertificateOcrAuthentic(
+      {
+        gstin: null,
+        legalName: null,
+        tradeName: null,
+        address: null,
+        pan: null,
+        status: null,
+      },
+      { status: "completed", text: "Invoice #123 paid thank you" },
+    );
+    expect(junk.ok).toBe(false);
+
+    const noName = assertGstCertificateOcrAuthentic(
+      {
+        gstin: "27AAPFU0939F1ZV",
+        legalName: null,
+        tradeName: null,
+        address: null,
+        pan: null,
+        status: null,
+      },
+      { result: { gstin: "27AAPFU0939F1ZV" } },
+    );
+    expect(noName.ok).toBe(false);
+
+    const real = assertGstCertificateOcrAuthentic(
+      {
+        gstin: "27AAPFU0939F1ZV",
+        legalName: "ACME TRADING PRIVATE LIMITED",
+        tradeName: "ACME",
+        address: "Mumbai",
+        pan: "AAPFU0939F",
+        status: "Active",
+      },
+      {
+        result: {
+          extraction_output: {
+            document_type: "GST Registration Certificate",
+            legal_name: "ACME TRADING PRIVATE LIMITED",
+            gstin: "27AAPFU0939F1ZV",
+            form: "Form GST REG-06",
+          },
+        },
+      },
+    );
+    expect(real.ok).toBe(true);
   });
 
   it("normalizes data URLs to raw base64 and allows PDF", () => {
