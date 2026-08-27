@@ -17,6 +17,7 @@ import { useShortlist } from "@/hooks/useShortlist";
 import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
 import { clearPendingWorkspace, getPendingWorkspace, getStoredAuthMode } from "@/lib/authMode";
 import { PageHero } from "@/components/PageHero";
+import { needsBuyerKyc } from "@/lib/buyerKyc";
 
 const statusLabel: Record<string, { label: string; className: string }> = {
   pending: { label: "Open for quotes", className: "bg-yellow-100 text-yellow-800" },
@@ -61,6 +62,9 @@ export function BuyerCentralPage() {
     }
     if (user?.role === "buyer") {
       clearPendingWorkspace();
+      if (needsBuyerKyc(user)) {
+        navigate("/buyer/verify");
+      }
       return;
     }
     if (user?.role !== "seller") return;
@@ -77,7 +81,7 @@ export function BuyerCentralPage() {
     navigate("/seller");
   }, [isLoaded, profileReady, isLoggedIn, user?.role, navigate, switchTo, switching]);
 
-  if (!isLoaded || !profileReady || !isLoggedIn || user?.role === "seller") {
+  if (!isLoaded || !profileReady || !isLoggedIn || user?.role === "seller" || needsBuyerKyc(user)) {
     return (
       <div className="min-h-[40vh] flex items-center justify-center">
         <span className="text-sm text-muted-foreground">Opening buyer account…</span>
@@ -243,7 +247,9 @@ export function BuyerCentralPage() {
                   >
                     <div className="min-w-0">
                       <div className="font-medium text-sm text-foreground truncate">
-                        {rfq.productName}
+                        {rfq.productName && rfq.productName !== "null"
+                          ? rfq.productName
+                          : "Untitled inquiry"}
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5 truncate">
                         Qty {rfq.quantity} {rfq.unit}

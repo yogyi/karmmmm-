@@ -5,7 +5,6 @@ import {
   LoginUserBody,
   GetUserParams,
   GetUserResponse,
-  LoginUserResponse,
   CompleteUserOnboardingBody,
 } from "@workspace/api-zod";
 import { requireClerkAuth, clerkEnabled } from "../lib/auth";
@@ -13,6 +12,18 @@ import { getAuthenticatedDbUser, isAdmin } from "../lib/authorize";
 import { hashPassword, verifyPassword } from "../lib/password";
 import { rateLimit } from "../lib/rateLimit";
 import { resolveVerifiedClerkEmail } from "../lib/clerkEmail";
+import { validateBusinessEmail } from "../lib/businessEmail";
+import { isIndiaCountry, isValidContactPhone } from "../lib/country";
+import { buyerKycPublicFields } from "../lib/buyerKyc";
+import {
+  generateEmailOtp,
+  hashEmailOtp,
+  otpExpiresAt,
+  otpResendAllowed,
+  verifyEmailOtpHash,
+} from "../lib/emailOtp";
+import { sendMail } from "../lib/mail";
+import { normalizeWhatsappTo, sendWhatsappOtp } from "../lib/whatsappOtp";
 
 const router: IRouter = Router();
 
@@ -34,11 +45,42 @@ const requireLegacyPasswordAuth: RequestHandler = (req, res, next) => {
 };
 
 function safeUser(user: Prisma.UserGetPayload<object>) {
-  const { password: _pw, clerkId: _clerkId, ...safe } = user;
+  const {
+    password: _pw,
+    clerkId: _clerkId,
+    buyerCompanyEmailOtpHash: _eHash,
+    buyerCompanyEmailOtpExpiresAt: _eExp,
+    buyerWhatsappOtpHash: _wHash,
+    buyerWhatsappOtpExpiresAt: _wExp,
+    ...safe
+  } = user;
   return {
     ...safe,
     createdAt: safe.createdAt.toISOString(),
+    buyerKycCompletedAt: safe.buyerKycCompletedAt
+      ? safe.buyerKycCompletedAt.toISOString()
+      : null,
   };
+}
+
+/** Core User schema + overseas buyer KYC public fields (OTP hashes never included). */
+function jsonUser(user: Prisma.UserGetPayload<object>) {
+  const kyc = buyerKycPublicFields(user);
+  const core = GetUserResponse.parse(safeUser(user));
+  return { ...core, ...kyc, buyerKycCompleted: kyc.buyerKycCompleted };
+}
+
+function normalizeWebsite(raw: string): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  try {
+    const withProto = t.includes("://") ? t : `https://${t}`;
+    const u = new URL(withProto);
+    if (!u.hostname.includes(".")) return null;
+    return u.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -99,7 +141,7 @@ router.post("/users/sync", requireClerkAuth, async (req, res): Promise<void> => 
       where: { id: byClerk.id },
       data,
     });
-    res.json(GetUserResponse.parse(safeUser(updated)));
+    res.json(jsonUser(updated));
     return;
   }
 
@@ -125,7 +167,7 @@ router.post("/users/sync", requireClerkAuth, async (req, res): Promise<void> => 
         company: byEmail.company ?? companyFromMeta,
       },
     });
-    res.json(GetUserResponse.parse(safeUser(linked)));
+    res.json(jsonUser(linked));
     return;
   }
 
@@ -142,7 +184,7 @@ router.post("/users/sync", requireClerkAuth, async (req, res): Promise<void> => 
     },
   });
 
-  res.status(201).json(GetUserResponse.parse(safeUser(created)));
+  res.status(201).json(jsonUser(created));
 });
 
 /**
@@ -285,7 +327,7 @@ router.post(
       console.warn("Failed to mirror role to Clerk publicMetadata", err);
     }
 
-    res.json(GetUserResponse.parse(safeUser(updated)));
+    res.json(jsonUser(updated));
   },
 );
 
@@ -319,7 +361,7 @@ router.post(
           : { buyerEnabled: true }),
       },
     });
-    res.status(201).json(GetUserResponse.parse(safeUser(user)));
+    res.status(201).json(jsonUser(user));
   },
 );
 
@@ -349,7 +391,7 @@ router.post(
       return;
     }
 
-    res.json(LoginUserResponse.parse(safeUser(user)));
+    res.json(jsonUser(user));
   },
 );
 
@@ -427,7 +469,7 @@ router.patch("/users/me", requireClerkAuth, async (req, res): Promise<void> => {
     },
   });
 
-  res.json(GetUserResponse.parse(safeUser(updated)));
+  res.json(jsonUser(updated));
 });
 
 router.get("/users/me", requireClerkAuth, async (req, res): Promise<void> => {
@@ -449,7 +491,7 @@ router.get("/users/me", requireClerkAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(GetUserResponse.parse(safeUser(user)));
+  res.json(jsonUser(user));
 });
 
 router.get("/users/:id", requireClerkAuth, async (req, res): Promise<void> => {
@@ -476,7 +518,369 @@ router.get("/users/:id", requireClerkAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(GetUserResponse.parse(safeUser(user)));
+  res.json(jsonUser(user));
 });
+
+const buyerKycLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 12,
+  key: (req) => {
+    const uid = (req as { clerkUserId?: string }).clerkUserId || "unknown";
+    return `buyer-kyc:user:${uid}`;
+  },
+});
+
+/**
+ * India buyers: one tap — no uploads, no OTP.
+ * Marks buyer KYC complete so they skip the overseas 2-step flow.
+ */
+router.post(
+  "/users/me/buyer-kyc/india",
+  requireClerkAuth,
+  buyerKycLimiter,
+  async (req, res): Promise<void> => {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (dbUser.role === "admin") {
+      res.json(jsonUser(dbUser));
+      return;
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: dbUser.id },
+      data: {
+        buyerCountry: "India",
+        buyerKycCompleted: true,
+        buyerKycCompletedAt: new Date(),
+        buyerEnabled: true,
+        buyerCompanyEmail: null,
+        buyerCompanyEmailVerified: false,
+        buyerCompanyEmailOtpHash: null,
+        buyerCompanyEmailOtpExpiresAt: null,
+        buyerWhatsapp: null,
+        buyerWhatsappVerified: false,
+        buyerWhatsappOtpHash: null,
+        buyerWhatsappOtpExpiresAt: null,
+        buyerRegistrationNumber: null,
+        buyerWebsite: null,
+      },
+    });
+    res.json(jsonUser(updated));
+  },
+);
+
+/** Overseas step 1: send OTP to company-domain email. */
+router.post(
+  "/users/me/buyer-kyc/email-otp",
+  requireClerkAuth,
+  buyerKycLimiter,
+  async (req, res): Promise<void> => {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (!otpResendAllowed(dbUser.buyerCompanyEmailOtpExpiresAt)) {
+      res.status(429).json({ error: "Wait about a minute before requesting another code" });
+      return;
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawEmail =
+      (typeof body.email === "string" && body.email.trim()) ||
+      dbUser.buyerCompanyEmail ||
+      "";
+    const biz = validateBusinessEmail(rawEmail);
+    if (!biz.ok) {
+      res.status(400).json({ error: biz.error });
+      return;
+    }
+
+    const code = generateEmailOtp();
+    const hash = hashEmailOtp(code, biz.email);
+    const expires = otpExpiresAt();
+
+    await prisma.user.update({
+      where: { id: dbUser.id },
+      data: {
+        buyerCompanyEmail: biz.email,
+        buyerCompanyEmailVerified: false,
+        buyerCompanyEmailOtpHash: hash,
+        buyerCompanyEmailOtpExpiresAt: expires,
+        buyerKycCompleted: false,
+        buyerKycCompletedAt: null,
+      },
+    });
+
+    const sent = await sendMail({
+      to: biz.email,
+      subject: "Your Karm Baba buyer verification code",
+      text: `Your Karm Baba buyer verification code is ${code}.\n\nIt expires in 15 minutes.\n\nIf you did not request this, ignore this email.`,
+      html: `<p>Your Karm Baba buyer verification code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p><p>It expires in 15 minutes.</p>`,
+    });
+    if (!sent.ok) {
+      res.status(502).json({ error: sent.error });
+      return;
+    }
+
+    res.json({
+      sent: true,
+      email: biz.email,
+      expiresAt: expires.toISOString(),
+      ...(sent.mode === "dev-log" ? { previewCode: code } : {}),
+      message:
+        sent.mode === "dev-log"
+          ? "Dev mode: OTP logged on server (and returned as previewCode)"
+          : `Code sent to ${biz.email}`,
+    });
+  },
+);
+
+router.post(
+  "/users/me/buyer-kyc/email-otp/confirm",
+  requireClerkAuth,
+  buyerKycLimiter,
+  async (req, res): Promise<void> => {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const code = typeof body.code === "string" ? body.code.trim() : "";
+    if (!/^\d{6}$/.test(code)) {
+      res.status(400).json({ error: "Enter the 6-digit code from your email" });
+      return;
+    }
+    if (
+      !dbUser.buyerCompanyEmailOtpExpiresAt ||
+      dbUser.buyerCompanyEmailOtpExpiresAt.getTime() < Date.now()
+    ) {
+      res.status(400).json({ error: "Code expired — request a new one" });
+      return;
+    }
+    const email = dbUser.buyerCompanyEmail ?? "";
+    if (!verifyEmailOtpHash(code, email, dbUser.buyerCompanyEmailOtpHash)) {
+      res.status(400).json({ error: "Incorrect code — check your email and try again" });
+      return;
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: dbUser.id },
+      data: {
+        buyerCompanyEmailVerified: true,
+        buyerCompanyEmailOtpHash: null,
+        buyerCompanyEmailOtpExpiresAt: null,
+      },
+    });
+    res.json({
+      verified: true,
+      email: updated.buyerCompanyEmail,
+      user: jsonUser(updated),
+      message: "Company email verified",
+    });
+  },
+);
+
+/** Overseas step 1: send OTP to WhatsApp. */
+router.post(
+  "/users/me/buyer-kyc/whatsapp-otp",
+  requireClerkAuth,
+  buyerKycLimiter,
+  async (req, res): Promise<void> => {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (!otpResendAllowed(dbUser.buyerWhatsappOtpExpiresAt)) {
+      res.status(429).json({ error: "Wait about a minute before requesting another code" });
+      return;
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawPhone =
+      (typeof body.whatsapp === "string" && body.whatsapp.trim()) ||
+      dbUser.buyerWhatsapp ||
+      "";
+    const countryHint =
+      (typeof body.country === "string" && body.country.trim()) ||
+      dbUser.buyerCountry ||
+      "AE";
+    if (!isValidContactPhone(rawPhone, countryHint) && !normalizeWhatsappTo(rawPhone)) {
+      res.status(400).json({
+        error: "Enter a valid WhatsApp number with country code (e.g. +2547… or +9715…)",
+      });
+      return;
+    }
+    const to = normalizeWhatsappTo(rawPhone);
+    if (!to) {
+      res.status(400).json({
+        error: "Enter a valid WhatsApp number with country code (e.g. +2547… or +9715…)",
+      });
+      return;
+    }
+
+    const code = generateEmailOtp();
+    const hash = hashEmailOtp(code, to);
+    const expires = otpExpiresAt();
+
+    await prisma.user.update({
+      where: { id: dbUser.id },
+      data: {
+        buyerWhatsapp: to,
+        buyerWhatsappVerified: false,
+        buyerWhatsappOtpHash: hash,
+        buyerWhatsappOtpExpiresAt: expires,
+        buyerKycCompleted: false,
+        buyerKycCompletedAt: null,
+      },
+    });
+
+    const sent = await sendWhatsappOtp({ to, code });
+    if (!sent.ok) {
+      res.status(502).json({ error: sent.error });
+      return;
+    }
+
+    res.json({
+      sent: true,
+      whatsapp: to,
+      expiresAt: expires.toISOString(),
+      ...(sent.mode === "dev-log" ? { previewCode: code } : {}),
+      message:
+        sent.mode === "dev-log"
+          ? "Dev mode: WhatsApp OTP logged on server (and returned as previewCode)"
+          : `Code sent to WhatsApp ${to}`,
+    });
+  },
+);
+
+router.post(
+  "/users/me/buyer-kyc/whatsapp-otp/confirm",
+  requireClerkAuth,
+  buyerKycLimiter,
+  async (req, res): Promise<void> => {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const code = typeof body.code === "string" ? body.code.trim() : "";
+    if (!/^\d{6}$/.test(code)) {
+      res.status(400).json({ error: "Enter the 6-digit code from WhatsApp" });
+      return;
+    }
+    if (
+      !dbUser.buyerWhatsappOtpExpiresAt ||
+      dbUser.buyerWhatsappOtpExpiresAt.getTime() < Date.now()
+    ) {
+      res.status(400).json({ error: "Code expired — request a new one" });
+      return;
+    }
+    const phone = dbUser.buyerWhatsapp ?? "";
+    if (!verifyEmailOtpHash(code, phone, dbUser.buyerWhatsappOtpHash)) {
+      res.status(400).json({ error: "Incorrect code — check WhatsApp and try again" });
+      return;
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: dbUser.id },
+      data: {
+        buyerWhatsappVerified: true,
+        buyerWhatsappOtpHash: null,
+        buyerWhatsappOtpExpiresAt: null,
+      },
+    });
+    res.json({
+      verified: true,
+      whatsapp: updated.buyerWhatsapp,
+      user: jsonUser(updated),
+      message: "WhatsApp verified",
+    });
+  },
+);
+
+/**
+ * Overseas step 2: company registration number + country + website.
+ * Completes buyer KYC when email + WhatsApp are already verified.
+ */
+router.post(
+  "/users/me/buyer-kyc/profile",
+  requireClerkAuth,
+  buyerKycLimiter,
+  async (req, res): Promise<void> => {
+    const dbUser = await getAuthenticatedDbUser(req);
+    if (!dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (!dbUser.buyerCompanyEmailVerified || !dbUser.buyerWhatsappVerified) {
+      res.status(400).json({
+        error: "Verify company email and WhatsApp first (step 1)",
+      });
+      return;
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const country =
+      typeof body.country === "string" ? body.country.trim().slice(0, 80) : "";
+    const reg =
+      typeof body.registrationNumber === "string"
+        ? body.registrationNumber.trim().slice(0, 80)
+        : "";
+    const websiteRaw = typeof body.website === "string" ? body.website : "";
+    const website = normalizeWebsite(websiteRaw);
+
+    if (!country) {
+      res.status(400).json({ error: "Select your country" });
+      return;
+    }
+    if (isIndiaCountry(country)) {
+      res.status(400).json({
+        error: "Indian buyers use the India path — no registration number needed",
+      });
+      return;
+    }
+    if (!reg || reg.length < 3) {
+      res.status(400).json({ error: "Enter your company registration / trade licence number" });
+      return;
+    }
+    if (!website) {
+      res.status(400).json({ error: "Enter a valid company website" });
+      return;
+    }
+
+    const email = dbUser.buyerCompanyEmail ?? "";
+    const biz = validateBusinessEmail(email, website);
+    if (!biz.ok) {
+      res.status(400).json({ error: biz.error });
+      return;
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: dbUser.id },
+      data: {
+        buyerCountry: country,
+        buyerRegistrationNumber: reg,
+        buyerWebsite: website,
+        buyerKycCompleted: true,
+        buyerKycCompletedAt: new Date(),
+        buyerEnabled: true,
+        ...(dbUser.company ? {} : { company: website }),
+      },
+    });
+
+    res.json({
+      completed: true,
+      user: jsonUser(updated),
+      message: "Buyer verification complete — you can start sourcing",
+    });
+  },
+);
 
 export default router;

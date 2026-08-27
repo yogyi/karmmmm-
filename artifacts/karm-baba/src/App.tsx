@@ -9,6 +9,7 @@ import { OnboardingGate } from "@/components/OnboardingGate";
 import { ScrollToTop } from "@/components/ScrollToTop";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
+import { BuyerKycBanner } from "@/components/BuyerKycBanner";
 import { HomePage } from "@/pages/HomePage";
 import { ProductsPage } from "@/pages/ProductsPage";
 import { ProductDetailPage } from "@/pages/ProductDetailPage";
@@ -23,6 +24,7 @@ import { RegisterPage } from "@/pages/RegisterPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { AuthContinuePage } from "@/pages/AuthContinuePage";
 import { BuyerCentralPage } from "@/pages/BuyerCentralPage";
+import { BuyerVerifyPage } from "@/pages/BuyerVerifyPage";
 import { SellerVerificationPage } from "@/pages/SellerVerificationPage";
 import { SellerLeadsPage } from "@/pages/SellerLeadsPage";
 import { SellerShopPlansPage } from "@/pages/SellerShopPlansPage";
@@ -53,6 +55,7 @@ function PageLayout({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
       <Header />
+      <BuyerKycBanner />
       <main id="main-content" className="flex-1 kb-page min-w-0 w-full" tabIndex={-1}>
         {children}
       </main>
@@ -77,6 +80,7 @@ function Router() {
       <Route path="/rfq/:id" component={({ params }) => <PageLayout><RfqDetailPage params={params} /></PageLayout>} />
       <Route path="/rfq" component={() => <PageLayout><RfqListPage /></PageLayout>} />
       <Route path="/shortlist" component={() => <PageLayout><ShortlistPage /></PageLayout>} />
+      <Route path="/buyer/verify" component={() => <AuthLayout><BuyerVerifyPage /></AuthLayout>} />
       <Route path="/buyer" component={() => <PageLayout><BuyerCentralPage /></PageLayout>} />
       <Route path="/seller/verify" component={() => <PageLayout><SellerVerificationPage /></PageLayout>} />
       <Route path="/seller/leads" component={() => <PageLayout><SellerLeadsPage /></PageLayout>} />

@@ -106,10 +106,11 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
   const { confirm } = useAppDialog();
   const qc = useQueryClient();
   const rfqId = Number(params.id);
+  const idValid = Number.isFinite(rfqId) && rfqId > 0;
 
   const { data: rfq, isLoading, isError, error: loadError, refetch } = useGetRfq(rfqId, {
     query: {
-      enabled: !!rfqId,
+      enabled: idValid,
       refetchInterval: 45_000,
       staleTime: 15_000,
       retry: (failureCount: number, err: unknown) =>
@@ -390,6 +391,25 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
     } catch (err) {
       setError(errMessage(err, "Could not cancel RFQ."));
     }
+  }
+
+  if (!idValid) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-20 text-center">
+        <Package className="mx-auto mb-3 text-muted-foreground" />
+        <h2 className="font-heading font-bold text-xl mb-2">RFQ not found</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          That link looks invalid. Open your RFQ list and pick a request.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate("/rfq")}
+          className="text-primary text-sm font-medium"
+        >
+          ← Back to RFQs
+        </button>
+      </div>
+    );
   }
 
   if (isLoading) {

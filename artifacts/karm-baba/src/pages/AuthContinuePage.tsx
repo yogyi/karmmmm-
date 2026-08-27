@@ -14,6 +14,8 @@ import {
 import { resolvePostAuthPath } from "@/lib/authRedirect";
 import { applyAccountRole } from "@/components/SwitchRoleDialog";
 import { workspaceHomePath } from "@/lib/workspaceHome";
+import { buyerHomePath } from "@/lib/buyerKyc";
+import type { AuthUser } from "@/context/AuthContext";
 
 /**
  * Post-Clerk landing. Always applies the Buyer/Seller choice from ?mode=
@@ -76,11 +78,25 @@ export function AuthContinuePage() {
           clearStoredAuthMode();
         }
 
+        await refreshProfile();
+
+        let buyerFallback = "/buyer/verify";
+        if (mode === "buyer") {
+          const token = await getToken();
+          if (token) {
+            const meRes = await fetch("/api/users/me", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (meRes.ok) {
+              const profile = (await meRes.json()) as AuthUser;
+              buyerFallback = buyerHomePath(profile);
+            }
+          }
+        }
+
         setPendingWorkspace(mode);
         const fallback =
-          mode === "seller"
-            ? workspaceHomePath("seller")
-            : workspaceHomePath("buyer");
+          mode === "seller" ? workspaceHomePath("seller") : buyerFallback;
         const path = resolvePostAuthPath(mode, fallback);
         window.location.replace(path);
       } catch (e) {

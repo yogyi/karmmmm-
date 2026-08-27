@@ -1404,6 +1404,26 @@ components:
           description: True when this user has set up a seller account (required for free switch to seller).
         createdAt:
           type: string
+        buyerCountry:
+          type: ["string", "null"]
+          description: Buyer KYC country (India skips overseas OTP flow).
+        buyerCompanyEmail:
+          type: ["string", "null"]
+        buyerCompanyEmailVerified:
+          type: boolean
+        buyerWhatsapp:
+          type: ["string", "null"]
+        buyerWhatsappVerified:
+          type: boolean
+        buyerRegistrationNumber:
+          type: ["string", "null"]
+        buyerWebsite:
+          type: ["string", "null"]
+        buyerKycCompleted:
+          type: boolean
+          description: True after India one-tap or overseas 2-step buyer KYC.
+        buyerKycCompletedAt:
+          type: ["string", "null"]
 
     OnboardingInput:
       type: object

@@ -68,12 +68,11 @@ export function RfqListPage() {
     }
   }
 
-  // Defense-in-depth: never show the viewer's own RFQs in seller inbox UI.
-  // buyerId may be redacted to null for open marketplace browse — keep those.
+  // Defense-in-depth for seller inbox: never show the viewer's own buyer RFQs.
+  // Buyers: trust the API scope (already filtered to this buyer) — do not re-filter
+  // by buyerId (redaction / profile lag used to hide every row as an empty list).
   const roleFilteredRfqs = (rfqs ?? []).filter((r) =>
-    isSeller
-      ? r.buyerId == null || r.buyerId !== user?.id
-      : r.buyerId === user?.id,
+    isSeller ? r.buyerId == null || r.buyerId !== user?.id : true,
   );
 
   // Sellers: highest target price first (matches API). Buyers keep API newest-first order.
@@ -118,36 +117,11 @@ export function RfqListPage() {
     );
   }
 
-  // Shop owners browsing in buyer mode only see their own posts — not the seller inbox.
-  if (
-    profileReady &&
-    user &&
-    user.role === "buyer" &&
+  const hasSellerShop =
+    !!user &&
     typeof user.supplierId === "number" &&
-    user.supplierId > 0
-  ) {
-    return (
-      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-6 sm:py-8 min-w-0">
-        <div className="text-center py-16 kb-card">
-          <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <FileText size={28} className="text-muted-foreground" />
-          </div>
-          <h1 className="font-heading text-xl font-bold mb-2">Incoming RFQs need Seller mode</h1>
-          <p className="text-muted-foreground text-sm mb-6 max-w-sm mx-auto">
-            You&apos;re in buyer mode, so this page only shows RFQs you posted. Switch to seller to
-            see and quote inbound inquiries.
-          </p>
-          <button
-            type="button"
-            onClick={() => navigate("/onboarding?change=1")}
-            className="kb-btn-primary px-6 py-2.5 text-sm"
-          >
-            Switch to seller
-          </button>
-        </div>
-      </div>
-    );
-  }
+    user.supplierId > 0 &&
+    user.role === "buyer";
 
   return (
     <div>
@@ -186,6 +160,22 @@ export function RfqListPage() {
       />
 
       <div className="max-w-4xl mx-auto px-3 sm:px-4 py-6 sm:py-8 min-w-0">
+      {hasSellerShop && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-wrap items-center justify-between gap-3">
+          <span>
+            You&apos;re in buyer mode — these are RFQs you posted. Incoming seller inquiries need
+            Seller Central.
+          </span>
+          <button
+            type="button"
+            disabled={switching}
+            onClick={() => void switchTo("seller")}
+            className="font-semibold underline disabled:opacity-60"
+          >
+            {switching ? "Switching…" : "Switch to seller"}
+          </button>
+        </div>
+      )}
       {isError && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           Could not load RFQs. Please try again.{" "}
@@ -276,7 +266,9 @@ export function RfqListPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                         <h3 className="font-semibold text-foreground text-sm sm:text-base leading-tight">
-                          {rfq.productName}
+                          {rfq.productName && rfq.productName !== "null"
+                            ? rfq.productName
+                            : "Untitled inquiry"}
                         </h3>
                         <span
                           className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full border ${status.color}`}

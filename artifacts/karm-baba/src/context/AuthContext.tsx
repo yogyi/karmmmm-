@@ -28,6 +28,15 @@ export interface AuthUser {
   /** Set up seller side — required (with buyerEnabled) for free role switch. */
   sellerEnabled?: boolean;
   clerkId?: string | null;
+  buyerCountry?: string | null;
+  buyerCompanyEmail?: string | null;
+  buyerCompanyEmailVerified?: boolean;
+  buyerWhatsapp?: string | null;
+  buyerWhatsappVerified?: boolean;
+  buyerRegistrationNumber?: string | null;
+  buyerWebsite?: string | null;
+  buyerKycCompleted?: boolean;
+  buyerKycCompletedAt?: string | null;
 }
 
 interface AuthContextType {

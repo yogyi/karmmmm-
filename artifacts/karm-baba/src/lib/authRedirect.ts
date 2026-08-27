@@ -60,7 +60,12 @@ function isSellerPath(path: string): boolean {
 }
 
 function isBuyerWorkspacePath(path: string): boolean {
-  return path === "/buyer" || path.startsWith("/buyer?");
+  return (
+    path === "/buyer" ||
+    path.startsWith("/buyer?") ||
+    path === "/buyer/verify" ||
+    path.startsWith("/buyer/verify?")
+  );
 }
 
 /**

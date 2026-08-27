@@ -16,6 +16,7 @@ import {
   applyAccountRole,
   useSwitchAccountRole,
 } from "@/components/SwitchRoleDialog";
+import { buyerHomePath } from "@/lib/buyerKyc";
 import logoUrl from "@assets/logo_1780688383558.png";
 
 function readPendingAuthMode(): AuthMode | null {
@@ -76,7 +77,7 @@ export function OnboardingPage() {
       navigate("/seller/verify");
       return;
     }
-    navigate(consumeAuthRedirect("/buyer"));
+    navigate(consumeAuthRedirect("/buyer/verify"));
   }
 
   // Existing account: switch immediately — no form, no confirm.
@@ -129,7 +130,7 @@ export function OnboardingPage() {
             window.location.replace(
               resolvePostAuthPath(
                 pending,
-                pending === "seller" ? "/seller" : "/buyer",
+                pending === "seller" ? "/seller" : "/buyer/verify",
               ),
             );
           })
@@ -145,7 +146,7 @@ export function OnboardingPage() {
       navigate(
         resolvePostAuthPath(
           user.role === "seller" ? "seller" : "buyer",
-          user.role === "seller" ? "/seller" : "/buyer",
+          user.role === "seller" ? "/seller" : buyerHomePath(user),
         ),
       );
       return;
@@ -162,7 +163,7 @@ export function OnboardingPage() {
         window.location.replace(
           resolvePostAuthPath(
             pending,
-            pending === "seller" ? "/seller" : "/buyer",
+            pending === "seller" ? "/seller" : "/buyer/verify",
           ),
         );
       })

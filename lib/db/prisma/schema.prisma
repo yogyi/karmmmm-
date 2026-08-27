@@ -38,6 +38,20 @@ model User {
   buyerEnabled        Boolean  @default(false) @map("buyer_enabled")
   /// True once this Clerk user has completed seller-side setup (can free-switch to seller).
   sellerEnabled       Boolean  @default(false) @map("seller_enabled")
+  /// Buyer KYC: India = one-tap; overseas = company email + WhatsApp OTP + reg/country/website.
+  buyerCountry                    String?   @map("buyer_country")
+  buyerCompanyEmail               String?   @map("buyer_company_email")
+  buyerCompanyEmailVerified       Boolean   @default(false) @map("buyer_company_email_verified")
+  buyerCompanyEmailOtpHash        String?   @map("buyer_company_email_otp_hash")
+  buyerCompanyEmailOtpExpiresAt   DateTime? @map("buyer_company_email_otp_expires_at")
+  buyerWhatsapp                   String?   @map("buyer_whatsapp")
+  buyerWhatsappVerified           Boolean   @default(false) @map("buyer_whatsapp_verified")
+  buyerWhatsappOtpHash            String?   @map("buyer_whatsapp_otp_hash")
+  buyerWhatsappOtpExpiresAt       DateTime? @map("buyer_whatsapp_otp_expires_at")
+  buyerRegistrationNumber         String?   @map("buyer_registration_number")
+  buyerWebsite                    String?   @map("buyer_website")
+  buyerKycCompleted               Boolean   @default(false) @map("buyer_kyc_completed")
+  buyerKycCompletedAt             DateTime? @map("buyer_kyc_completed_at")
   createdAt           DateTime @default(now()) @map("created_at")
 
   supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)

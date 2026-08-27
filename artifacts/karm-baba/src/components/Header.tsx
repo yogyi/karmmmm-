@@ -22,6 +22,7 @@ import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
 import { UserAvatar } from "@/components/UserAvatar";
 import logoUrl from "@assets/logo_1780688383558.png";
 import { workspaceHomePath } from "@/lib/workspaceHome";
+import { buyerHomePath, needsBuyerKyc } from "@/lib/buyerKyc";
 import { useUser } from "@clerk/react";
 
 export function Header() {
@@ -60,6 +61,8 @@ export function Header() {
 
   const isSeller = user?.role === "seller" || user?.role === "admin";
   const isBuyer = user?.role === "buyer";
+  const buyerVerifyPending = isBuyer && needsBuyerKyc(user);
+  const buyerDestination = buyerHomePath(user);
   /** Pure sellers stay in Seller Central chrome everywhere (no marketplace shell). */
   const showSellerOpsNav = user?.role === "seller";
   const inSellerCentral =
@@ -378,7 +381,11 @@ export function Header() {
               </button>
               <button
                 type="button"
-                onClick={() => navigate("/rfq/new")}
+                onClick={() =>
+                  navigate(
+                    buyerVerifyPending && isBuyer ? "/buyer/verify" : "/rfq/new",
+                  )
+                }
                 className="hidden md:inline-flex items-center gap-1.5 kb-btn-primary text-white px-3.5 min-h-11 text-sm"
               >
                 <IndianRupee size={15} />
@@ -424,8 +431,12 @@ export function Header() {
                           {user?.name}
                         </div>
                         <div className="text-xs text-muted-foreground capitalize truncate">
-                          {user?.role} ·{" "}
-                          {isSeller ? "Seller Central" : "Buyer Central"}
+                          {user?.role}
+                          {isSeller
+                            ? " · Seller Central"
+                            : buyerVerifyPending
+                              ? " · Verification pending"
+                              : " · Buyer Central"}
                         </div>
                       </div>
                     </div>
@@ -443,13 +454,13 @@ export function Header() {
                       <button
                         type="button"
                         onClick={() => {
-                          navigate("/buyer");
+                          navigate(buyerDestination);
                           setUserMenuOpen(false);
                         }}
                         className="w-full text-left px-4 min-h-11 py-3 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
                       >
                         <LayoutDashboard size={15} className="text-muted-foreground" />{" "}
-                        Buyer Central
+                        {buyerVerifyPending ? "Complete buyer setup" : "Buyer Central"}
                       </button>
                     )}
                     {isSeller && (
@@ -511,13 +522,13 @@ export function Header() {
                     <button
                       type="button"
                       onClick={() => {
-                        navigate("/rfq");
+                        navigate(buyerVerifyPending && isBuyer ? "/buyer/verify" : "/rfq");
                         setUserMenuOpen(false);
                       }}
                       className="w-full text-left px-4 py-2 text-sm hover:bg-muted flex items-center gap-2.5 transition-colors"
                     >
                       <FileText size={15} className="text-muted-foreground" />{" "}
-                      {isSeller ? "Incoming RFQs" : "My RFQs"}
+                      {buyerVerifyPending && isBuyer ? "Complete setup for RFQs" : "My RFQs"}
                     </button>
                     <div className="border-t border-border mt-1 pt-1">
                       <button
@@ -592,10 +603,18 @@ export function Header() {
             <div className="flex items-center gap-0.5 py-1.5 text-sm overflow-x-auto">
               {(isBuyer
                 ? [
-                    { label: "Buyer Central", path: "/buyer", icon: <LayoutDashboard size={13} /> },
+                    {
+                      label: buyerVerifyPending ? "Complete buyer setup" : "Buyer Central",
+                      path: buyerDestination,
+                      icon: <LayoutDashboard size={13} />,
+                    },
                     { label: "All Products", path: "/products", icon: <ShoppingBag size={13} /> },
                     { label: "Suppliers", path: "/suppliers", icon: null },
-                    { label: "My RFQs", path: "/rfq", icon: <FileText size={13} /> },
+                    {
+                      label: buyerVerifyPending ? "Complete setup for RFQs" : "My RFQs",
+                      path: buyerVerifyPending ? "/buyer/verify" : "/rfq",
+                      icon: <FileText size={13} />,
+                    },
                     { label: "Shortlist", path: "/shortlist", icon: <Heart size={13} /> },
                   ]
                 : [
@@ -645,11 +664,17 @@ export function Header() {
           <div className={`${shell} py-3 space-y-1`}>
             {(isLoggedIn && isBuyer
               ? [
-                  { label: "Buyer Central", path: "/buyer" },
+                  {
+                    label: buyerVerifyPending ? "Complete buyer setup" : "Buyer Central",
+                    path: buyerDestination,
+                  },
                   { label: "Edit profile", path: "/account" },
                   { label: "Products", path: "/products" },
                   { label: "Suppliers", path: "/suppliers" },
-                  { label: "My RFQs", path: "/rfq" },
+                  {
+                    label: buyerVerifyPending ? "Complete setup for RFQs" : "My RFQs",
+                    path: buyerVerifyPending ? "/buyer/verify" : "/rfq",
+                  },
                   { label: "Shortlist", path: "/shortlist" },
                 ]
               : isLoggedIn && isSeller

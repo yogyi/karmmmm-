@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { AuthContext } from "@/context/AuthContext";
 import { rememberAuthRedirect } from "@/lib/authRedirect";
 import { getPendingWorkspace, getStoredAuthMode } from "@/lib/authMode";
+import { needsBuyerKyc } from "@/lib/buyerKyc";
 
 const AUTH_PAGES = [
   "/onboarding",
@@ -10,6 +11,7 @@ const AUTH_PAGES = [
   "/login",
   "/register",
   "/seller/verify",
+  "/buyer/verify",
 ];
 
 /** Buyer browse surfaces — sellers stay on Seller Central.
@@ -66,6 +68,21 @@ export function OnboardingGate() {
 
     if (user.role === "seller" && isBuyerMarketplacePath(location)) {
       navigate("/seller");
+      return;
+    }
+
+    // Overseas / first-time buyers: finish light KYC before RFQ or Buyer Central.
+    if (
+      needsBuyerKyc(user) &&
+      (location === "/buyer" ||
+        location.startsWith("/buyer?") ||
+        location === "/rfq" ||
+        location.startsWith("/rfq?") ||
+        location === "/rfq/new" ||
+        location.startsWith("/rfq/new?"))
+    ) {
+      rememberAuthRedirect(location);
+      navigate("/buyer/verify");
     }
   }, [auth, location, navigate]);
 
