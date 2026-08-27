@@ -76,6 +76,13 @@ model Supplier {
   gstTradeName       String?   @map("gst_trade_name")
   /// KYC: uploaded Aadhaar card (image/PDF) — owner/admin only, not public.
   aadhaarDocumentUrl String?   @map("aadhaar_document_url")
+  /// India KYC: uploaded GST registration certificate (private) — OCR-checked.
+  gstCertificateDocumentUrl   String?   @map("gst_certificate_document_url")
+  gstCertificateOcrVerifiedAt DateTime? @map("gst_certificate_ocr_verified_at")
+  gstCertificateOcrGstin      String?   @map("gst_certificate_ocr_gstin")
+  gstCertificateOcrLegalName  String?   @map("gst_certificate_ocr_legal_name")
+  /// Truncated OCR JSON for admin audit (never public).
+  gstCertificateOcrRaw        String?   @map("gst_certificate_ocr_raw")
   /// Overseas KYC: trade licence / CR / incorporation certificate (private).
   businessRegistrationDocumentUrl String? @map("business_registration_document_url")
   businessRegistrationNumber      String? @map("business_registration_number")

@@ -4,6 +4,11 @@ import {
   hasGstApiVerifiedBadge,
   mapPublicSupplier,
 } from "./supplierDto";
+import {
+  gstCertificateMatchesEntered,
+  normalizeOcrDocumentPayload,
+  parseGstCertificateOcrPayload,
+} from "./gstCertificateOcr";
 
 const sample = {
   id: 1,
@@ -21,6 +26,7 @@ const sample = {
   verified: true,
   gstVerified: true,
   gstLiveVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
+  gstCertificateOcrVerifiedAt: new Date("2026-01-01T00:00:00.000Z"),
   yearsInBusiness: 10,
   employeeCount: "50-100",
   mainProducts: ["Cotton"],
@@ -32,7 +38,6 @@ const sample = {
   responseTime: "< 2h",
   website: "https://example.com",
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
-  // Secrets that must never appear on public DTOs
   gstin: "24AAAAA0000A1Z5",
   pan: "AAAAA0000A",
   contactPhone: "9876543210",
@@ -48,32 +53,54 @@ describe("mapPublicSupplier", () => {
     const dto = mapPublicSupplier(sample as never);
     expect(dto.companyName).toBe("Acme");
     expect(dto).not.toHaveProperty("gstin");
-    expect(dto).not.toHaveProperty("pan");
-    expect(dto).not.toHaveProperty("contactPhone");
-    expect(dto).not.toHaveProperty("contactEmail");
-    expect(dto).not.toHaveProperty("bankAccountName");
-    expect(dto).not.toHaveProperty("bankIfsc");
-    expect(dto).not.toHaveProperty("bankAccountNumber");
-    expect(dto).not.toHaveProperty("gstVerified");
-    expect(dto).not.toHaveProperty("gstLiveVerifiedAt");
     assertNoSensitiveSupplierFields(dto as Record<string, unknown>);
   });
 
-  it("shows Verified badge only after GST API live check", () => {
+  it("shows Verified badge only after GST certificate OCR", () => {
     expect(mapPublicSupplier(sample as never).verified).toBe(true);
     expect(
       mapPublicSupplier({
         ...sample,
         verified: true,
-        gstVerified: false,
-        gstLiveVerifiedAt: null,
+        gstVerified: true,
+        gstLiveVerifiedAt: new Date(),
+        gstCertificateOcrVerifiedAt: null,
       } as never).verified,
     ).toBe(false);
     expect(
       hasGstApiVerifiedBadge({
-        gstVerified: false,
-        gstLiveVerifiedAt: new Date(),
+        gstCertificateOcrVerifiedAt: new Date(),
       }),
     ).toBe(true);
+  });
+});
+
+describe("gst certificate OCR helpers", () => {
+  it("parses common OCR payloads and matches GSTIN", () => {
+    const fields = parseGstCertificateOcrPayload({
+      status: "completed",
+      result: { gstin: "27AAPFU0939F1ZV", legal_name: "ACME PVT LTD" },
+    });
+    expect(fields.gstin).toBe("27AAPFU0939F1ZV");
+    expect(gstCertificateMatchesEntered(fields.gstin, "27AAPFU0939F1ZV")).toBe(true);
+    expect(gstCertificateMatchesEntered(fields.gstin, "29AAAAA0000A1Z5")).toBe(false);
+  });
+
+  it("normalizes data URLs to raw base64 and allows PDF", () => {
+    const ok = normalizeOcrDocumentPayload(
+      "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+    );
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.kind).toBe("base64");
+      expect(ok.value).toBe("/9j/4AAQSkZJRg==");
+      expect(ok.isPdf).toBe(false);
+    }
+    const pdf = normalizeOcrDocumentPayload("data:application/pdf;base64,JVBERi0=");
+    expect(pdf.ok).toBe(true);
+    if (pdf.ok) {
+      expect(pdf.isPdf).toBe(true);
+      expect(pdf.value).toBe("JVBERi0=");
+    }
   });
 });

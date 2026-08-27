@@ -267,6 +267,7 @@ export function DashboardPage() {
           verified?: boolean;
           gstVerified?: boolean;
           gstLiveVerifiedAt?: string | null;
+          gstCertificateOcrVerifiedAt?: string | null;
           gstBadge?: boolean;
           verificationStatus?: string;
           slug?: string | null;
@@ -278,9 +279,7 @@ export function DashboardPage() {
           typeof s.verificationStatus === "string" ? s.verificationStatus : "draft";
         setVerificationStatus(status);
         setShopVerified(
-          s.gstBadge === true ||
-            s.gstVerified === true ||
-            s.gstLiveVerifiedAt != null,
+          s.gstBadge === true || s.gstCertificateOcrVerifiedAt != null,
         );
         setShareSlug(s.slug ?? null);
         if (typeof s.id === "number" && s.id > 0) {
@@ -725,16 +724,22 @@ export function DashboardPage() {
       {isSupplier && !shopVerified && verificationStatus === "pending" && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <p>
-            Your GSTIN is under review. You can list products and quote RFQs — the verified badge
-            appears after Karm Baba approval.
+            Seller shop is active. Verified badge unlocks when you complete GSTIN live verify + GST
+            certificate OCR (optional — you can do this later).
           </p>
           <button
             type="button"
             onClick={() => navigate("/seller/verify")}
             className="shrink-0 font-semibold text-amber-900 underline underline-offset-2"
           >
-            View status
+            Add GST for badge
           </button>
+        </div>
+      )}
+      {isSupplier && shopVerified && verificationStatus === "pending" && (
+        <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+          Verified badge is live (GST certificate OCR passed). Your full KYC profile is still with
+          Karm Baba for review.
         </div>
       )}
 

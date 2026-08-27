@@ -16,10 +16,11 @@ export const PUBLIC_SUPPLIER_SELECT = {
   coverUrl: true,
   videoUrl: true,
   shareImageUrl: true,
-  /** Kept for ordering; public `verified` is computed from GST live fields below. */
+  /** Kept for ordering; public `verified` is computed from certificate OCR below. */
   verified: true,
   gstVerified: true,
   gstLiveVerifiedAt: true,
+  gstCertificateOcrVerifiedAt: true,
   yearsInBusiness: true,
   employeeCount: true,
   mainProducts: true,
@@ -38,19 +39,20 @@ export type PublicSupplierRow = Prisma.SupplierGetPayload<{
 }>;
 
 /**
- * Public "Verified" badge = GSTIN checked live via our GST API only.
- * Admin KYC / overseas email OTP must never show this badge.
+ * Public "Verified" badge = GST certificate OCR passed (unique certificate upload).
+ * Entering GSTIN / live GSTN check alone never grants this badge.
  */
 export function hasGstApiVerifiedBadge(s: {
   gstVerified?: boolean | null;
   gstLiveVerifiedAt?: Date | string | null;
+  gstCertificateOcrVerifiedAt?: Date | string | null;
 }): boolean {
-  return s.gstVerified === true || s.gstLiveVerifiedAt != null;
+  return s.gstCertificateOcrVerifiedAt != null;
 }
 
 /** Prisma where-clause for suppliers that earned the GST Verified badge. */
 export const GST_API_VERIFIED_WHERE = {
-  OR: [{ gstVerified: true }, { gstLiveVerifiedAt: { not: null } }],
+  gstCertificateOcrVerifiedAt: { not: null },
 } as const;
 
 const SENSITIVE_KEYS = [
@@ -67,6 +69,8 @@ const SENSITIVE_KEYS = [
   "bankAccountNumber",
   "gstVerified",
   "gstLiveVerifiedAt",
+  "gstCertificateOcrVerifiedAt",
+  "gstCertificateDocumentUrl",
 ] as const;
 
 /** Owner/admin DTO — includes verification + payout fields (never OTP secrets). */
@@ -82,7 +86,10 @@ export function mapOwnerSupplier(s: SupplierRow) {
     createdAt: s.createdAt.toISOString(),
     verifiedAt: s.verifiedAt ? s.verifiedAt.toISOString() : null,
     gstLiveVerifiedAt: s.gstLiveVerifiedAt ? s.gstLiveVerifiedAt.toISOString() : null,
-    /** Public badge eligibility (GST API). Distinct from KYC `verificationStatus`. */
+    gstCertificateOcrVerifiedAt: s.gstCertificateOcrVerifiedAt
+      ? s.gstCertificateOcrVerifiedAt.toISOString()
+      : null,
+    /** Public badge eligibility (GST certificate OCR). Distinct from KYC `verificationStatus`. */
     gstBadge: hasGstApiVerifiedBadge(s),
     businessEmailOtpExpiresAt: s.businessEmailOtpExpiresAt
       ? s.businessEmailOtpExpiresAt.toISOString()

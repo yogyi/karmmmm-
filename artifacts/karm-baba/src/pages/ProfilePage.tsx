@@ -155,8 +155,7 @@ export function ProfilePage() {
         gstLocked: s.gstLocked === true || s.verified === true,
         verified:
           s.gstBadge === true ||
-          s.gstVerified === true ||
-          s.gstLiveVerifiedAt != null,
+          s.gstCertificateOcrVerifiedAt != null,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load profile");

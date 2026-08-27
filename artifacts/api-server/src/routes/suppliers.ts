@@ -24,6 +24,13 @@ import {
   isGstLiveVerifyConfigured,
   verifyGstinLive,
 } from "../lib/gstVerifyApi";
+import {
+  extractGstCertificateOcr,
+  gstCertificateMatchesEntered,
+  isGstCertificateOcrConfigured,
+} from "../lib/gstCertificateOcr";
+import { ObjectStorageService } from "../lib/objectStorage";
+import { Readable } from "node:stream";
 import { isIndiaCountry, isValidContactPhone } from "../lib/country";
 import { validateBusinessEmail } from "../lib/businessEmail";
 import {
@@ -55,6 +62,77 @@ import {
 } from "../lib/supplierDto";
 
 const router: IRouter = Router();
+const objectStorage = new ObjectStorageService();
+
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+async function documentUrlToDataUrl(
+  documentUrl: string,
+): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
+  const raw = documentUrl.trim();
+  if (!raw) return { ok: false, error: "Upload your GST certificate first" };
+
+  // Never pass private KYC URLs to RapidAPI — it cannot authenticate to our storage.
+  // Only public https URLs (non-/api/storage) may be forwarded as-is.
+  if (/^https?:\/\//i.test(raw) && !raw.includes("/api/storage/")) {
+    // Blob private URLs often still look public; if path suggests private KYC, fetch locally instead.
+    // Prefer always reading through our storage when the host is our blob — safer.
+    // For truly public CDN URLs, RapidAPI can fetch them.
+    return { ok: true, dataUrl: raw };
+  }
+
+  let objectPath = raw;
+  const storageIdx = raw.indexOf("/api/storage");
+  if (storageIdx >= 0) {
+    objectPath = raw.slice(storageIdx + "/api/storage".length) || raw;
+  }
+  if (objectPath.startsWith("/objects/")) {
+    // ok
+  } else if (objectPath.includes("/objects/")) {
+    objectPath = objectPath.slice(objectPath.indexOf("/objects/"));
+  } else {
+    return {
+      ok: false,
+      error: "Invalid GST certificate upload path — re-upload the file",
+    };
+  }
+
+  try {
+    const file = await objectStorage.getObjectEntityFile(objectPath);
+    const info = await file.getContentInfo();
+    const buf = await streamToBuffer(await file.createReadStream());
+    if (buf.length === 0) {
+      return { ok: false, error: "GST certificate file is empty" };
+    }
+    if (buf.length > 8 * 1024 * 1024) {
+      return { ok: false, error: "GST certificate must be 8MB or smaller" };
+    }
+    const lowerPath = objectPath.toLowerCase();
+    const mime =
+      info.contentType && info.contentType !== "application/octet-stream"
+        ? info.contentType
+        : lowerPath.endsWith(".pdf")
+          ? "application/pdf"
+          : lowerPath.endsWith(".png")
+            ? "image/png"
+            : lowerPath.endsWith(".webp")
+              ? "image/webp"
+              : "image/jpeg";
+    // PDF is supported (multi-page GST certificates). Images also OK.
+    return { ok: true, dataUrl: `data:${mime};base64,${buf.toString("base64")}` };
+  } catch {
+    return {
+      ok: false,
+      error: "Could not read uploaded GST certificate — re-upload and try again",
+    };
+  }
+}
 
 router.get("/suppliers", async (req, res): Promise<void> => {
   const parsed = ListSuppliersQueryParams.safeParse(req.query);
@@ -69,10 +147,7 @@ router.get("/suppliers", async (req, res): Promise<void> => {
   if (verified === true) {
     Object.assign(where, GST_API_VERIFIED_WHERE);
   } else if (verified === false) {
-    where.AND = [
-      { gstVerified: false },
-      { gstLiveVerifiedAt: null },
-    ];
+    where.gstCertificateOcrVerifiedAt = null;
   }
 
   const [total, items] = await Promise.all([
@@ -503,6 +578,11 @@ router.post("/suppliers/me/reverify-gst", requireClerkAuth, async (req, res): Pr
       gstLiveVerifiedAt: null,
       gstLiveStatus: null,
       gstTradeName: null,
+      gstCertificateDocumentUrl: null,
+      gstCertificateOcrVerifiedAt: null,
+      gstCertificateOcrGstin: null,
+      gstCertificateOcrLegalName: null,
+      gstCertificateOcrRaw: null,
       verificationStatus: "draft",
       verificationStep: 3,
       verifiedAt: null,
@@ -690,13 +770,18 @@ router.post(
       return;
     }
     if (existing.verificationStatus === "pending" && !submit && step !== 1) {
-      // Allow reading progress; block duplicate submits until admin acts or reverify.
-      if (step >= 3) {
+      const needsIndiaCertOcr =
+        isIndiaCountry(existing.country) &&
+        existing.gstCertificateOcrVerifiedAt == null;
+      // Allow GST step edits when certificate OCR is still missing (badge unlock path).
+      if (!(needsIndiaCertOcr && step === 3) && step >= 3) {
         res.json({
           supplier: mapOwnerSupplier(existing),
           nextStep: 5,
           pendingReview: true,
-          message: "GSTIN is awaiting Karm Baba review. Verified badge is not active yet.",
+          message: needsIndiaCertOcr
+            ? "Upload and scan your GST certificate to unlock the Verified badge."
+            : "Profile is awaiting Karm Baba review.",
         });
         return;
       }
@@ -837,82 +922,87 @@ router.post(
         "India";
       if (isIndiaCountry(country)) {
         const gst = validateGstin(String(data.gstin ?? ""));
-        if (!gst.ok) {
-          res.status(400).json({ error: gst.error });
-          return;
-        }
-        const clash = await prisma.supplier.findFirst({
-          where: { gstin: gst.gstin, NOT: { id: supplierId } },
-        });
-        if (clash) {
-          res.status(409).json({
-            error: "This GSTIN is already registered to another seller",
-          });
-          return;
-        }
-        patch.gstin = gst.gstin;
-        patch.pan = gst.pan;
-        patch.gstVerified = false;
-        const aadhaarUrl = readKycDocumentUrl(data.aadhaarDocumentUrl);
-        if (!aadhaarUrl) {
-          res.status(400).json({
-            error: "Upload your Aadhaar card (JPEG, PNG, or PDF) before continuing",
-          });
-          return;
-        }
-        patch.aadhaarDocumentUrl = aadhaarUrl;
-
-          if (isGstLiveVerifyConfigured()) {
-          const live = await verifyGstinLive(gst.gstin);
-          if (!live.ok) {
-            res.status(live.httpStatus && live.httpStatus >= 400 && live.httpStatus < 500
-              ? live.httpStatus
-              : 400).json({ error: live.error });
+        // India step 3: GSTIN / certificate / Aadhaar optional for seller account.
+        // If GSTIN is entered, validate format + uniqueness; live verify only when provided.
+        if (String(data.gstin ?? "").trim()) {
+          if (!gst.ok) {
+            res.status(400).json({ error: gst.error });
             return;
           }
-          const registeredState = (existing.state ?? "").trim();
-          if (registeredState) {
-            const expectedName = GST_STATE_CODES[gst.stateCode];
-            const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
-            if (
-              expectedName &&
-              norm(registeredState) !== norm(expectedName) &&
-              live.record.state &&
-              norm(registeredState) !== norm(live.record.state)
-            ) {
-              res.status(400).json({
-                error: `GSTIN belongs to ${live.record.state ?? expectedName}, but company profile state is ${registeredState}`,
-              });
-              return;
-            }
-          }
-          const formLegal =
-            typeof data.legalName === "string" && data.legalName.trim()
-              ? data.legalName.trim()
-              : existing.legalName ?? "";
-          if (formLegal && !gstLegalNameMatches(formLegal, live.record.legalName)) {
-            res.status(400).json({
-              error:
-                "Legal entity name does not match GST records. Use the name on your GST certificate.",
-              gstLegalName: live.record.legalName,
+          const clash = await prisma.supplier.findFirst({
+            where: { gstin: gst.gstin, NOT: { id: supplierId } },
+          });
+          if (clash) {
+            res.status(409).json({
+              error: "This GSTIN is already registered to another seller",
             });
             return;
           }
-          patch.gstin = live.record.gstin;
-          patch.pan = live.record.pan ?? gst.pan;
-          patch.gstLiveStatus = live.record.status;
-          patch.gstLiveVerifiedAt = new Date();
-          patch.gstTradeName = live.record.tradeName;
-          // Public Verified badge unlocked by live GST API check.
-          patch.gstVerified = true;
-          patch.verified = true;
-          patch.verifiedAt = new Date();
-          if (live.record.state && !existing.state) {
-            patch.state = live.record.state;
+          patch.gstin = gst.gstin;
+          patch.pan = gst.pan;
+          // Do not grant public badge from GSTIN alone — certificate OCR does.
+          patch.gstVerified = existing.gstCertificateOcrVerifiedAt != null;
+
+          if (isGstLiveVerifyConfigured() && !existing.gstLiveVerifiedAt) {
+            const live = await verifyGstinLive(gst.gstin);
+            if (!live.ok) {
+              res.status(live.httpStatus && live.httpStatus >= 400 && live.httpStatus < 500
+                ? live.httpStatus
+                : 400).json({ error: live.error });
+              return;
+            }
+            const registeredState = (existing.state ?? "").trim();
+            if (registeredState) {
+              const expectedName = GST_STATE_CODES[gst.stateCode];
+              const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+              if (
+                expectedName &&
+                norm(registeredState) !== norm(expectedName) &&
+                live.record.state &&
+                norm(registeredState) !== norm(live.record.state)
+              ) {
+                res.status(400).json({
+                  error: `GSTIN belongs to ${live.record.state ?? expectedName}, but company profile state is ${registeredState}`,
+                });
+                return;
+              }
+            }
+            const formLegal =
+              typeof data.legalName === "string" && data.legalName.trim()
+                ? data.legalName.trim()
+                : existing.legalName ?? "";
+            const matchesLegal =
+              !formLegal || gstLegalNameMatches(formLegal, live.record.legalName);
+            const matchesTrade =
+              Boolean(live.record.tradeName) &&
+              Boolean(formLegal) &&
+              gstLegalNameMatches(formLegal, live.record.tradeName!);
+            if (formLegal && !matchesLegal && !matchesTrade) {
+              // Adopt GST legal name instead of blocking the step.
+              patch.legalName = live.record.legalName;
+            }
+            patch.gstin = live.record.gstin;
+            patch.pan = live.record.pan ?? gst.pan;
+            patch.gstLiveStatus = live.record.status;
+            patch.gstLiveVerifiedAt = new Date();
+            patch.gstTradeName = live.record.tradeName;
+            if (live.record.state && !existing.state) {
+              patch.state = live.record.state;
+            }
+          } else if (!isGstLiveVerifyConfigured()) {
+            const stateName = GST_STATE_CODES[gst.stateCode];
+            if (stateName && !existing.state) patch.state = stateName;
           }
-        } else {
-          const stateName = GST_STATE_CODES[gst.stateCode];
-          if (stateName && !existing.state) patch.state = stateName;
+        }
+
+        const aadhaarUrl = readKycDocumentUrl(data.aadhaarDocumentUrl);
+        if (aadhaarUrl) {
+          patch.aadhaarDocumentUrl = aadhaarUrl;
+        }
+
+        const certUrl = readKycDocumentUrl(data.gstCertificateDocumentUrl);
+        if (certUrl) {
+          patch.gstCertificateDocumentUrl = certUrl;
         }
       } else {
         // Overseas step 3: business registration (email OTP verified on step 2).
@@ -1002,27 +1092,20 @@ router.post(
         existing.country ??
         "India";
       if (isIndiaCountry(country)) {
-        const gstin = (patch.gstin as string | undefined) ?? existing.gstin;
-        const gst = validateGstin(gstin ?? "");
-        if (!gst.ok) {
-          res.status(400).json({
-            error: "Valid GSTIN is required before verification. Complete the GST step.",
-          });
-          return;
-        }
-        patch.gstin = gst.gstin;
-        patch.pan = gst.pan;
-        if (isGstLiveVerifyConfigured() && !existing.gstLiveVerifiedAt) {
-          res.status(400).json({
-            error: "Complete live GST verification on the GST step before submitting",
-          });
-          return;
-        }
-        if (!existing.aadhaarDocumentUrl) {
-          res.status(400).json({
-            error: "Upload your Aadhaar card on the GST step before submitting",
-          });
-          return;
+        // GSTIN / certificate / Aadhaar optional to create seller account.
+        // Verified badge is granted only via GST certificate OCR (separate endpoint).
+        const gstinRaw =
+          (patch.gstin as string | undefined) ?? existing.gstin ?? "";
+        if (gstinRaw.trim()) {
+          const gst = validateGstin(gstinRaw);
+          if (!gst.ok) {
+            res.status(400).json({
+              error: "GSTIN looks invalid. Fix it on the GST step or clear it to submit without GST.",
+            });
+            return;
+          }
+          patch.gstin = gst.gstin;
+          patch.pan = gst.pan;
         }
         const bankAccountName =
           (patch.bankAccountName as string | undefined) ?? existing.bankAccountName ?? "";
@@ -1070,14 +1153,12 @@ router.post(
         patch.gstVerified = false;
       }
 
-      // Public Verified badge is GST-API-only. Keep it if already earned; otherwise clear.
+      // Public Verified badge is GST-certificate-OCR-only. Keep it if already earned.
       const indiaSeller = isIndiaCountry(country);
       const gstBadgeAlready =
         indiaSeller &&
-        (existing.gstVerified === true ||
-          existing.gstLiveVerifiedAt != null ||
-          patch.gstLiveVerifiedAt != null ||
-          patch.gstVerified === true);
+        (existing.gstCertificateOcrVerifiedAt != null ||
+          patch.gstCertificateOcrVerifiedAt != null);
       if (gstBadgeAlready) {
         patch.gstVerified = true;
         patch.verified = true;
@@ -1120,8 +1201,10 @@ router.post(
       message:
         updated.verificationStatus === "pending"
           ? indiaSeller
-            ? "Profile submitted. Verified badge stays active from your live GST check."
-            : "Profile submitted. Company email verified. Verified badge is for GST-verified India sellers only."
+            ? hasGstApiVerifiedBadge(updated)
+              ? "Profile submitted. Verified badge is live from your GST certificate OCR."
+              : "Seller account created. Add GSTIN + certificate OCR anytime to unlock the Verified badge."
+            : "Profile submitted. Company email verified. Verified badge is for GST-certificate-verified India sellers only."
           : undefined,
     });
   },
@@ -1201,38 +1284,44 @@ router.post(
       return;
     }
 
-    const nameMatches =
+    const nameMatchesLegal =
       !legalName || gstLegalNameMatches(legalName, live.record.legalName);
-    if (!nameMatches) {
-      res.status(400).json({
-        error:
-          "Legal entity name does not match GST records. Use the name on your GST certificate.",
-        gstLegalName: live.record.legalName,
-        nameMatches: false,
-      });
-      return;
-    }
+    const nameMatchesTrade =
+      Boolean(live.record.tradeName) &&
+      Boolean(legalName) &&
+      gstLegalNameMatches(legalName, live.record.tradeName!);
+    const nameMatches = nameMatchesLegal || nameMatchesTrade;
+    // GSTN legal name is source of truth (proprietors often typed shop/trade name).
+    const adoptedLegalName = nameMatches
+      ? legalName || live.record.legalName
+      : live.record.legalName;
 
     const updated = await prisma.supplier.update({
       where: { id: supplierId },
       data: {
         gstin: live.record.gstin,
         pan: live.record.pan ?? format.pan,
+        legalName: adoptedLegalName,
         gstLiveStatus: live.record.status,
         gstLiveVerifiedAt: new Date(),
         gstTradeName: live.record.tradeName,
-        // Public Verified badge is earned only via live GST API check.
-        gstVerified: true,
-        verified: true,
-        verifiedAt: new Date(),
+        // Live GSTN check alone does NOT grant the public Verified badge —
+        // sellers must upload + OCR their GST certificate next.
         ...(live.record.state && !existing.state ? { state: live.record.state } : {}),
+        ...(live.record.address && !existing.businessAddress
+          ? { businessAddress: live.record.address }
+          : {}),
       },
     });
 
     res.json({
-      verified: true,
+      ok: true,
+      verified: hasGstApiVerifiedBadge(updated),
+      liveVerified: true,
       cached: live.record.cached,
-      nameMatches: true,
+      nameMatches,
+      legalNameUpdated: !nameMatches,
+      legalName: adoptedLegalName,
       record: {
         gstin: live.record.gstin,
         legalName: live.record.legalName,
@@ -1247,8 +1336,174 @@ router.post(
         registrationDate: live.record.registrationDate,
       },
       supplier: mapOwnerSupplier(updated),
-      message: "GSTIN verified with GSTN — Verified badge unlocked",
+      message: nameMatches
+        ? "GSTIN verified with GSTN. Upload your GST certificate for OCR to unlock the Verified badge."
+        : `GSTIN verified. Legal name set from GST records to “${live.record.legalName}”${
+            live.record.tradeName ? ` (trade: ${live.record.tradeName})` : ""
+          }. Next: scan certificate OCR for the Verified badge.`,
     });
+  },
+);
+
+/** Upload path already stored — OCR the GST certificate and unlock Verified badge on match. */
+router.post(
+  "/suppliers/me/verification/gst-certificate-ocr",
+  requireClerkAuth,
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 12,
+    key: (req) => {
+      const uid =
+        (req as { clerkUserId?: string }).clerkUserId || "unknown";
+      return `gst-cert-ocr:user:${uid}`;
+    },
+  }),
+  async (req, res): Promise<void> => {
+    try {
+      const dbUser = await getAuthenticatedDbUser(req);
+      if (!dbUser) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+      if (!isSellerOrAdmin(dbUser)) {
+        res.status(403).json({ error: "Forbidden — sellers only" });
+        return;
+      }
+      const supplierId = parseLinkedSupplierId(dbUser);
+      if (supplierId == null) {
+        res.status(404).json({ error: "No supplier profile linked yet" });
+        return;
+      }
+      if (!isGstCertificateOcrConfigured()) {
+        res.status(503).json({
+          error:
+            "GST certificate OCR is not configured. Set GST_CERTIFICATE_OCR_RAPIDAPI_KEY.",
+        });
+        return;
+      }
+
+      const existing = await prisma.supplier.findUnique({ where: { id: supplierId } });
+      if (!existing) {
+        res.status(404).json({ error: "Supplier not found" });
+        return;
+      }
+      if (!isIndiaCountry(existing.country)) {
+        res.status(400).json({ error: "GST certificate OCR is only for India sellers" });
+        return;
+      }
+
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const documentUrl =
+        typeof body.documentUrl === "string"
+          ? body.documentUrl.trim()
+          : existing.gstCertificateDocumentUrl?.trim() || "";
+      const enteredGstin =
+        typeof body.gstin === "string" && body.gstin.trim()
+          ? body.gstin.trim()
+          : existing.gstin?.trim() || "";
+
+      const gst = validateGstin(enteredGstin);
+      if (!gst.ok) {
+        res.status(400).json({
+          error: "Enter a valid GSTIN before scanning the certificate",
+        });
+        return;
+      }
+      if (!existing.gstLiveVerifiedAt) {
+        res.status(400).json({
+          error: "Verify GSTIN with GSTN first, then upload the certificate",
+        });
+        return;
+      }
+
+      const prepared = await documentUrlToDataUrl(documentUrl);
+      if (!prepared.ok) {
+        res.status(400).json({ error: prepared.error });
+        return;
+      }
+
+      const ocr = await extractGstCertificateOcr(prepared.dataUrl);
+      if (!ocr.ok) {
+        await prisma.supplier.update({
+          where: { id: supplierId },
+          data: {
+            gstCertificateDocumentUrl: documentUrl,
+            gstCertificateOcrVerifiedAt: null,
+            gstCertificateOcrGstin: null,
+            gstCertificateOcrLegalName: null,
+            gstVerified: false,
+            verified: false,
+            verifiedAt: null,
+          },
+        });
+        res.status(ocr.httpStatus && ocr.httpStatus >= 400 && ocr.httpStatus < 600
+          ? ocr.httpStatus
+          : 400).json({
+          ok: false,
+          status: "not_done",
+          error: ocr.error,
+          message: ocr.error,
+        });
+        return;
+      }
+
+      if (!gstCertificateMatchesEntered(ocr.fields.gstin, gst.gstin)) {
+        await prisma.supplier.update({
+          where: { id: supplierId },
+          data: {
+            gstCertificateDocumentUrl: documentUrl,
+            gstCertificateOcrVerifiedAt: null,
+            gstCertificateOcrGstin: ocr.fields.gstin,
+            gstCertificateOcrLegalName: ocr.fields.legalName,
+            gstCertificateOcrRaw: JSON.stringify(ocr.raw).slice(0, 8000),
+            gstVerified: false,
+            verified: false,
+            verifiedAt: null,
+          },
+        });
+        res.status(400).json({
+          ok: false,
+          status: "not_done",
+          error: `Certificate GSTIN (${ocr.fields.gstin}) does not match entered GSTIN (${gst.gstin})`,
+          fields: ocr.fields,
+          message: "GST certificate OCR not done — GSTIN on certificate must match",
+        });
+        return;
+      }
+
+      const updated = await prisma.supplier.update({
+        where: { id: supplierId },
+        data: {
+          gstin: gst.gstin,
+          pan: ocr.fields.pan ?? existing.pan ?? gst.pan,
+          gstCertificateDocumentUrl: documentUrl,
+          gstCertificateOcrVerifiedAt: new Date(),
+          gstCertificateOcrGstin: ocr.fields.gstin,
+          gstCertificateOcrLegalName: ocr.fields.legalName,
+          gstCertificateOcrRaw: JSON.stringify(ocr.raw).slice(0, 8000),
+          // Public Verified badge unlocked only after certificate OCR passes.
+          gstVerified: true,
+          verified: true,
+          verifiedAt: new Date(),
+        },
+      });
+
+      res.json({
+        ok: true,
+        status: "passed",
+        verified: true,
+        fields: ocr.fields,
+        supplier: mapOwnerSupplier(updated),
+        message: "GST certificate verified — Verified badge unlocked",
+      });
+    } catch (err) {
+      req.log?.error({ err }, "gst certificate ocr failed");
+      res.status(500).json({
+        ok: false,
+        status: "not_done",
+        error: "Could not scan GST certificate — try again",
+      });
+    }
   },
 );
 
@@ -1452,7 +1707,7 @@ router.post(
       if (!hasGstApiVerifiedBadge(existing)) {
         res.status(400).json({
           error:
-            "Verified badge requires live GST API check first. Ask the seller to verify GSTIN in Seller Central.",
+            "Verified badge requires GST certificate OCR first. Ask the seller to upload and scan their GST certificate.",
         });
         return;
       }
@@ -1481,8 +1736,8 @@ router.post(
       supplier: mapOwnerSupplier(updated),
       verified: hasGstApiVerifiedBadge(updated),
       message: india
-        ? "KYC approved. Verified badge remains based on live GST check."
-        : "KYC approved. Verified badge is for GST-verified India sellers only.",
+        ? "KYC approved. Verified badge remains based on GST certificate OCR."
+        : "KYC approved. Verified badge is for GST-certificate-verified India sellers only.",
     });
   },
 );

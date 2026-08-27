@@ -76,6 +76,7 @@ interface FormState {
   contactEmail: string;
   website: string;
   gstin: string;
+  gstCertificateDocumentUrl: string;
   aadhaarDocumentUrl: string;
   businessRegistrationDocumentUrl: string;
   businessRegistrationNumber: string;
@@ -102,6 +103,7 @@ const emptyForm: FormState = {
   contactEmail: "",
   website: "",
   gstin: "",
+  gstCertificateDocumentUrl: "",
   aadhaarDocumentUrl: "",
   businessRegistrationDocumentUrl: "",
   businessRegistrationNumber: "",
@@ -114,7 +116,11 @@ const emptyForm: FormState = {
 function validateStepForForm(
   form: FormState,
   current: Step,
-  opts?: { emailVerified?: boolean; gstLiveVerified?: boolean },
+  opts?: {
+    emailVerified?: boolean;
+    gstLiveVerified?: boolean;
+    gstCertificateOcrVerified?: boolean;
+  },
 ): string | null {
   const india = isIndiaCountry(form.country);
   if (current === 1) {
@@ -149,13 +155,11 @@ function validateStepForForm(
   }
   if (current === 3) {
     if (india) {
-      const gst = validateGstin(form.gstin);
-      if (!gst.ok) return gst.error;
-      if (!form.aadhaarDocumentUrl.trim()) {
-        return "Upload your Aadhaar card (JPEG, PNG, or PDF)";
-      }
-      if (!opts?.gstLiveVerified) {
-        return "Verify your GSTIN with GSTN before continuing";
+      // GSTIN, certificate OCR, and Aadhaar are optional for account creation.
+      // If GSTIN is entered, format/checksum must be valid.
+      if (form.gstin.trim()) {
+        const gst = validateGstin(form.gstin);
+        if (!gst.ok) return gst.error;
       }
     } else {
       if (!opts?.emailVerified) {
@@ -189,7 +193,11 @@ function validateStepForForm(
 function isStepComplete(
   form: FormState,
   s: Step,
-  opts?: { emailVerified?: boolean; gstLiveVerified?: boolean },
+  opts?: {
+    emailVerified?: boolean;
+    gstLiveVerified?: boolean;
+    gstCertificateOcrVerified?: boolean;
+  },
 ): boolean {
   if (s === 5) {
     return ([1, 2, 3, 4] as Step[]).every(
@@ -201,7 +209,11 @@ function isStepComplete(
 
 function firstIncompleteStep(
   form: FormState,
-  opts?: { emailVerified?: boolean; gstLiveVerified?: boolean },
+  opts?: {
+    emailVerified?: boolean;
+    gstLiveVerified?: boolean;
+    gstCertificateOcrVerified?: boolean;
+  },
 ): Step {
   for (const s of [1, 2, 3, 4] as Step[]) {
     if (!isStepComplete(form, s, opts)) return s;
@@ -213,7 +225,11 @@ function firstIncompleteStep(
 function fieldErrorsForStep(
   form: FormState,
   current: Step,
-  opts?: { emailVerified?: boolean; gstLiveVerified?: boolean },
+  opts?: {
+    emailVerified?: boolean;
+    gstLiveVerified?: boolean;
+    gstCertificateOcrVerified?: boolean;
+  },
 ): Partial<Record<keyof FormState, string>> {
   const india = isIndiaCountry(form.country);
   const errors: Partial<Record<keyof FormState, string>> = {};
@@ -251,13 +267,10 @@ function fieldErrorsForStep(
     }
   }
   if (current === 3 && india) {
-    const gst = validateGstin(form.gstin);
-    if (!gst.ok) errors.gstin = gst.error;
-    if (!form.aadhaarDocumentUrl.trim()) {
-      errors.aadhaarDocumentUrl = "Upload your Aadhaar card";
-    }
-    if (!opts?.gstLiveVerified) {
-      errors.gstin = errors.gstin ?? "Verify GSTIN with GSTN";
+    // Only surface GSTIN format errors when a value was entered; empty is OK.
+    if (form.gstin.trim()) {
+      const gst = validateGstin(form.gstin);
+      if (!gst.ok) errors.gstin = gst.error;
     }
   }
   if (current === 3 && !india) {
@@ -289,8 +302,8 @@ function fieldErrorsForStep(
 
 /**
  * Alibaba-style seller verification wizard.
- * Captures company → contact → GST (format/checksum) → bank → submit → pending review.
- * Verified badge is granted only after live GST API check (India GSTIN).
+ * Captures company → contact → GST (optional for account; required for badge) → bank → submit.
+ * Verified badge unlocks only after live GSTN verify + GST certificate OCR (India).
  * Admin KYC approval does not grant the public badge by itself.
  */
 export function SellerVerificationPage() {
@@ -323,6 +336,15 @@ export function SellerVerificationPage() {
     state: string | null;
     address: string | null;
   } | null>(null);
+  const [gstCertificateOcrVerified, setGstCertificateOcrVerified] = useState(false);
+  const [gstCertificateOcrBusy, setGstCertificateOcrBusy] = useState(false);
+  const [gstCertificateOcrMsg, setGstCertificateOcrMsg] = useState<string | null>(null);
+  const [gstCertificateOcrFields, setGstCertificateOcrFields] = useState<{
+    gstin: string | null;
+    legalName: string | null;
+  } | null>(null);
+  /** India pending KYC without certificate OCR — nudge toward badge upload. */
+  const [needsGstCertOcr, setNeedsGstCertOcr] = useState(false);
   const [countryAutoDetected, setCountryAutoDetected] = useState(false);
 
   const india = isIndiaCountry(form.country);
@@ -330,8 +352,8 @@ export function SellerVerificationPage() {
   const profileLabels = useMemo(() => getCompanyProfileLabels(form.country), [form.country]);
   const STEPS = useMemo(() => wizardSteps(india), [india]);
   const verifyOpts = useMemo(
-    () => ({ emailVerified, gstLiveVerified }),
-    [emailVerified, gstLiveVerified],
+    () => ({ emailVerified, gstLiveVerified, gstCertificateOcrVerified }),
+    [emailVerified, gstLiveVerified, gstCertificateOcrVerified],
   );
 
   const fieldErrors = useMemo(
@@ -400,13 +422,32 @@ export function SellerVerificationPage() {
       }
       if (!res.ok) return;
       const s = (await res.json()) as Record<string, unknown>;
-      if (s.verified === true || s.verificationStatus === "verified") {
+      // Only leave the wizard when KYC is fully approved — not merely because
+      // GST certificate OCR unlocked the public Verified badge.
+      if (s.verificationStatus === "verified") {
         setVerified(true);
         navigate("/seller");
         return;
       }
-      if (s.verificationStatus === "pending") {
-        setPendingReview(true);
+      const loadedCountry = String(s.country ?? "India");
+      const loadedIndia = isIndiaCountry(loadedCountry);
+      const ocrDone = s.gstCertificateOcrVerifiedAt != null;
+      const alreadySubmitted = s.verificationStatus === "pending";
+      if (alreadySubmitted) {
+        if (loadedIndia && !ocrDone) {
+          setNeedsGstCertOcr(true);
+          setPendingReview(false);
+        } else if (ocrDone) {
+          // Already submitted + badge unlocked — show status card.
+          setNeedsGstCertOcr(false);
+          setPendingReview(true);
+        } else {
+          setNeedsGstCertOcr(false);
+          setPendingReview(true);
+        }
+      } else {
+        setPendingReview(false);
+        setNeedsGstCertOcr(false);
       }
       const loaded: FormState = {
         companyName: String(s.companyName ?? ""),
@@ -416,7 +457,7 @@ export function SellerVerificationPage() {
         state: String(s.state ?? ""),
         pincode: String(s.pincode ?? ""),
         businessAddress: String(s.businessAddress ?? ""),
-        country: String(s.country ?? "India"),
+        country: loadedCountry,
         description: String(s.description ?? ""),
         yearsInBusiness: s.yearsInBusiness != null ? String(s.yearsInBusiness) : "",
         employeeCount: String(s.employeeCount ?? ""),
@@ -428,6 +469,7 @@ export function SellerVerificationPage() {
         contactEmail: String(s.contactEmail ?? user?.email ?? ""),
         website: String(s.website ?? ""),
         gstin: String(s.gstin ?? ""),
+        gstCertificateDocumentUrl: String(s.gstCertificateDocumentUrl ?? ""),
         aadhaarDocumentUrl: String(s.aadhaarDocumentUrl ?? ""),
         businessRegistrationDocumentUrl: String(s.businessRegistrationDocumentUrl ?? ""),
         businessRegistrationNumber: String(s.businessRegistrationNumber ?? ""),
@@ -453,19 +495,43 @@ export function SellerVerificationPage() {
         setGstLiveVerified(false);
         setGstLiveRecord(null);
       }
-      // Re-run validation after load so incomplete PIN/state blocks continue.
+      setGstCertificateOcrVerified(ocrDone);
+      if (ocrDone) {
+        setGstCertificateOcrFields({
+          gstin: s.gstCertificateOcrGstin ? String(s.gstCertificateOcrGstin) : null,
+          legalName: s.gstCertificateOcrLegalName
+            ? String(s.gstCertificateOcrLegalName)
+            : null,
+        });
+        setGstCertificateOcrMsg("GST certificate verified — Verified badge unlocked");
+      } else {
+        setGstCertificateOcrFields(null);
+        setGstCertificateOcrMsg(null);
+      }
+      // Progress unlocks only from server-saved steps — not from auto-filled GST fields.
+      const vStep = Number(s.verificationStep ?? 1);
+      const savedProgress = Number.isFinite(vStep)
+        ? Math.max(0, Math.min(4, Math.floor(vStep) - 1))
+        : 0;
+      setHighestSavedStep(savedProgress);
+
       const incomplete = firstIncompleteStep(loaded, {
         emailVerified: emailOk,
         gstLiveVerified: Boolean(s.gstLiveVerifiedAt),
+        gstCertificateOcrVerified: ocrDone,
       });
-      // Persisted data implies prior steps were saved on the server.
-      setHighestSavedStep(incomplete === 5 ? 4 : incomplete - 1);
       const requested = Number(
         new URLSearchParams(window.location.search).get("step"),
       );
-      setStep(
-        requested >= 1 && requested <= 5 ? (requested as Step) : incomplete,
-      );
+      if (alreadySubmitted && loadedIndia && !ocrDone) {
+        setStep(3);
+      } else if (requested >= 1 && requested <= 5) {
+        setStep(requested as Step);
+      } else {
+        // Land on first incomplete step, but never past what they've saved.
+        const land = Math.min(incomplete, Math.max(1, savedProgress + 1)) as Step;
+        setStep(land);
+      }
     } finally {
       setLoading(false);
     }
@@ -476,9 +542,109 @@ export function SellerVerificationPage() {
     if (key === "gstin") {
       setGstLiveVerified(false);
       setGstLiveRecord(null);
+      setGstCertificateOcrVerified(false);
+      setGstCertificateOcrFields(null);
+      setGstCertificateOcrMsg(null);
+    }
+    if (key === "gstCertificateDocumentUrl") {
+      setGstCertificateOcrVerified(false);
+      setGstCertificateOcrFields(null);
+      setGstCertificateOcrMsg(null);
     }
     setError(null);
     setShowFieldErrors(false);
+  }
+
+  async function scanGstCertificateOcr() {
+    if (!form.gstCertificateDocumentUrl.trim()) {
+      setGstCertificateOcrMsg("Upload your GST registration certificate first");
+      return;
+    }
+    if (!gstLiveVerified) {
+      setGstCertificateOcrMsg("Verify GSTIN with GSTN first, then scan the certificate");
+      return;
+    }
+    const gst = validateGstin(form.gstin);
+    if (!gst.ok) {
+      setError(gst.error);
+      setShowFieldErrors(true);
+      return;
+    }
+    setGstCertificateOcrBusy(true);
+    setGstCertificateOcrMsg(null);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Session expired — sign in again");
+      const res = await fetch("/api/suppliers/me/verification/gst-certificate-ocr", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          documentUrl: form.gstCertificateDocumentUrl,
+          gstin: form.gstin,
+        }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        status?: string;
+        error?: string;
+        message?: string;
+        fields?: { gstin?: string | null; legalName?: string | null };
+        verified?: boolean;
+      };
+      if (!res.ok || body.status === "not_done" || body.ok === false) {
+        setGstCertificateOcrVerified(false);
+        setGstCertificateOcrFields(
+          body.fields
+            ? {
+                gstin: body.fields.gstin ?? null,
+                legalName: body.fields.legalName ?? null,
+              }
+            : null,
+        );
+        setGstCertificateOcrMsg(
+          body.error ||
+            body.message ||
+            "GST certificate OCR not done — upload a clearer certificate and try again",
+        );
+        return;
+      }
+      setGstCertificateOcrVerified(true);
+      setGstCertificateOcrFields({
+        gstin: body.fields?.gstin ?? form.gstin,
+        legalName: body.fields?.legalName ?? null,
+      });
+      setGstCertificateOcrMsg(
+        body.message || "GST certificate verified — Verified badge unlocked",
+      );
+      // Already-submitted sellers: show status. Draft sellers must still finish
+      // Bank → Review → declaration → Submit (badge alone does not finish KYC).
+      if (needsGstCertOcr) {
+        setNeedsGstCertOcr(false);
+        setPendingReview(true);
+      } else {
+        setGstCertificateOcrMsg(
+          (body.message || "GST certificate verified — Verified badge unlocked") +
+            " Continue Save & continue through Bank, then Review & submit with the declaration.",
+        );
+      }
+      // Do not navigate away — wizard must still be completed if not submitted.
+    } catch (e) {
+      setGstCertificateOcrVerified(false);
+      if (e instanceof Error && e.name === "TimeoutError") {
+        setGstCertificateOcrMsg("OCR timed out — try again with a clearer scan.");
+      } else {
+        setGstCertificateOcrMsg(
+          e instanceof Error ? e.message : "GST certificate OCR not done",
+        );
+      }
+    } finally {
+      setGstCertificateOcrBusy(false);
+    }
   }
 
   async function verifyGstinLiveNow() {
@@ -509,6 +675,8 @@ export function SellerVerificationPage() {
         error?: string;
         message?: string;
         nameMatches?: boolean;
+        legalNameUpdated?: boolean;
+        legalName?: string;
         record?: {
           legalName: string;
           tradeName: string | null;
@@ -522,7 +690,16 @@ export function SellerVerificationPage() {
         setGstLiveRecord(body.record);
         setGstLiveVerified(true);
       }
-      await refreshProfile();
+      if (body.legalNameUpdated && body.legalName) {
+        setForm((prev) => ({ ...prev, legalName: body.legalName! }));
+      }
+      // Stay on GST step — user must Save & continue → Bank → Review → declare → Submit.
+      setGstCertificateOcrMsg(
+        body.legalNameUpdated
+          ? `${body.message || "GSTIN verified."} Next: scan certificate (optional for badge), then Save & continue to Bank and Review.`
+          : `${body.message || "GSTIN verified with GSTN."} Next: scan certificate for badge (optional), then Save & continue.`,
+      );
+      setError(null);
     } catch (e) {
       setGstLiveVerified(false);
       setGstLiveRecord(null);
@@ -568,6 +745,7 @@ export function SellerVerificationPage() {
       if (isIndiaCountry(form.country)) {
         return {
           gstin: form.gstin,
+          gstCertificateDocumentUrl: form.gstCertificateDocumentUrl,
           aadhaarDocumentUrl: form.aadhaarDocumentUrl,
           legalName: form.legalName,
         };
@@ -780,18 +958,13 @@ export function SellerVerificationPage() {
       if (!res.ok) throw new Error(body.error || "Could not save");
       await refreshProfile();
       setHighestSavedStep((prev) => Math.max(prev, opts.submit ? 4 : step));
-      if (body.verified) {
-        setVerified(true);
-        navigate("/seller");
-        return;
-      }
       if (body.pendingReview || opts.submit) {
         setPendingReview(true);
         navigate("/seller");
         return;
       }
+      // Do not treat public badge (`body.verified`) as wizard complete.
       if (opts.advance !== false) {
-        // Always advance only one step after a successful validated save.
         setStep(Math.min(5, step + 1) as Step);
       }
     } catch (e) {
@@ -802,10 +975,9 @@ export function SellerVerificationPage() {
   }
 
   useEffect(() => {
-    if (verified) {
-      const t = window.setTimeout(() => navigate("/seller"), 800);
-      return () => window.clearTimeout(t);
-    }
+    if (!verified) return;
+    const t = window.setTimeout(() => navigate("/seller"), 800);
+    return () => window.clearTimeout(t);
   }, [verified, navigate]);
 
   if (!isLoaded || !profileReady || loading) {
@@ -842,6 +1014,8 @@ export function SellerVerificationPage() {
   }
 
   if (pendingReview) {
+    const indiaPending = isIndiaCountry(form.country);
+    const showBadgeOptional = indiaPending && !gstCertificateOcrVerified;
     return (
       <div className="min-h-screen flex items-center justify-center kb-page px-4">
         <div className="max-w-md text-center space-y-5 kb-card p-8">
@@ -852,17 +1026,39 @@ export function SellerVerificationPage() {
             Submitted for review
           </h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            {isIndiaCountry(form.country)
-              ? "Your GSTIN passed format checks and is queued for Karm Baba review. The verified badge appears after approval — not automatically from the checksum."
-              : "Your company-domain email was verified by OTP. Profile is queued for Karm Baba review. The verified badge appears after approval."}
+            {showBadgeOptional
+              ? "Your seller account is submitted. The Verified badge is optional — unlock it anytime with GSTIN live verify + GST certificate OCR."
+              : indiaPending
+                ? "Verified badge is live (GST certificate OCR passed). Your full KYC profile is still with Karm Baba for review."
+                : "Your company-domain email was verified by OTP. Profile is queued for Karm Baba review. The verified badge appears after approval."}
           </p>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center px-5 min-h-11 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90"
-            onClick={() => navigate("/seller")}
-          >
-            Back to seller dashboard
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            {showBadgeOptional ? (
+              <button
+                type="button"
+                className="inline-flex items-center justify-center px-5 min-h-11 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90"
+                onClick={() => {
+                  setPendingReview(false);
+                  setNeedsGstCertOcr(true);
+                  setStep(3);
+                }}
+              >
+                Upload GST certificate
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={cn(
+                "inline-flex items-center justify-center px-5 min-h-11 rounded-xl text-sm font-semibold",
+                showBadgeOptional
+                  ? "border border-border hover:bg-muted"
+                  : "bg-primary text-white hover:bg-primary/90",
+              )}
+              onClick={() => navigate("/seller")}
+            >
+              Back to seller dashboard
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -876,17 +1072,17 @@ export function SellerVerificationPage() {
         title={
           new URLSearchParams(window.location.search).get("step") === "3"
             ? india
-              ? "Re-verify your GSTIN"
+              ? "GST & Verified badge"
               : "Business registration"
             : "Become a verified seller"
         }
         description={
           new URLSearchParams(window.location.search).get("step") === "3"
             ? india
-              ? "Your verified badge is paused. Confirm or update GSTIN, then submit to get verified again."
+              ? "Create your shop with company, contact, and bank details. Add GSTIN + certificate OCR now or later for the Verified badge."
               : `Upload your ${overseasKyc.businessRegistrationLabel.replace(" *", "").toLowerCase()} — no GST outside India.`
             : india
-              ? "Complete KYC with GST registration so buyers can trust your shop — same idea as Alibaba's verified suppliers."
+              ? "Create your shop with company, contact, and bank details. GSTIN live verify + certificate OCR unlocks the Verified badge — now or later."
               : "Overseas sellers: company email OTP, local registration certificate, and tax ID. Bank and passport come later — video call after submit."
         }
       />
@@ -959,6 +1155,8 @@ export function SellerVerificationPage() {
                         pincode: prev.country !== v ? "" : prev.pincode,
                         city: prev.country !== v ? "" : prev.city,
                         gstin: v === "India" ? prev.gstin : "",
+                        gstCertificateDocumentUrl:
+                          v === "India" ? prev.gstCertificateDocumentUrl : "",
                         aadhaarDocumentUrl: v === "India" ? prev.aadhaarDocumentUrl : "",
                         businessRegistrationDocumentUrl:
                           v === "India" ? "" : prev.businessRegistrationDocumentUrl,
@@ -969,6 +1167,10 @@ export function SellerVerificationPage() {
                     setEmailVerified(false);
                     setGstLiveVerified(false);
                     setGstLiveRecord(null);
+                    setGstCertificateOcrVerified(false);
+                    setGstCertificateOcrFields(null);
+                    setGstCertificateOcrMsg(null);
+                    setNeedsGstCertOcr(false);
                     setOtpHint(null);
                     setCountryAutoDetected(false);
                     setShowFieldErrors(false);
@@ -1009,6 +1211,9 @@ export function SellerVerificationPage() {
                         pincode: prev.country !== v ? "" : prev.pincode,
                         city: prev.country !== v ? "" : prev.city,
                         gstin: isIndiaCountry(v) ? prev.gstin : "",
+                        gstCertificateDocumentUrl: isIndiaCountry(v)
+                          ? prev.gstCertificateDocumentUrl
+                          : "",
                         aadhaarDocumentUrl: isIndiaCountry(v) ? prev.aadhaarDocumentUrl : "",
                         businessRegistrationDocumentUrl: isIndiaCountry(v)
                           ? ""
@@ -1021,6 +1226,10 @@ export function SellerVerificationPage() {
                         setEmailVerified(false);
                         setGstLiveVerified(false);
                         setGstLiveRecord(null);
+                        setGstCertificateOcrVerified(false);
+                        setGstCertificateOcrFields(null);
+                        setGstCertificateOcrMsg(null);
+                        setNeedsGstCertOcr(false);
                       }
                       setCountryAutoDetected(false);
                       setShowFieldErrors(false);
@@ -1244,13 +1453,23 @@ export function SellerVerificationPage() {
                   <StepHeader
                     icon={<FileCheck2 size={20} />}
                     title="GST registration"
-                    description="We verify your 15-digit GSTIN, checksum, and live GSTN status. PAN is derived from GSTIN."
+                    description="Optional for the Verified badge (GSTIN live verify + certificate OCR). After this step you must still Save & continue → Bank → Review, tick the declaration, and Submit."
                   />
+
+                  {needsGstCertOcr ? (
+                    <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3.5 text-sm text-amber-950/90">
+                      Your seller account is already submitted. Add GSTIN + certificate OCR here to
+                      unlock the Verified badge — or skip and continue shopping later.
+                    </div>
+                  ) : null}
 
                   <FormPanel tone="amber">
                     <div>
                       <label className="block text-sm font-semibold text-[#1a3a4a] mb-2">
-                        GSTIN *
+                        GSTIN{" "}
+                        <span className="font-normal text-muted-foreground">
+                          (for Verified badge)
+                        </span>
                         {fieldErrors.gstin ? (
                           <span className="text-red-600 font-normal ml-1">— {fieldErrors.gstin}</span>
                         ) : null}
@@ -1289,10 +1508,10 @@ export function SellerVerificationPage() {
                       <p className="mt-2.5 text-xs text-muted-foreground">
                         {gstLiveVerified ? (
                           <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
-                            <Check size={14} /> Live GSTN verified — you can continue
+                            <Check size={14} /> Live GSTN verified
                           </span>
                         ) : (
-                          "15 characters · verify with GSTN before saving"
+                          "Optional — skip to continue, or enter GSTIN and verify for the badge"
                         )}
                       </p>
                     </div>
@@ -1319,21 +1538,75 @@ export function SellerVerificationPage() {
                         ) : null}
                       </div>
                     ) : null}
+
+                    <div className="space-y-3 pt-1">
+                      <KycDocumentUploader
+                        value={form.gstCertificateDocumentUrl}
+                        onChange={(url) => update("gstCertificateDocumentUrl", url)}
+                        label="GST registration certificate (for Verified badge)"
+                        hint="PDF recommended for multi-page GST certificates (up to ~3 pages). JPEG/PNG also work. Scan after live GSTN verify."
+                        disabled={saving}
+                      />
+                      <button
+                        type="button"
+                        disabled={
+                          gstCertificateOcrBusy ||
+                          saving ||
+                          !form.gstCertificateDocumentUrl.trim() ||
+                          !gstLiveVerified
+                        }
+                        onClick={() => void scanGstCertificateOcr()}
+                        className="inline-flex items-center justify-center gap-2 px-5 min-h-11 rounded-xl border border-emerald-300/80 bg-emerald-50 text-emerald-900 text-sm font-semibold hover:bg-emerald-100 disabled:opacity-45 transition-colors"
+                      >
+                        {gstCertificateOcrBusy ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <FileCheck2 size={16} />
+                        )}
+                        Scan certificate (OCR)
+                      </button>
+                      {gstCertificateOcrVerified ? (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 flex items-start gap-2">
+                          <Check size={16} className="shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-semibold">
+                              {gstCertificateOcrMsg ||
+                                "GST certificate verified — Verified badge unlocked"}
+                            </p>
+                            {gstCertificateOcrFields?.gstin ? (
+                              <p className="text-xs mt-1 text-emerald-800/80 font-mono">
+                                OCR GSTIN: {gstCertificateOcrFields.gstin}
+                                {gstCertificateOcrFields.legalName
+                                  ? ` · ${gstCertificateOcrFields.legalName}`
+                                  : ""}
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : gstCertificateOcrMsg ? (
+                        <p className="text-sm text-amber-900/90 bg-amber-50/80 border border-amber-200/70 rounded-xl px-4 py-3">
+                          {gstCertificateOcrMsg}
+                        </p>
+                      ) : null}
+                    </div>
                   </FormPanel>
 
                   <FormPanel tone="emerald">
                     <KycDocumentUploader
                       value={form.aadhaarDocumentUrl}
                       onChange={(url) => update("aadhaarDocumentUrl", url)}
+                      label="Aadhaar card (optional)"
+                      hint="Optional identity document. You can skip this and still create your seller account."
                       error={fieldErrors.aadhaarDocumentUrl}
                       disabled={saving}
                     />
                   </FormPanel>
 
                   <TipBox>
-                    <p>GSTIN must be exactly 15 characters with a valid checksum</p>
-                    <p>Click Verify with GSTN for live registration status from GSTN</p>
-                    <p>State and legal name must match your company profile</p>
+                    <p>You can skip GSTIN and certificate to create your seller account</p>
+                    <p>Verified badge needs GSTN live verify + GST certificate OCR</p>
+                    <p>Multi-page GST certificates work best as PDF — we OCR each page if needed</p>
+                    <p>If you enter a GSTIN, it must be exactly 15 characters with a valid checksum</p>
                   </TipBox>
                 </>
               ) : (
@@ -1439,8 +1712,8 @@ export function SellerVerificationPage() {
                 title="Review & get verified"
                 description={
                   india
-                    ? "Check everything once more. After submit, Karm Baba reviews your profile before the verified badge appears."
-                    : "Check your registration and tax details. After submit, we review your profile and schedule a short video verification call."
+                    ? "Check everything once more. Tick the declaration, then Submit. GST + certificate OCR unlock the Verified badge (can be done on the GST step before or after submit)."
+                    : "Check your registration and tax details. Tick the declaration, then Submit. After submit, we review your profile and schedule a short video verification call."
                 }
               />
 
@@ -1492,21 +1765,43 @@ export function SellerVerificationPage() {
                     <>
                   <ReviewRow
                     label="GSTIN"
-                    value={form.gstin}
+                    value={
+                      form.gstin.trim()
+                        ? form.gstin
+                        : "Skipped — needed for Verified badge"
+                    }
                     highlight={gstLiveVerified}
-                    missing={!form.gstin.trim() || !gstLiveVerified}
+                    muted={!form.gstin.trim()}
                   />
                   {gstLiveRecord ? (
                     <ReviewRow label="GSTN status" value={gstLiveRecord.status} highlight />
+                  ) : form.gstin.trim() && !gstLiveVerified ? (
+                    <ReviewRow
+                      label="GSTN"
+                      value="Not live-verified yet"
+                      muted
+                    />
                   ) : null}
+                  <ReviewRow
+                    label="GST cert OCR"
+                    value={
+                      gstCertificateOcrVerified
+                        ? "Verified ✓"
+                        : form.gstCertificateDocumentUrl.trim()
+                          ? "Uploaded — scan OCR for badge"
+                          : "Skipped — needed for Verified badge"
+                    }
+                    highlight={gstCertificateOcrVerified}
+                    muted={!gstCertificateOcrVerified}
+                  />
                     <ReviewRow
                       label="Aadhaar"
                       value={
                         form.aadhaarDocumentUrl.trim()
                           ? "Document uploaded ✓"
-                          : ""
+                          : "Skipped — needed for Verified badge"
                       }
-                      missing={!form.aadhaarDocumentUrl.trim()}
+                      muted={!form.aadhaarDocumentUrl.trim()}
                     />
                     </>
                   ) : (

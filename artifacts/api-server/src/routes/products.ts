@@ -29,6 +29,7 @@ async function enrichProduct(product: ProductRow) {
         verified: true,
         gstVerified: true,
         gstLiveVerifiedAt: true,
+        gstCertificateOcrVerifiedAt: true,
         location: true,
       },
     }),
