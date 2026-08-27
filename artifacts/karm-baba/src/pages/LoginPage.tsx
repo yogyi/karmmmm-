@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SignIn, useAuth as useClerkAuth } from "@clerk/react";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
@@ -8,7 +8,11 @@ import {
   resolveInitialAuthMode,
   setStoredAuthMode,
 } from "@/lib/authMode";
-import { clerkAuthRedirectUrls, rememberAuthRedirect } from "@/lib/authRedirect";
+import {
+  clearAuthRedirect,
+  clerkAuthRedirectUrls,
+  rememberAuthRedirect,
+} from "@/lib/authRedirect";
 import { useAuth } from "@/context/AuthContext";
 import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
 import logoUrl from "@assets/logo_1780688383558.png";
@@ -26,6 +30,7 @@ export function LoginPage() {
   const { switching, hasBuyerAccount, hasSellerAccount } = useSwitchAccountRole();
   const [mode, setMode] = useState<AuthMode>(() => resolveInitialAuthMode("buyer"));
   const [continuing, setContinuing] = useState(false);
+  const autoContinued = useRef(false);
   const redirect = redirectFromSearch(search);
   // Keep Clerk post-auth URL in sync with the Buyer/Seller toggle (wouter
   // search can lag behind history.replaceState when toggling mode).
@@ -34,6 +39,13 @@ export function LoginPage() {
       search.startsWith("?") ? search.slice(1) : search,
     );
     params.set("mode", mode);
+    // Never keep a seller redirect when signing in as buyer.
+    if (mode === "buyer") {
+      const r = params.get("redirect");
+      if (r && (r === "/seller" || r.startsWith("/seller/") || r.startsWith("/dashboard"))) {
+        params.delete("redirect");
+      }
+    }
     return `?${params.toString()}`;
   })();
   const clerkRedirects = clerkAuthRedirectUrls(clerkSearch);
@@ -47,18 +59,48 @@ export function LoginPage() {
     // signUpUrl while a session exists was force-redirecting to /buyer|/seller.
     setMode(next);
     setStoredAuthMode(next);
+    autoContinued.current = false;
     const url = new URL(window.location.href);
     url.searchParams.set("mode", next);
+    if (next === "buyer") {
+      const r = url.searchParams.get("redirect");
+      if (r && (r === "/seller" || r.startsWith("/seller/") || r.startsWith("/dashboard"))) {
+        url.searchParams.delete("redirect");
+        clearAuthRedirect();
+      }
+    }
     window.history.replaceState(null, "", url.pathname + url.search + url.hash);
   }
 
   function continueSignedIn() {
     if (!user || continuing || switching) return;
     setContinuing(true);
-    if (redirect) rememberAuthRedirect(redirect);
+    if (redirect && mode === "buyer") {
+      if (
+        redirect === "/seller" ||
+        redirect.startsWith("/seller/") ||
+        redirect.startsWith("/dashboard")
+      ) {
+        clearAuthRedirect();
+      } else {
+        rememberAuthRedirect(redirect);
+      }
+    } else if (redirect) {
+      rememberAuthRedirect(redirect);
+    }
     // Always apply the selected Buyer/Seller mode via /auth/continue.
-    navigate(`/auth/continue?mode=${mode}`);
+    window.location.assign(`/auth/continue?mode=${mode}`);
   }
+
+  const authReady = clerkLoaded && isLoaded && profileReady;
+  const alreadySignedIn = Boolean(authReady && isSignedIn && user);
+
+  // Session already open (Google "Last used"): apply Buyer/Seller immediately.
+  useEffect(() => {
+    if (!alreadySignedIn || autoContinued.current || continuing || switching) return;
+    autoContinued.current = true;
+    continueSignedIn();
+  }, [alreadySignedIn, mode, continuing, switching]);
 
   const panel =
     mode === "seller"
@@ -82,9 +124,6 @@ export function LoginPage() {
           ),
           body: "Sign in as a buyer to source verified manufacturers, shortlist suppliers, and send RFQs.",
         };
-
-  const authReady = clerkLoaded && isLoaded && profileReady;
-  const alreadySignedIn = Boolean(authReady && isSignedIn && user);
 
   return (
     <div className="min-h-screen flex">
@@ -175,12 +214,16 @@ export function LoginPage() {
             </div>
           ) : (
             <SignIn
-              // Stable key so toggling Buyer/Seller does not remount Clerk and
-              // trigger forceRedirectUrl while a session flickers into existence.
-              key="kb-sign-in"
+              // Remount when Buyer/Seller changes so Clerk picks up the new
+              // forceRedirectUrl (absolute /auth/continue?mode=…).
+              key={`kb-sign-in-${mode}`}
               routing="hash"
               signUpUrl={`/register?mode=${mode}${
-                redirect ? `&redirect=${encodeURIComponent(redirect)}` : ""
+                redirect && mode === "seller"
+                  ? `&redirect=${encodeURIComponent(redirect)}`
+                  : redirect && mode === "buyer" && !redirect.startsWith("/seller") && !redirect.startsWith("/dashboard")
+                    ? `&redirect=${encodeURIComponent(redirect)}`
+                    : ""
               }`}
               fallbackRedirectUrl={clerkRedirects.fallbackRedirectUrl}
               forceRedirectUrl={clerkRedirects.forceRedirectUrl}

@@ -33,6 +33,8 @@ export async function applyAccountRole(
     throw new Error(body?.error ?? `Could not switch account (${res.status})`);
   }
   clearStoredAuthMode();
+  // Keep pending workspace until the destination page confirms the role,
+  // so OnboardingGate does not bounce Buyer → /seller mid-switch.
   await refreshProfile();
 }
 

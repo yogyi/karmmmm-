@@ -227,21 +227,8 @@ router.post(
       return;
     }
 
-    const activatingSeller = parsed.data.role === "seller" && !user.sellerEnabled;
-    const activatingBuyer = parsed.data.role === "buyer" && !user.buyerEnabled;
-    if (
-      !activatingSeller &&
-      !activatingBuyer &&
-      parsed.data.role !== user.role &&
-      (!user.buyerEnabled || !user.sellerEnabled)
-    ) {
-      res.status(403).json({
-        error:
-          "Set up both buyer and seller profiles before switching roles in the app. Use login/register to activate the missing side.",
-      });
-      return;
-    }
-
+    // Login / register /auth/continue always may set buyer or seller.
+    // In-app free-switch gating stays on the client (both sides enabled).
     const company =
       typeof parsed.data.company === "string" && parsed.data.company.trim()
         ? parsed.data.company.trim()

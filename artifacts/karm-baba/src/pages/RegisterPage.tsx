@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SignUp, useAuth as useClerkAuth } from "@clerk/react";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
@@ -8,7 +8,11 @@ import {
   resolveInitialAuthMode,
   setStoredAuthMode,
 } from "@/lib/authMode";
-import { clerkAuthRedirectUrls, rememberAuthRedirect } from "@/lib/authRedirect";
+import {
+  clearAuthRedirect,
+  clerkAuthRedirectUrls,
+  rememberAuthRedirect,
+} from "@/lib/authRedirect";
 import { useAuth } from "@/context/AuthContext";
 import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
 import logoUrl from "@assets/logo_1780688383558.png";
@@ -26,12 +30,19 @@ export function RegisterPage() {
   const { switching, hasBuyerAccount, hasSellerAccount } = useSwitchAccountRole();
   const [mode, setMode] = useState<AuthMode>(() => resolveInitialAuthMode("buyer"));
   const [continuing, setContinuing] = useState(false);
+  const autoContinued = useRef(false);
   const redirect = redirectFromSearch(search);
   const clerkSearch = (() => {
     const params = new URLSearchParams(
       search.startsWith("?") ? search.slice(1) : search,
     );
     params.set("mode", mode);
+    if (mode === "buyer") {
+      const r = params.get("redirect");
+      if (r && (r === "/seller" || r.startsWith("/seller/") || r.startsWith("/dashboard"))) {
+        params.delete("redirect");
+      }
+    }
     return `?${params.toString()}`;
   })();
   const clerkRedirects = clerkAuthRedirectUrls(clerkSearch);
@@ -43,20 +54,38 @@ export function RegisterPage() {
   function selectMode(next: AuthMode) {
     setMode(next);
     setStoredAuthMode(next);
+    autoContinued.current = false;
     const url = new URL(window.location.href);
     url.searchParams.set("mode", next);
+    if (next === "buyer") {
+      const r = url.searchParams.get("redirect");
+      if (r && (r === "/seller" || r.startsWith("/seller/") || r.startsWith("/dashboard"))) {
+        url.searchParams.delete("redirect");
+        clearAuthRedirect();
+      }
+    }
     window.history.replaceState(null, "", url.pathname + url.search + url.hash);
   }
 
   function continueSignedIn() {
     if (!user || continuing || switching) return;
     setContinuing(true);
-    if (redirect) rememberAuthRedirect(redirect);
-    navigate(`/auth/continue?mode=${mode}`);
+    if (redirect && !(mode === "buyer" && (redirect.startsWith("/seller") || redirect.startsWith("/dashboard")))) {
+      rememberAuthRedirect(redirect);
+    } else if (mode === "buyer") {
+      clearAuthRedirect();
+    }
+    window.location.assign(`/auth/continue?mode=${mode}`);
   }
 
   const authReady = clerkLoaded && isLoaded && profileReady;
   const alreadySignedIn = Boolean(authReady && isSignedIn && user);
+
+  useEffect(() => {
+    if (!alreadySignedIn || autoContinued.current || continuing || switching) return;
+    autoContinued.current = true;
+    continueSignedIn();
+  }, [alreadySignedIn, mode, continuing, switching]);
 
   return (
     <div className="min-h-screen flex">
@@ -142,11 +171,9 @@ export function RegisterPage() {
             </div>
           ) : (
             <SignUp
-              key="kb-sign-up"
+              key={`kb-sign-up-${mode}`}
               routing="hash"
-              signInUrl={`/login?mode=${mode}${
-                redirect ? `&redirect=${encodeURIComponent(redirect)}` : ""
-              }`}
+              signInUrl={`/login?mode=${mode}`}
               fallbackRedirectUrl={clerkRedirects.fallbackRedirectUrl}
               forceRedirectUrl={clerkRedirects.forceRedirectUrl}
               appearance={{

@@ -11,7 +11,7 @@ import {
   setPendingWorkspace,
   setStoredAuthMode,
 } from "@/lib/authMode";
-import { consumeAuthRedirect } from "@/lib/authRedirect";
+import { consumeAuthRedirect, resolvePostAuthPath } from "@/lib/authRedirect";
 import {
   applyAccountRole,
   useSwitchAccountRole,
@@ -124,7 +124,10 @@ export function OnboardingPage() {
         void applyAccountRole(pending, getToken, refreshProfile)
           .then(() => {
             window.location.replace(
-              consumeAuthRedirect(pending === "seller" ? "/seller" : "/buyer"),
+              resolvePostAuthPath(
+                pending,
+                pending === "seller" ? "/seller" : "/buyer",
+              ),
             );
           })
           .catch((e) => {
@@ -137,7 +140,10 @@ export function OnboardingPage() {
       }
       if (pending === user.role) clearStoredAuthMode();
       navigate(
-        consumeAuthRedirect(user.role === "seller" ? "/seller" : "/buyer"),
+        resolvePostAuthPath(
+          user.role === "seller" ? "seller" : "buyer",
+          user.role === "seller" ? "/seller" : "/buyer",
+        ),
       );
       return;
     }
@@ -149,7 +155,10 @@ export function OnboardingPage() {
     void applyAccountRole(pending, getToken, refreshProfile)
       .then(() => {
         window.location.replace(
-          consumeAuthRedirect(pending === "seller" ? "/seller" : "/buyer"),
+          resolvePostAuthPath(
+            pending,
+            pending === "seller" ? "/seller" : "/buyer",
+          ),
         );
       })
       .catch((e) => {

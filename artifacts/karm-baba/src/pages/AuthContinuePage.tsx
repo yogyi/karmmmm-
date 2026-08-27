@@ -11,7 +11,7 @@ import {
   setPendingWorkspace,
   setStoredAuthMode,
 } from "@/lib/authMode";
-import { consumeAuthRedirect, peekAuthRedirect } from "@/lib/authRedirect";
+import { resolvePostAuthPath } from "@/lib/authRedirect";
 import { applyAccountRole } from "@/components/SwitchRoleDialog";
 import { workspaceHomePath } from "@/lib/workspaceHome";
 
@@ -26,6 +26,7 @@ export function AuthContinuePage() {
   const { isSignedIn, isLoaded: clerkLoaded, getToken } = useClerkAuth();
   const { user, isLoaded, profileReady, refreshProfile } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState("Preparing your account…");
   const ran = useRef(false);
 
   const params = new URLSearchParams(
@@ -55,21 +56,30 @@ export function AuthContinuePage() {
         if (current.role === "admin") {
           clearStoredAuthMode();
           clearPendingWorkspace();
-          navigate(consumeAuthRedirect("/"));
+          window.location.replace("/");
           return;
         }
 
+        setStatus(
+          mode === "buyer"
+            ? "Switching to buyer account…"
+            : "Switching to seller account…",
+        );
+
+        // Always POST the chosen mode so Postgres role matches the login toggle,
+        // even when the account was previously a seller.
         if (current.role !== mode || !current.onboardingCompleted) {
           await applyAccountRole(mode, getToken, refreshProfile);
         } else {
           clearStoredAuthMode();
         }
 
+        setPendingWorkspace(mode);
         const fallback =
-          mode === "seller" ? workspaceHomePath("seller") : workspaceHomePath("buyer");
-        const path = consumeAuthRedirect(peekAuthRedirect() ?? fallback);
-        // Full navigation so AuthProvider re-syncs with the new role before
-        // OnboardingGate / BuyerCentral evaluate seller redirects.
+          mode === "seller"
+            ? workspaceHomePath("seller")
+            : workspaceHomePath("buyer");
+        const path = resolvePostAuthPath(mode, fallback);
         window.location.replace(path);
       } catch (e) {
         ran.current = false;
@@ -110,9 +120,7 @@ export function AuthContinuePage() {
       ) : (
         <>
           <Loader2 className="animate-spin text-primary" size={28} />
-          <p className="text-sm text-muted-foreground">
-            Opening your {mode === "seller" ? "seller" : "buyer"} account…
-          </p>
+          <p className="text-sm text-muted-foreground">{status}</p>
         </>
       )}
     </div>

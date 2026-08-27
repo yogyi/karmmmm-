@@ -2,6 +2,7 @@ import { useContext, useEffect } from "react";
 import { useLocation } from "wouter";
 import { AuthContext } from "@/context/AuthContext";
 import { rememberAuthRedirect } from "@/lib/authRedirect";
+import { getPendingWorkspace, getStoredAuthMode } from "@/lib/authMode";
 
 const AUTH_PAGES = [
   "/onboarding",
@@ -53,6 +54,13 @@ export function OnboardingGate() {
     if (!user.onboardingCompleted) {
       rememberAuthRedirect(location);
       navigate("/onboarding");
+      return;
+    }
+
+    const wantsBuyer =
+      getPendingWorkspace() === "buyer" || getStoredAuthMode() === "buyer";
+    if (wantsBuyer && user.role === "seller") {
+      navigate("/auth/continue?mode=buyer");
       return;
     }
 
