@@ -3,16 +3,22 @@ import { useLocation } from "wouter";
 import { AuthContext } from "@/context/AuthContext";
 import { rememberAuthRedirect } from "@/lib/authRedirect";
 
-const AUTH_PAGES = ["/onboarding", "/login", "/register", "/seller/verify"];
+const AUTH_PAGES = [
+  "/onboarding",
+  "/auth/continue",
+  "/login",
+  "/register",
+  "/seller/verify",
+];
 
 /** Buyer browse surfaces — sellers stay on Seller Central.
- * Product detail (`/products/:id`) is allowed so sellers can preview a listing. */
+ * Product detail (`/products/:id`) is allowed so sellers can preview a listing.
+ * `/buyer` is NOT gated here — role switch lands there; BuyerCentral handles auth. */
 const BUYER_MARKETPLACE_PATHS = [
   "/",
   "/products",
   "/suppliers",
   "/shortlist",
-  "/buyer",
   "/rfq/new",
 ];
 

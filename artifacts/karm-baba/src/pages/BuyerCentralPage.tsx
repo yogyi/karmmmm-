@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import {
   Search,
@@ -15,6 +15,7 @@ import { useListRfqs, useGetFeaturedProducts } from "@workspace/api-client-react
 import { useAuth } from "@/context/AuthContext";
 import { useShortlist } from "@/hooks/useShortlist";
 import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
+import { clearPendingWorkspace, getPendingWorkspace, getStoredAuthMode } from "@/lib/authMode";
 import { PageHero } from "@/components/PageHero";
 
 const statusLabel: Record<string, { label: string; className: string }> = {
@@ -33,6 +34,7 @@ export function BuyerCentralPage() {
   const { user, isLoggedIn, isLoaded, profileReady } = useAuth();
   const { count: shortlistCount } = useShortlist();
   const { switchTo, switching } = useSwitchAccountRole();
+  const sellerSwitchTried = useRef(false);
   const listParams =
     user && user.id > 0 ? { buyerId: user.id } : undefined;
   const {
@@ -52,18 +54,35 @@ export function BuyerCentralPage() {
   const { data: featured } = useGetFeaturedProducts();
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || !profileReady) return;
     if (!isLoggedIn) {
       navigate("/login?mode=buyer&redirect=/buyer");
       return;
     }
-    if (user?.role === "seller") {
-      navigate("/seller");
+    if (user?.role === "buyer") {
+      clearPendingWorkspace();
+      return;
     }
-  }, [isLoaded, isLoggedIn, user?.role, navigate]);
+    if (user?.role !== "seller") return;
+    // After login?mode=buyer the role may still be seller for a moment —
+    // finish the switch instead of bouncing to Seller Central.
+    const wantsBuyer =
+      getPendingWorkspace() === "buyer" || getStoredAuthMode() === "buyer";
+    if (wantsBuyer || switching) {
+      if (sellerSwitchTried.current || switching) return;
+      sellerSwitchTried.current = true;
+      void switchTo("buyer", { activateIfMissing: true });
+      return;
+    }
+    navigate("/seller");
+  }, [isLoaded, profileReady, isLoggedIn, user?.role, navigate, switchTo, switching]);
 
-  if (!isLoaded || !isLoggedIn || user?.role === "seller") {
-    return null;
+  if (!isLoaded || !profileReady || !isLoggedIn || user?.role === "seller") {
+    return (
+      <div className="min-h-[40vh] flex items-center justify-center">
+        <span className="text-sm text-muted-foreground">Opening buyer account…</span>
+      </div>
+    );
   }
 
   // API already scopes to this buyer — don't re-filter by id (can hide rows if profile lags).

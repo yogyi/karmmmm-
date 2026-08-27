@@ -21,6 +21,7 @@ import { ShortlistPage } from "@/pages/ShortlistPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
+import { AuthContinuePage } from "@/pages/AuthContinuePage";
 import { BuyerCentralPage } from "@/pages/BuyerCentralPage";
 import { SellerVerificationPage } from "@/pages/SellerVerificationPage";
 import { SellerLeadsPage } from "@/pages/SellerLeadsPage";
@@ -88,6 +89,7 @@ function Router() {
       <Route path="/terms" component={() => <PageLayout><TermsPage /></PageLayout>} />
       <Route path="/refund" component={() => <PageLayout><RefundPage /></PageLayout>} />
       <Route path="/onboarding" component={() => <AuthLayout><OnboardingPage /></AuthLayout>} />
+      <Route path="/auth/continue" component={() => <AuthLayout><AuthContinuePage /></AuthLayout>} />
       <Route path="/login" component={() => <AuthLayout><LoginPage /></AuthLayout>} />
       <Route path="/register" component={() => <AuthLayout><RegisterPage /></AuthLayout>} />
       <Route component={() => <PageLayout><NotFoundPage /></PageLayout>} />

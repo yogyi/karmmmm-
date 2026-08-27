@@ -45,7 +45,7 @@ export function consumeAuthRedirect(fallback = "/"): string {
   return path;
 }
 
-/** Clerk post-sign-in target: always onboarding first; gate/onboarding then apply redirect. */
+/** Clerk post-sign-in: apply Buyer/Seller mode, then open the right workspace. */
 export function clerkAuthRedirectUrls(search: string): {
   fallbackRedirectUrl: string;
   forceRedirectUrl: string;
@@ -54,15 +54,13 @@ export function clerkAuthRedirectUrls(search: string): {
     search.startsWith("?") ? search.slice(1) : search,
   );
   rememberAuthRedirect(params.get("redirect"));
-  // Carry Buyer/Seller choice through OAuth — sessionStorage alone can be lost
-  // across Clerk redirect hosts.
   const mode = params.get("mode");
-  const onboarding =
+  const continuePath =
     mode === "buyer" || mode === "seller"
-      ? `/onboarding?mode=${mode}`
-      : "/onboarding";
+      ? `/auth/continue?mode=${mode}`
+      : "/auth/continue?mode=buyer";
   return {
-    fallbackRedirectUrl: onboarding,
-    forceRedirectUrl: onboarding,
+    fallbackRedirectUrl: continuePath,
+    forceRedirectUrl: continuePath,
   };
 }

@@ -8,10 +8,9 @@ import {
   resolveInitialAuthMode,
   setStoredAuthMode,
 } from "@/lib/authMode";
-import { clerkAuthRedirectUrls, consumeAuthRedirect } from "@/lib/authRedirect";
+import { clerkAuthRedirectUrls, rememberAuthRedirect } from "@/lib/authRedirect";
 import { useAuth } from "@/context/AuthContext";
 import { useSwitchAccountRole } from "@/components/SwitchRoleDialog";
-import { workspaceHomePath } from "@/lib/workspaceHome";
 import logoUrl from "@assets/logo_1780688383558.png";
 
 function redirectFromSearch(search: string): string | null {
@@ -24,7 +23,7 @@ export function RegisterPage() {
   const search = useSearch();
   const { isSignedIn, isLoaded: clerkLoaded } = useClerkAuth();
   const { user, isLoaded, profileReady } = useAuth();
-  const { switchTo, switching, hasBuyerAccount, hasSellerAccount } = useSwitchAccountRole();
+  const { switching, hasBuyerAccount, hasSellerAccount } = useSwitchAccountRole();
   const [mode, setMode] = useState<AuthMode>(() => resolveInitialAuthMode("buyer"));
   const [continuing, setContinuing] = useState(false);
   const redirect = redirectFromSearch(search);
@@ -49,26 +48,11 @@ export function RegisterPage() {
     window.history.replaceState(null, "", url.pathname + url.search + url.hash);
   }
 
-  async function continueSignedIn() {
+  function continueSignedIn() {
     if (!user || continuing || switching) return;
     setContinuing(true);
-    try {
-      if (user.role === "admin") {
-        navigate(consumeAuthRedirect("/"));
-        return;
-      }
-      if (!user.onboardingCompleted) {
-        navigate("/onboarding");
-        return;
-      }
-      if (mode === user.role) {
-        navigate(consumeAuthRedirect(workspaceHomePath(user.role)));
-        return;
-      }
-      await switchTo(mode, { activateIfMissing: true });
-    } finally {
-      setContinuing(false);
-    }
+    if (redirect) rememberAuthRedirect(redirect);
+    navigate(`/auth/continue?mode=${mode}`);
   }
 
   const authReady = clerkLoaded && isLoaded && profileReady;

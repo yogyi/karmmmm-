@@ -8,6 +8,7 @@ import {
   clearStoredAuthMode,
   getAuthModeFromUrl,
   getStoredAuthMode,
+  setPendingWorkspace,
   setStoredAuthMode,
 } from "@/lib/authMode";
 import { consumeAuthRedirect } from "@/lib/authRedirect";
@@ -109,17 +110,20 @@ export function OnboardingPage() {
       return;
     }
     if (changing) return;
+    // Never fall through to "open existing role" while a mode switch is in flight —
+    // that race dumped buyers into /seller after clearStoredAuthMode().
+    if (autoTried || saving) return;
 
     const pending = readPendingAuthMode();
 
     if (user.onboardingCompleted) {
       if (pending && pending !== user.role) {
-        if (autoTried) return;
         setAutoTried(true);
         setSaving(true);
+        setPendingWorkspace(pending);
         void applyAccountRole(pending, getToken, refreshProfile)
           .then(() => {
-            navigate(
+            window.location.replace(
               consumeAuthRedirect(pending === "seller" ? "/seller" : "/buyer"),
             );
           })
@@ -127,6 +131,7 @@ export function OnboardingPage() {
             setChoice(pending);
             setError(e instanceof Error ? e.message : "Something went wrong");
             setSaving(false);
+            setAutoTried(false);
           });
         return;
       }
@@ -137,23 +142,23 @@ export function OnboardingPage() {
       return;
     }
 
-    if (!pending || autoTried) return;
+    if (!pending) return;
     setAutoTried(true);
     setSaving(true);
+    setPendingWorkspace(pending);
     void applyAccountRole(pending, getToken, refreshProfile)
       .then(() => {
-        if (pending === "seller") {
-          navigate(consumeAuthRedirect("/seller"));
-          return;
-        }
-        navigate(consumeAuthRedirect("/buyer"));
+        window.location.replace(
+          consumeAuthRedirect(pending === "seller" ? "/seller" : "/buyer"),
+        );
       })
       .catch((e) => {
         setChoice(pending);
         setError(e instanceof Error ? e.message : "Something went wrong");
         setSaving(false);
+        setAutoTried(false);
       });
-  }, [isLoaded, profileReady, isLoggedIn, user, changing, autoTried, navigate, getToken, refreshProfile]);
+  }, [isLoaded, profileReady, isLoggedIn, user, changing, autoTried, saving, navigate, getToken, refreshProfile]);
 
   if (!isLoaded || !profileReady) {
     return (
