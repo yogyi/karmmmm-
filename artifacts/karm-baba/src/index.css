@@ -338,7 +338,7 @@
     border: 1px solid rgba(26, 39, 68, 0.08);
     border-radius: 1rem;
     padding: 0;
-    margin: 0;
+    /* Do not set margin: 0 — it overrides Tailwind space-y / gap parent spacing. */
     box-shadow:
       0 0 0 1px rgba(26, 39, 68, 0.03),
       0 10px 28px -18px rgba(26, 39, 68, 0.3);

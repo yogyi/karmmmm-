@@ -20,6 +20,8 @@ import {
   hashEmailOtp,
   otpExpiresAt,
   otpResendAllowed,
+  recordFailedOtpConfirm,
+  resetOtpConfirmAttempts,
   verifyEmailOtpHash,
 } from "../lib/emailOtp";
 import { sendMail } from "../lib/mail";
@@ -127,6 +129,17 @@ router.post("/users/sync", requireClerkAuth, async (req, res): Promise<void> => 
 
   if (byClerk) {
     const data: Prisma.UserUpdateInput = { email };
+    // Keep Postgres name in sync with Clerk / avoid stale placeholders like "Buyer".
+    const placeholderNames = new Set(["buyer", "seller", "user", "admin"]);
+    const dbName = (byClerk.name ?? "").trim();
+    const clerkNameFresh = name.trim();
+    if (
+      clerkNameFresh &&
+      (dbName !== clerkNameFresh) &&
+      (!dbName || placeholderNames.has(dbName.toLowerCase()))
+    ) {
+      data.name = clerkNameFresh;
+    }
     if (!byClerk.avatarUrl && avatarUrl) {
       data.avatarUrl = avatarUrl;
     }
@@ -614,6 +627,7 @@ router.post(
         buyerKycCompletedAt: null,
       },
     });
+    resetOtpConfirmAttempts(dbUser.id, "email");
 
     const sent = await sendMail({
       to: biz.email,
@@ -664,9 +678,25 @@ router.post(
     }
     const email = dbUser.buyerCompanyEmail ?? "";
     if (!verifyEmailOtpHash(code, email, dbUser.buyerCompanyEmailOtpHash)) {
-      res.status(400).json({ error: "Incorrect code — check your email and try again" });
+      const attempt = recordFailedOtpConfirm(dbUser.id, "email");
+      if (attempt.locked) {
+        await prisma.user.update({
+          where: { id: dbUser.id },
+          data: {
+            buyerCompanyEmailOtpHash: null,
+            buyerCompanyEmailOtpExpiresAt: null,
+          },
+        });
+        res.status(429).json({ error: "Too many incorrect attempts — request a new code" });
+        return;
+      }
+      res.status(400).json({
+        error: `Incorrect code — ${attempt.remaining} attempt(s) remaining`,
+      });
       return;
     }
+
+    resetOtpConfirmAttempts(dbUser.id, "email");
 
     const updated = await prisma.user.update({
       where: { id: dbUser.id },
@@ -739,6 +769,7 @@ router.post(
         buyerKycCompletedAt: null,
       },
     });
+    resetOtpConfirmAttempts(dbUser.id, "whatsapp");
 
     const sent = await sendWhatsappOtp({ to, code });
     if (!sent.ok) {
@@ -784,9 +815,25 @@ router.post(
     }
     const phone = dbUser.buyerWhatsapp ?? "";
     if (!verifyEmailOtpHash(code, phone, dbUser.buyerWhatsappOtpHash)) {
-      res.status(400).json({ error: "Incorrect code — check WhatsApp and try again" });
+      const attempt = recordFailedOtpConfirm(dbUser.id, "whatsapp");
+      if (attempt.locked) {
+        await prisma.user.update({
+          where: { id: dbUser.id },
+          data: {
+            buyerWhatsappOtpHash: null,
+            buyerWhatsappOtpExpiresAt: null,
+          },
+        });
+        res.status(429).json({ error: "Too many incorrect attempts — request a new code" });
+        return;
+      }
+      res.status(400).json({
+        error: `Incorrect code — ${attempt.remaining} attempt(s) remaining`,
+      });
       return;
     }
+
+    resetOtpConfirmAttempts(dbUser.id, "whatsapp");
 
     const updated = await prisma.user.update({
       where: { id: dbUser.id },

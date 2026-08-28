@@ -54,3 +54,29 @@ export function verifyEmailOtpHash(
 }
 
 export { OTP_TTL_MS, RESEND_COOLDOWN_MS };
+
+const MAX_OTP_CONFIRM_ATTEMPTS = 5;
+const otpConfirmAttempts = new Map<string, number>();
+
+function otpAttemptKey(userId: number, channel: "email" | "whatsapp"): string {
+  return `${userId}:${channel}`;
+}
+
+/** Call when a fresh OTP is issued. */
+export function resetOtpConfirmAttempts(userId: number, channel: "email" | "whatsapp"): void {
+  otpConfirmAttempts.delete(otpAttemptKey(userId, channel));
+}
+
+/** Record a failed confirm attempt; locks after MAX_OTP_CONFIRM_ATTEMPTS. */
+export function recordFailedOtpConfirm(
+  userId: number,
+  channel: "email" | "whatsapp",
+): { locked: boolean; remaining: number } {
+  const key = otpAttemptKey(userId, channel);
+  const next = (otpConfirmAttempts.get(key) ?? 0) + 1;
+  otpConfirmAttempts.set(key, next);
+  const locked = next >= MAX_OTP_CONFIRM_ATTEMPTS;
+  return { locked, remaining: Math.max(0, MAX_OTP_CONFIRM_ATTEMPTS - next) };
+}
+
+export { MAX_OTP_CONFIRM_ATTEMPTS };

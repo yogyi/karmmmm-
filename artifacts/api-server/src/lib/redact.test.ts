@@ -68,6 +68,61 @@ describe("redactRfqForViewer", () => {
     ).toBe("buyer@example.com");
   });
 
+  it("shows buyer display name to sellers browsing open marketplace RFQs", () => {
+    const openRfq = {
+      ...rfq,
+      supplierId: null as number | null,
+      status: "pending",
+      buyerName: "Satyarth Traders",
+    };
+    const out = redactRfqForViewer(
+      openRfq,
+      user({ id: 2, role: "seller", supplierId: 5 }),
+    );
+    expect(out.buyerName).toBe("Satyarth Traders");
+    expect(out.buyerEmail).toBe("");
+    expect(out.targetPrice).toBeNull();
+    expect(out.description).toBeNull();
+  });
+
+  it("shows full buyer contact to winning seller when deal is closed", () => {
+    const closedRfq = {
+      ...rfq,
+      supplierId: 5,
+      status: "accepted",
+      buyerName: "Satyarth Traders",
+      buyerEmail: "buyer@example.com",
+      targetPrice: 80,
+      description: "Need 500 units",
+      quotes: [{ supplierId: 5, status: "awarded", unitPrice: 99, message: "Done" }],
+    };
+    const out = redactRfqForViewer(
+      closedRfq,
+      user({ id: 2, role: "seller", supplierId: 5 }),
+    );
+    expect(out.buyerEmail).toBe("buyer@example.com");
+    expect(out.targetPrice).toBe(80);
+    expect(out.description).toBe("Need 500 units");
+  });
+
+  it("hides buyer email from losing seller after deal closes", () => {
+    const closedRfq = {
+      ...rfq,
+      supplierId: 99,
+      status: "accepted",
+      buyerName: "Satyarth Traders",
+      buyerEmail: "buyer@example.com",
+      quotes: [{ supplierId: 5, status: "declined", unitPrice: 99, message: "Lost" }],
+    };
+    const out = redactRfqForViewer(
+      closedRfq,
+      user({ id: 2, role: "seller", supplierId: 5 }),
+    );
+    expect(out.buyerName).toBe("Satyarth Traders");
+    expect(out.buyerEmail).toBe("");
+    expect(out.targetPrice).toBeNull();
+  });
+
   it("redacts commercial fields for unrelated authenticated users", () => {
     const out = redactRfqForViewer(
       rfq,

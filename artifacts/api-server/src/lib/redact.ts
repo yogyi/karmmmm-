@@ -1,5 +1,6 @@
 import type { DbUser } from "./authorize";
 import { isAdmin, isRfqSupplierParty, parseLinkedSupplierId } from "./authorize";
+import { isRfqAwaitingSellerConfirm, isRfqClosed } from "./rfqDeal";
 
 type QuoteLike = {
   supplierId: number;
@@ -21,11 +22,17 @@ type RfqLike = {
   quotes?: QuoteLike[];
 };
 
-function stripBuyerPii<T extends RfqLike>(rfq: T): T {
+function stripBuyerContact<T extends RfqLike>(rfq: T): T {
   return {
     ...rfq,
     buyerEmail: "",
-    buyerName: "Buyer",
+  };
+}
+
+/** Hide email + commercial notes; keep public buyer display name for marketplace quoting. */
+function stripBuyerPrivateFields<T extends RfqLike>(rfq: T): T {
+  return {
+    ...stripBuyerContact(rfq),
     targetPrice: null,
     description: null,
   };
@@ -34,18 +41,19 @@ function stripBuyerPii<T extends RfqLike>(rfq: T): T {
 /**
  * Redact PII / commercial fields the viewer is not allowed to see.
  *
- * Buyer contact (email/name/budget/description) is only shown to:
+ * Buyer email, budget, and private notes are shown to:
  * - the buyer themself
  * - admin
- * - the assigned/winning supplier (supplierId match)
- * - a seller whose quote is pending_confirm or awarded on this RFQ
+ * - the assigned / winning supplier once a deal is closing or closed
+ * - a seller whose quote is pending_confirm or awarded
  *
- * Open marketplace browsing and losing quoters after another win do NOT get buyer PII.
+ * Buyer display name is visible to authenticated sellers on open marketplace RFQs.
  */
 export function redactRfqForViewer<T extends RfqLike>(rfq: T, viewer: DbUser | null): T {
   if (!viewer) {
     return {
-      ...stripBuyerPii(rfq),
+      ...stripBuyerPrivateFields(rfq),
+      buyerName: "Buyer",
       quotedPrice: null,
       sellerMessage: null,
       quotes: [],
@@ -60,44 +68,58 @@ export function redactRfqForViewer<T extends RfqLike>(rfq: T, viewer: DbUser | n
     linked != null ? (rfq.quotes ?? []).find((q) => q.supplierId === linked) : undefined;
   const isWinningOrPendingSeller =
     !!myQuote && (myQuote.status === "awarded" || myQuote.status === "pending_confirm");
+  const dealClosed = rfq.status != null && isRfqClosed(rfq.status);
+  const awaitingConfirm =
+    rfq.status != null && isRfqAwaitingSellerConfirm(rfq.status);
   const isOpenCollecting =
     rfq.supplierId == null &&
     (rfq.status === "pending" || rfq.status === "responded" || rfq.status == null);
   const canBrowseOpen = isOpenCollecting && (viewer.role === "seller" || viewer.role === "admin");
 
+  const filterMyQuotes = () =>
+    (rfq.quotes ?? []).filter((q) => linked != null && q.supplierId === linked);
+
   if (admin || isBuyer) {
     return rfq;
   }
 
-  // Assigned / winning supplier (after confirm) or seller currently in handshake.
-  if (isSupplier || isWinningOrPendingSeller) {
-    const quotes = (rfq.quotes ?? []).filter(
-      (q) => linked != null && q.supplierId === linked,
-    );
+  // Winning / assigned seller — full buyer contact (email, budget, notes) when deal is
+  // closing or closed, or for directed RFQs assigned to their shop.
+  const canSeeBuyerContact =
+    isSupplier ||
+    isWinningOrPendingSeller ||
+    ((dealClosed || awaitingConfirm) &&
+      linked != null &&
+      (rfq.supplierId === linked || isWinningOrPendingSeller));
+
+  if (canSeeBuyerContact) {
     return {
       ...rfq,
-      quotes,
+      quotes: filterMyQuotes(),
     };
   }
 
-  // Open marketplace browse or prior quote that lost — commercial glimpse only, no buyer PII.
+  // Open marketplace browse or prior quote that lost — name only, no email/budget.
   if (canBrowseOpen || myQuote) {
-    const quotes = (rfq.quotes ?? []).filter(
-      (q) => linked != null && q.supplierId === linked,
-    );
+    const quotes = filterMyQuotes();
     const mine = quotes[0];
+    const displayName =
+      typeof rfq.buyerName === "string" && rfq.buyerName.trim()
+        ? rfq.buyerName.trim()
+        : "Buyer";
     return {
-      ...stripBuyerPii(rfq),
+      ...stripBuyerPrivateFields(rfq),
+      buyerName: displayName,
       quotes,
       quotedPrice: mine?.unitPrice ?? null,
       sellerMessage: mine?.message ?? null,
-      // Hide internal buyer id from non-parties.
       buyerId: null,
     };
   }
 
   return {
-    ...stripBuyerPii(rfq),
+    ...stripBuyerPrivateFields(rfq),
+    buyerName: "Buyer",
     quotedPrice: null,
     sellerMessage: null,
     buyerId: null,

@@ -252,6 +252,13 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
     !!pendingQuote &&
     pendingQuote.supplierId === user?.supplierId &&
     user?.role === "seller";
+  const iWonDeal =
+    !!linkedShop &&
+    dealClosed &&
+    rfq?.status === "accepted" &&
+    (myQuote?.status === "awarded" || rfq.supplierId === user?.supplierId);
+  const showBuyerContact =
+    isBuyer || iWonDeal || iAmPendingSeller;
 
   async function postConfirm(path: "confirm" | "decline-confirm") {
     const token = await getToken();
@@ -520,7 +527,19 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
           <div className="bg-muted/40 rounded-xl p-3">
             <div className="text-muted-foreground text-xs mb-1">Buyer</div>
             <div className="font-semibold">{rfq.buyerName}</div>
-            <div className="text-xs text-muted-foreground">{rfq.buyerEmail}</div>
+            {showBuyerContact && rfq.buyerEmail ? (
+              <a
+                href={`mailto:${rfq.buyerEmail}`}
+                className="text-xs text-primary hover:underline mt-0.5 inline-block"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {rfq.buyerEmail}
+              </a>
+            ) : !showBuyerContact ? (
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Contact shared when deal closes
+              </div>
+            ) : null}
           </div>
           <div className="bg-muted/40 rounded-xl p-3 sm:col-span-2">
             <div className="text-muted-foreground text-xs mb-1">
@@ -740,6 +759,25 @@ export function RfqDetailPage({ params }: { params: { id: string } }) {
           <div className="text-xl font-heading font-bold">
             {formatMoney(myQuote.unitPrice, myQuote.currency)} / {myQuote.unit}
           </div>
+          {myQuote.status === "awarded" && showBuyerContact && rfq.buyerEmail ? (
+            <div className="mt-4 pt-4 border-t border-green-200/80 space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-green-900/70">
+                Buyer contact
+              </p>
+              <p className="text-sm font-semibold text-foreground">{rfq.buyerName}</p>
+              <a
+                href={`mailto:${rfq.buyerEmail}`}
+                className="text-sm text-primary font-medium hover:underline"
+              >
+                {rfq.buyerEmail}
+              </a>
+              {rfq.description ? (
+                <p className="text-sm text-muted-foreground pt-1 whitespace-pre-wrap">
+                  {rfq.description}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       )}
 

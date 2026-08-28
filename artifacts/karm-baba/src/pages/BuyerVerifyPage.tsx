@@ -127,7 +127,8 @@ export function BuyerVerifyPage() {
       navigate("/login?mode=buyer&redirect=/buyer/verify");
       return;
     }
-    if (user && !needsBuyerKyc(user)) {
+    if (!user) return;
+    if (!needsBuyerKyc(user)) {
       navigate("/buyer");
       return;
     }
@@ -195,6 +196,10 @@ export function BuyerVerifyPage() {
   }
 
   async function activateIndia() {
+    if (!user) {
+      setError("Session expired. Please sign in again.");
+      return;
+    }
     setBusy(true);
     setError(null);
     setResumeWelcome(false);
@@ -210,8 +215,8 @@ export function BuyerVerifyPage() {
         | ({ error?: string } & Record<string, unknown>)
         | null;
       if (!res.ok) {
-        if (res.status === 404) {
-          // Server not upgraded yet — India buyers skip verify in this browser session.
+        if (import.meta.env.DEV && res.status === 404) {
+          // Local dev only — when API routes are not deployed yet.
           markIndiaBuyerActivated(user.id);
           await refreshProfile();
           navigate("/buyer");
@@ -221,7 +226,7 @@ export function BuyerVerifyPage() {
       }
       clearIndiaBuyerActivated();
       if (body && typeof body.id === "number") {
-        login(body as Parameters<typeof login>[0]);
+        login(body as unknown as Parameters<typeof login>[0]);
       }
       await refreshProfile();
       navigate("/buyer");

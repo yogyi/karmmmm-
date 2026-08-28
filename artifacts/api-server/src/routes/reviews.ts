@@ -6,7 +6,7 @@ import {
   ListReviewsResponse,
 } from "@workspace/api-zod";
 import { requireClerkAuth } from "../lib/auth";
-import { getAuthenticatedDbUser } from "../lib/authorize";
+import { getAuthenticatedDbUser, parseLinkedSupplierId } from "../lib/authorize";
 
 const router: IRouter = Router();
 
@@ -107,6 +107,12 @@ router.post("/reviews", requireClerkAuth, async (req, res): Promise<void> => {
       return;
     }
 
+    const linkedShop = parseLinkedSupplierId(dbUser);
+    if (linkedShop != null && linkedShop === product.supplierId) {
+      res.status(403).json({ error: "You cannot review your own products" });
+      return;
+    }
+
     const existing = await prisma.review.findFirst({
       where: { productId, reviewerId: dbUser.id },
       select: { id: true },
@@ -143,6 +149,25 @@ router.post("/reviews", requireClerkAuth, async (req, res): Promise<void> => {
   });
   if (!supplier) {
     res.status(404).json({ error: "Supplier not found" });
+    return;
+  }
+
+  const linkedShop = parseLinkedSupplierId(dbUser);
+  if (linkedShop != null && linkedShop === supplier.id) {
+    res.status(403).json({ error: "You cannot review your own shop" });
+    return;
+  }
+
+  const existingSupplierReview = await prisma.review.findFirst({
+    where: {
+      supplierId: supplier.id,
+      productId: null,
+      reviewerId: dbUser.id,
+    },
+    select: { id: true },
+  });
+  if (existingSupplierReview) {
+    res.status(409).json({ error: "You already reviewed this supplier" });
     return;
   }
 

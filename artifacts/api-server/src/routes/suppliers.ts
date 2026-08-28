@@ -148,7 +148,13 @@ router.get("/suppliers", async (req, res): Promise<void> => {
   }
   const { search, verified, page = 1, limit = 20 } = parsed.data;
 
-  const where: Prisma.SupplierWhereInput = {};
+  const where: Prisma.SupplierWhereInput = {
+    // Draft KYC shops are not publicly listed.
+    OR: [
+      { verified: true },
+      { verificationStatus: { in: ["pending", "verified"] } },
+    ],
+  };
   if (search) where.companyName = { contains: search, mode: "insensitive" };
   if (verified === true) {
     Object.assign(where, GST_API_VERIFIED_WHERE);
@@ -1832,14 +1838,34 @@ router.get("/suppliers/:id", async (req, res): Promise<void> => {
 
   const supplier = await prisma.supplier.findUnique({
     where: { id: params.data.id },
-    select: PUBLIC_SUPPLIER_SELECT,
+    select: {
+      ...PUBLIC_SUPPLIER_SELECT,
+      verificationStatus: true,
+    },
   });
   if (!supplier) {
     res.status(404).json({ error: "Supplier not found" });
     return;
   }
 
-  res.json(GetSupplierResponse.parse(mapPublicSupplier(supplier)));
+  // Match by-slug: draft KYC shops are not publicly enumerable by id.
+  const shareReady =
+    supplier.verified === true ||
+    supplier.verificationStatus === "pending" ||
+    supplier.verificationStatus === "verified";
+  if (!shareReady) {
+    const dbUser = await getAuthenticatedDbUser(req).catch(() => null);
+    const ownsDraft =
+      dbUser != null &&
+      (isAdmin(dbUser) || parseLinkedSupplierId(dbUser) === supplier.id);
+    if (!ownsDraft) {
+      res.status(404).json({ error: "Supplier not found" });
+      return;
+    }
+  }
+
+  const { verificationStatus: _verificationStatus, ...publicFields } = supplier;
+  res.json(GetSupplierResponse.parse(mapPublicSupplier(publicFields)));
 });
 
 router.post("/suppliers", requireClerkAuth, async (req, res): Promise<void> => {

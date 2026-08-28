@@ -201,7 +201,49 @@ router.get("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
     orderBy: { createdAt: "desc" },
   });
   const ordered = sellerInbox ? sortRfqsForSellerInbox(items) : items;
-  res.json(ListRfqsResponse.parse(ordered.map((r) => formatForViewer(r, dbUser))));
+
+  // Repair placeholder buyer names from the live user profile (legacy RFQs).
+  const placeholderBuyerNames = new Set(["buyer", "seller", "user", "admin", ""]);
+  const buyerIdsNeedingName = [
+    ...new Set(
+      ordered
+        .filter(
+          (r) =>
+            r.buyerId != null &&
+            placeholderBuyerNames.has((r.buyerName ?? "").trim().toLowerCase()),
+        )
+        .map((r) => r.buyerId as number),
+    ),
+  ];
+  const buyerNameById = new Map<number, string>();
+  if (buyerIdsNeedingName.length > 0) {
+    const buyers = await prisma.user.findMany({
+      where: { id: { in: buyerIdsNeedingName } },
+      select: { id: true, name: true, company: true },
+    });
+    for (const b of buyers) {
+      const label =
+        (b.name && !placeholderBuyerNames.has(b.name.trim().toLowerCase())
+          ? b.name.trim()
+          : null) ||
+        b.company?.trim() ||
+        b.name?.trim() ||
+        "";
+      if (label) buyerNameById.set(b.id, label);
+    }
+  }
+
+  res.json(
+    ListRfqsResponse.parse(
+      ordered.map((r) => {
+        const enriched =
+          r.buyerId != null && buyerNameById.has(r.buyerId)
+            ? { ...r, buyerName: buyerNameById.get(r.buyerId)! }
+            : r;
+        return formatForViewer(enriched, dbUser);
+      }),
+    ),
+  );
 });
 
 router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
@@ -308,6 +350,20 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  const placeholderNames = new Set(["buyer", "seller", "user", "admin", ""]);
+  const fromProfile = (dbUser.name ?? "").trim();
+  const fromForm = (typeof input.buyerName === "string" ? input.buyerName : "").trim();
+  const fromCompany = (dbUser.company ?? "").trim();
+  const buyerDisplayName =
+    (fromProfile && !placeholderNames.has(fromProfile.toLowerCase())
+      ? fromProfile
+      : null) ||
+    (fromForm && !placeholderNames.has(fromForm.toLowerCase()) ? fromForm : null) ||
+    fromCompany ||
+    fromProfile ||
+    fromForm ||
+    "Buyer";
+
   const rfq = await prisma.rfq.create({
     data: {
       productId,
@@ -317,7 +373,7 @@ router.post("/rfq", requireClerkAuth, async (req, res): Promise<void> => {
       supplierId,
       supplierName,
       buyerId: dbUser.id,
-      buyerName: (dbUser.name || input.buyerName).trim(),
+      buyerName: buyerDisplayName,
       buyerEmail: (dbUser.email || input.buyerEmail).trim(),
       quantity,
       unit: input.unit.trim() || "piece",
@@ -586,7 +642,7 @@ router.patch("/rfq/:id", requireClerkAuth, async (req, res): Promise<void> => {
   const linkedSupplierId = parseLinkedSupplierId(dbUser);
   const admin = isAdmin(dbUser);
   const body = parsed.data as {
-    status?: "pending" | "responded" | "accepted" | "rejected";
+    status?: "pending" | "responded" | "pending_confirm" | "accepted" | "rejected";
     supplierName?: string;
     sellerMessage?: string;
     quotedPrice?: number;

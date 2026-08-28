@@ -159,10 +159,10 @@ export function RfqListPage() {
         }
       />
 
-      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-6 sm:py-8 min-w-0">
+      <div className="max-w-4xl mx-auto px-4 sm:px-5 py-8 sm:py-10 min-w-0">
       {hasSellerShop && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-wrap items-center justify-between gap-3">
-          <span>
+        <div className="mb-5 rounded-xl border border-amber-200/90 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-wrap items-center justify-between gap-3">
+          <span className="leading-relaxed">
             You&apos;re in buyer mode — these are RFQs you posted. Incoming seller inquiries need
             Seller Central.
           </span>
@@ -170,14 +170,14 @@ export function RfqListPage() {
             type="button"
             disabled={switching}
             onClick={() => void switchTo("seller")}
-            className="font-semibold underline disabled:opacity-60"
+            className="font-semibold underline underline-offset-2 disabled:opacity-60 shrink-0"
           >
             {switching ? "Switching…" : "Switch to seller"}
           </button>
         </div>
       )}
       {isError && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           Could not load RFQs. Please try again.{" "}
           <button type="button" className="underline font-semibold" onClick={() => void refetch()}>
             Try again
@@ -186,28 +186,33 @@ export function RfqListPage() {
       )}
 
       {isLoading ? (
-        <div className="space-y-3">
+        <div className="flex flex-col gap-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="kb-card p-5 animate-pulse">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2 flex-1">
-                  <div className="h-5 bg-muted rounded-full w-2/3" />
-                  <div className="h-4 bg-muted rounded-full w-1/3" />
+            <div
+              key={i}
+              className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 animate-pulse"
+            >
+              <div className="flex items-start gap-3">
+                <div className="hidden sm:block w-9 h-9 rounded-lg bg-muted flex-shrink-0" />
+                <div className="flex-1 space-y-2.5 min-w-0">
+                  <div className="h-4 bg-muted rounded w-1/3" />
+                  <div className="h-3.5 bg-muted rounded w-2/3" />
+                  <div className="h-3 bg-muted rounded w-1/4" />
                 </div>
-                <div className="h-6 bg-muted rounded-full w-20 ml-4" />
+                <div className="hidden sm:block h-9 w-24 bg-muted rounded-lg flex-shrink-0" />
               </div>
             </div>
           ))}
         </div>
       ) : sortedRfqs?.length === 0 ? (
-        <div className="text-center py-16 kb-card">
-          <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <FileText size={28} className="text-muted-foreground" />
+        <div className="text-center py-16 rounded-lg border border-border/80 bg-white shadow-sm px-6">
+          <div className="w-14 h-14 bg-muted rounded-lg flex items-center justify-center mx-auto mb-4">
+            <FileText size={26} className="text-muted-foreground" />
           </div>
           <h3 className="text-lg font-heading font-bold mb-2">
             {isSeller ? "No incoming RFQs yet" : "No RFQs yet"}
           </h3>
-          <p className="text-muted-foreground text-sm mb-4 max-w-md mx-auto">
+          <p className="text-muted-foreground text-sm mb-5 max-w-md mx-auto leading-relaxed">
             {isSeller
               ? ownPostedCount > 0
                 ? `You posted ${ownPostedCount} RFQ${ownPostedCount === 1 ? "" : "s"} as a buyer — other sellers can see those. Your own posts never appear here (you can't quote yourself).`
@@ -238,128 +243,170 @@ export function RfqListPage() {
             <button
               type="button"
               onClick={() => navigate("/rfq/new")}
-              className="bg-primary text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-primary/90 transition-colors inline-flex items-center gap-2"
+              className="bg-primary text-white px-6 py-2.5 rounded-lg font-semibold hover:bg-primary/90 transition-colors inline-flex items-center gap-2"
             >
               <Plus size={16} /> Post Your First RFQ
             </button>
           )}
         </div>
       ) : (
-        <div className="space-y-3">
+        <ul className="flex flex-col gap-3 list-none m-0 p-0">
           {sortedRfqs?.map((rfq, i) => {
             const status =
               statusConfig[rfq.status as keyof typeof statusConfig] ?? statusConfig.pending;
+            const title =
+              rfq.productName && rfq.productName !== "null"
+                ? rfq.productName
+                : "Untitled inquiry";
+            const note =
+              typeof rfq.description === "string" && rfq.description.trim()
+                ? rfq.description.trim()
+                : null;
+            const posted = new Date(rfq.createdAt).toLocaleDateString("en-IN", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            });
+            const meta = [
+              rfq.categoryName ? { label: "Category", value: rfq.categoryName } : null,
+              {
+                label: "Qty",
+                value: `${rfq.quantity} ${rfq.unit}`,
+              },
+              rfq.targetPrice
+                ? { label: "Target", value: `₹${rfq.targetPrice}/${rfq.unit}` }
+                : null,
+              isSeller && rfq.buyerName
+                ? { label: "Buyer", value: rfq.buyerName }
+                : null,
+              isSeller && rfq.buyerEmail?.trim()
+                ? { label: "Email", value: rfq.buyerEmail.trim() }
+                : null,
+              !isSeller
+                ? {
+                    label: "Supplier",
+                    value: rfq.supplierName?.trim() || "Open marketplace",
+                  }
+                : null,
+            ].filter(Boolean) as { label: string; value: string }[];
+
             return (
-              <motion.div
+              <motion.li
                 key={rfq.id}
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                onClick={() => navigate(`/rfq/${rfq.id}`)}
-                className="kb-card-interactive p-4 sm:p-5 cursor-pointer"
+                transition={{ delay: Math.min(i * 0.03, 0.15) }}
               >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex gap-3 flex-1 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-accent border border-accent-border flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Package size={18} className="text-primary" />
+                <article
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/rfq/${rfq.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      navigate(`/rfq/${rfq.id}`);
+                    }
+                  }}
+                  className="rounded-xl border border-slate-200 bg-white hover:border-primary/30 hover:shadow-md transition-[border-color,box-shadow] duration-150 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2"
+                >
+                  <div className="flex items-start gap-3 p-4 sm:p-5">
+                    <div className="hidden sm:flex w-9 h-9 rounded-lg bg-orange-50 border border-orange-100 items-center justify-center flex-shrink-0 mt-0.5">
+                      <Package size={16} className="text-primary" />
                     </div>
+
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                        <h3 className="font-semibold text-foreground text-sm sm:text-base leading-tight">
-                          {rfq.productName && rfq.productName !== "null"
-                            ? rfq.productName
-                            : "Untitled inquiry"}
-                        </h3>
-                        <span
-                          className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full border ${status.color}`}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-foreground text-[15px] leading-tight truncate max-w-full">
+                            {title}
+                          </h3>
+                          <span
+                            className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${status.color}`}
+                          >
+                            {status.icon} {status.label}
+                          </span>
+                          {isSeller && rfq.supplierId == null ? (
+                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
+                              Open inquiry
+                            </span>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/rfq/${rfq.id}`);
+                          }}
+                          className="hidden sm:inline-flex shrink-0 items-center min-h-9 px-3.5 rounded-lg text-sm font-semibold text-primary border border-primary/30 bg-white hover:bg-primary hover:text-white hover:border-primary transition-colors"
                         >
-                          {status.icon} {status.label}
-                        </span>
-                        {isSeller && rfq.supplierId == null && (
-                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-                            Open inquiry
-                          </span>
-                        )}
+                          Open RFQ
+                        </button>
                       </div>
-                      <div className="flex flex-wrap gap-x-3 sm:gap-x-4 gap-y-1 text-xs sm:text-sm text-muted-foreground">
-                        {rfq.categoryName && (
-                          <span>
-                            Category:{" "}
-                            <span className="font-semibold text-foreground">{rfq.categoryName}</span>
-                          </span>
-                        )}
-                        <span>
-                          Qty:{" "}
-                          <span className="font-semibold text-foreground">
-                            {rfq.quantity} {rfq.unit}
-                          </span>
-                        </span>
-                        {rfq.targetPrice && (
-                          <span>
-                            Target:{" "}
-                            <span className="font-semibold text-foreground">
-                              ₹{rfq.targetPrice}/{rfq.unit}
+
+                      <div className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-1.5 text-sm text-muted-foreground">
+                        {meta.map((item, idx) => (
+                          <span key={item.label} className="inline-flex items-center gap-1">
+                            {idx > 0 ? (
+                              <span className="text-slate-300 mx-1.5 select-none" aria-hidden>
+                                |
+                              </span>
+                            ) : null}
+                            <span>
+                              <span className="text-muted-foreground">{item.label}:</span>{" "}
+                              <span className="font-medium text-foreground">{item.value}</span>
                             </span>
                           </span>
-                        )}
-                        {isSeller && rfq.buyerName && (
-                          <span>
-                            Buyer:{" "}
-                            <span className="font-semibold text-foreground">{rfq.buyerName}</span>
-                          </span>
-                        )}
-                        {!isSeller && rfq.supplierName && (
-                          <span className="hidden sm:inline">
-                            Supplier:{" "}
-                            <span className="font-semibold text-foreground">
-                              {rfq.supplierName}
+                        ))}
+                      </div>
+
+                      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <time dateTime={rfq.createdAt}>Posted {posted}</time>
+                        {note ? (
+                          <>
+                            <span className="text-slate-300" aria-hidden>
+                              ·
                             </span>
-                          </span>
-                        )}
+                            <span className="truncate max-w-[min(100%,28rem)]">
+                              Note: {note}
+                            </span>
+                          </>
+                        ) : null}
+                        {rfq.productId ? (
+                          <>
+                            <span className="text-slate-300" aria-hidden>
+                              ·
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/products/${rfq.productId}`);
+                              }}
+                              className="font-medium text-primary hover:underline"
+                            >
+                              View product
+                            </button>
+                          </>
+                        ) : null}
                       </div>
-                      {rfq.description && (
-                        <p className="text-xs text-muted-foreground mt-1.5 line-clamp-1">
-                          {rfq.description}
-                        </p>
-                      )}
-                      <div className="text-xs text-muted-foreground mt-1.5 font-medium">
-                        {new Date(rfq.createdAt).toLocaleDateString("en-IN", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0 w-full sm:w-auto">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/rfq/${rfq.id}`);
-                      }}
-                      className="w-full sm:w-auto min-h-11 text-sm text-primary border border-primary/30 px-3 rounded-xl hover:bg-primary/5 hover:border-primary transition-colors font-semibold whitespace-nowrap"
-                    >
-                      Open RFQ
-                    </button>
-                    {rfq.productId && (
+
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/products/${rfq.productId}`);
+                          navigate(`/rfq/${rfq.id}`);
                         }}
-                        className="w-full sm:w-auto min-h-11 text-sm text-muted-foreground border border-border px-3 rounded-xl hover:bg-muted transition-colors font-semibold whitespace-nowrap"
+                        className="sm:hidden mt-3 w-full min-h-10 rounded-lg text-sm font-semibold text-primary border border-primary/30 bg-white hover:bg-primary/5 transition-colors"
                       >
-                        View Product
+                        Open RFQ
                       </button>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </motion.div>
+                </article>
+              </motion.li>
             );
           })}
-        </div>
+        </ul>
       )}
       </div>
     </div>

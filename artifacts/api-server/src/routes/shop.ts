@@ -47,6 +47,19 @@ router.post("/shop/setup", requireClerkAuth, async (req, res): Promise<void> => 
     res.status(401).json({ error: "Authentication required" });
     return;
   }
+  // Shop bootstrap is for seller workspace only (or admin). Pure buyers must activate
+  // seller side via onboarding/login before creating a shop.
+  if (
+    !isAdmin(dbUser) &&
+    dbUser.role !== "seller" &&
+    dbUser.sellerEnabled !== true
+  ) {
+    res.status(403).json({
+      error:
+        "Activate a seller account from login/register before opening a shop.",
+    });
+    return;
+  }
 
   const body = req.body as {
     companyName?: string;
