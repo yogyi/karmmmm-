@@ -232,11 +232,17 @@
     display: none;
   }
 
-  /* Keep typing caret dark on light fields (not brand orange / ring color). */
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  /* Keep typing caret dark on light fields (not brand orange / ring color).
+   * Exclude input-otp's hidden overlay — its caret must stay invisible or it
+   * shows as a standing line in the first slot while digits fill other boxes. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([data-input-otp]),
   textarea {
     caret-color: hsl(var(--foreground)) !important;
     accent-color: hsl(var(--primary));
+  }
+
+  input[data-input-otp] {
+    caret-color: transparent !important;
   }
 
   /*
