@@ -48,9 +48,8 @@ import {
   hashEmailOtp,
   otpExpiresAt,
   otpResendAllowed,
-  verifyEmailOtpHash,
 } from "../lib/emailOtp";
-import { sendMail } from "../lib/mail";
+import { confirmEmailOtp, deliverEmailOtp } from "../lib/otpDelivery";
 import { rateLimit } from "../lib/rateLimit";
 import {
   checkUsernameAvailability,
@@ -1665,26 +1664,30 @@ router.post(
       },
     });
 
-    const sent = await sendMail({
-      to: biz.email,
-      subject: "Your Karm Baba verification code",
-      text: `Your Karm Baba seller verification code is ${code}.\n\nIt expires in 15 minutes.\n\nIf you did not request this, ignore this email.`,
-      html: `<p>Your Karm Baba seller verification code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p><p>It expires in 15 minutes.</p>`,
-    });
+    const sent = await deliverEmailOtp(biz.email, code);
     if (!sent.ok) {
       res.status(502).json({ error: sent.error });
       return;
+    }
+
+    if (sent.usesTwilioVerify) {
+      await prisma.supplier.update({
+        where: { id: supplierId },
+        data: { businessEmailOtpHash: null },
+      });
     }
 
     res.json({
       sent: true,
       email: biz.email,
       expiresAt: expires.toISOString(),
-      ...(sent.mode === "dev-log" ? { previewCode: code } : {}),
+      ...(sent.previewCode ? { previewCode: sent.previewCode } : {}),
       message:
         sent.mode === "dev-log"
           ? "Dev mode: OTP logged on server (and returned as previewCode)"
-          : `Code sent to ${biz.email}`,
+          : sent.mode === "twilio-verify"
+            ? `Verification code sent to ${biz.email} via Twilio`
+            : `Code sent to ${biz.email}`,
     });
   },
 );
@@ -1731,16 +1734,34 @@ router.post(
       res.status(400).json({ error: "Enter the 6-digit code from your email" });
       return;
     }
+    const email = existing.contactEmail ?? "";
+    const usesTwilioVerify = !existing.businessEmailOtpHash;
     if (
-      !existing.businessEmailOtpExpiresAt ||
-      existing.businessEmailOtpExpiresAt.getTime() < Date.now()
+      !usesTwilioVerify &&
+      (!existing.businessEmailOtpExpiresAt ||
+        existing.businessEmailOtpExpiresAt.getTime() < Date.now())
     ) {
       res.status(400).json({ error: "Code expired — request a new one" });
       return;
     }
-    const email = existing.contactEmail ?? "";
-    if (!verifyEmailOtpHash(code, email, existing.businessEmailOtpHash)) {
-      res.status(400).json({ error: "Incorrect code — check your email and try again" });
+
+    const confirmed = await confirmEmailOtp(
+      dbUser.id,
+      email,
+      code,
+      existing.businessEmailOtpHash,
+    );
+    if (!confirmed.ok) {
+      if (confirmed.locked) {
+        await prisma.supplier.update({
+          where: { id: supplierId },
+          data: {
+            businessEmailOtpHash: null,
+            businessEmailOtpExpiresAt: null,
+          },
+        });
+      }
+      res.status(confirmed.status).json({ error: confirmed.error });
       return;
     }
 

@@ -884,7 +884,9 @@ export function SellerVerificationPage() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not send code";
       setError(
-        msg.includes("RESEND_API_KEY") || msg.includes("Email delivery is not configured")
+        msg.includes("RESEND_API_KEY") ||
+          msg.includes("Twilio") ||
+          msg.includes("Email delivery is not configured")
           ? "Company email OTP is not set up on the server yet. Contact support or try again later."
           : msg,
       );

@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { getTwilioAuth, twilioBasicAuthHeader } from "./twilioConfig";
 
 export type SendWhatsappOtpInput = {
   to: string;
@@ -53,22 +54,20 @@ async function sendViaTwilio(
   to: string,
   body: string,
 ): Promise<{ ok: true; mode: "twilio" } | { ok: false; error: string } | null> {
-  const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
-  const token = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const auth = getTwilioAuth();
   const from = process.env.TWILIO_WHATSAPP_FROM?.trim();
-  if (!sid || !token || !from) return null;
+  if (!auth || !from) return null;
 
   const fromWa = from.startsWith("whatsapp:") ? from : `whatsapp:${from}`;
   const toWa = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
 
   try {
-    const auth = Buffer.from(`${sid}:${token}`).toString("base64");
     const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+      `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(auth.accountSid)}/Messages.json`,
       {
         method: "POST",
         headers: {
-          Authorization: `Basic ${auth}`,
+          Authorization: twilioBasicAuthHeader(auth),
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: new URLSearchParams({ From: fromWa, To: toWa, Body: body }).toString(),

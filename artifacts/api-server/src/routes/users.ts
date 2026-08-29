@@ -20,12 +20,14 @@ import {
   hashEmailOtp,
   otpExpiresAt,
   otpResendAllowed,
-  recordFailedOtpConfirm,
-  resetOtpConfirmAttempts,
-  verifyEmailOtpHash,
 } from "../lib/emailOtp";
-import { sendMail } from "../lib/mail";
-import { normalizeWhatsappTo, sendWhatsappOtp } from "../lib/whatsappOtp";
+import {
+  confirmEmailOtp,
+  confirmWhatsappOtp,
+  deliverEmailOtp,
+  deliverWhatsappOtp,
+} from "../lib/otpDelivery";
+import { normalizeWhatsappTo } from "../lib/whatsappOtp";
 
 const router: IRouter = Router();
 
@@ -627,28 +629,31 @@ router.post(
         buyerKycCompletedAt: null,
       },
     });
-    resetOtpConfirmAttempts(dbUser.id, "email");
 
-    const sent = await sendMail({
-      to: biz.email,
-      subject: "Your Karm Baba buyer verification code",
-      text: `Your Karm Baba buyer verification code is ${code}.\n\nIt expires in 15 minutes.\n\nIf you did not request this, ignore this email.`,
-      html: `<p>Your Karm Baba buyer verification code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p><p>It expires in 15 minutes.</p>`,
-    });
+    const sent = await deliverEmailOtp(biz.email, code);
     if (!sent.ok) {
       res.status(502).json({ error: sent.error });
       return;
+    }
+
+    if (sent.usesTwilioVerify) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { buyerCompanyEmailOtpHash: null },
+      });
     }
 
     res.json({
       sent: true,
       email: biz.email,
       expiresAt: expires.toISOString(),
-      ...(sent.mode === "dev-log" ? { previewCode: code } : {}),
+      ...(sent.previewCode ? { previewCode: sent.previewCode } : {}),
       message:
         sent.mode === "dev-log"
           ? "Dev mode: OTP logged on server (and returned as previewCode)"
-          : `Code sent to ${biz.email}`,
+          : sent.mode === "twilio-verify"
+            ? `Verification code sent to ${biz.email} via Twilio`
+            : `Code sent to ${biz.email}`,
     });
   },
 );
@@ -669,17 +674,25 @@ router.post(
       res.status(400).json({ error: "Enter the 6-digit code from your email" });
       return;
     }
+    const email = dbUser.buyerCompanyEmail ?? "";
+    const usesTwilioVerify = !dbUser.buyerCompanyEmailOtpHash;
     if (
-      !dbUser.buyerCompanyEmailOtpExpiresAt ||
-      dbUser.buyerCompanyEmailOtpExpiresAt.getTime() < Date.now()
+      !usesTwilioVerify &&
+      (!dbUser.buyerCompanyEmailOtpExpiresAt ||
+        dbUser.buyerCompanyEmailOtpExpiresAt.getTime() < Date.now())
     ) {
       res.status(400).json({ error: "Code expired — request a new one" });
       return;
     }
-    const email = dbUser.buyerCompanyEmail ?? "";
-    if (!verifyEmailOtpHash(code, email, dbUser.buyerCompanyEmailOtpHash)) {
-      const attempt = recordFailedOtpConfirm(dbUser.id, "email");
-      if (attempt.locked) {
+
+    const confirmed = await confirmEmailOtp(
+      dbUser.id,
+      email,
+      code,
+      dbUser.buyerCompanyEmailOtpHash,
+    );
+    if (!confirmed.ok) {
+      if (confirmed.locked) {
         await prisma.user.update({
           where: { id: dbUser.id },
           data: {
@@ -687,16 +700,10 @@ router.post(
             buyerCompanyEmailOtpExpiresAt: null,
           },
         });
-        res.status(429).json({ error: "Too many incorrect attempts — request a new code" });
-        return;
       }
-      res.status(400).json({
-        error: `Incorrect code — ${attempt.remaining} attempt(s) remaining`,
-      });
+      res.status(confirmed.status).json({ error: confirmed.error });
       return;
     }
-
-    resetOtpConfirmAttempts(dbUser.id, "email");
 
     const updated = await prisma.user.update({
       where: { id: dbUser.id },
@@ -769,23 +776,31 @@ router.post(
         buyerKycCompletedAt: null,
       },
     });
-    resetOtpConfirmAttempts(dbUser.id, "whatsapp");
 
-    const sent = await sendWhatsappOtp({ to, code });
+    const sent = await deliverWhatsappOtp(to, code);
     if (!sent.ok) {
       res.status(502).json({ error: sent.error });
       return;
+    }
+
+    if (sent.usesTwilioVerify) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { buyerWhatsappOtpHash: null },
+      });
     }
 
     res.json({
       sent: true,
       whatsapp: to,
       expiresAt: expires.toISOString(),
-      ...(sent.mode === "dev-log" ? { previewCode: code } : {}),
+      ...(sent.previewCode ? { previewCode: sent.previewCode } : {}),
       message:
         sent.mode === "dev-log"
           ? "Dev mode: WhatsApp OTP logged on server (and returned as previewCode)"
-          : `Code sent to WhatsApp ${to}`,
+          : sent.mode === "twilio-verify"
+            ? `Verification code sent to WhatsApp ${to} via Twilio`
+            : `Code sent to WhatsApp ${to}`,
     });
   },
 );
@@ -806,17 +821,25 @@ router.post(
       res.status(400).json({ error: "Enter the 6-digit code from WhatsApp" });
       return;
     }
+    const phone = dbUser.buyerWhatsapp ?? "";
+    const usesTwilioVerify = !dbUser.buyerWhatsappOtpHash;
     if (
-      !dbUser.buyerWhatsappOtpExpiresAt ||
-      dbUser.buyerWhatsappOtpExpiresAt.getTime() < Date.now()
+      !usesTwilioVerify &&
+      (!dbUser.buyerWhatsappOtpExpiresAt ||
+        dbUser.buyerWhatsappOtpExpiresAt.getTime() < Date.now())
     ) {
       res.status(400).json({ error: "Code expired — request a new one" });
       return;
     }
-    const phone = dbUser.buyerWhatsapp ?? "";
-    if (!verifyEmailOtpHash(code, phone, dbUser.buyerWhatsappOtpHash)) {
-      const attempt = recordFailedOtpConfirm(dbUser.id, "whatsapp");
-      if (attempt.locked) {
+
+    const confirmed = await confirmWhatsappOtp(
+      dbUser.id,
+      phone,
+      code,
+      dbUser.buyerWhatsappOtpHash,
+    );
+    if (!confirmed.ok) {
+      if (confirmed.locked) {
         await prisma.user.update({
           where: { id: dbUser.id },
           data: {
@@ -824,16 +847,10 @@ router.post(
             buyerWhatsappOtpExpiresAt: null,
           },
         });
-        res.status(429).json({ error: "Too many incorrect attempts — request a new code" });
-        return;
       }
-      res.status(400).json({
-        error: `Incorrect code — ${attempt.remaining} attempt(s) remaining`,
-      });
+      res.status(confirmed.status).json({ error: confirmed.error });
       return;
     }
-
-    resetOtpConfirmAttempts(dbUser.id, "whatsapp");
 
     const updated = await prisma.user.update({
       where: { id: dbUser.id },

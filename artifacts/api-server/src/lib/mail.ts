@@ -8,8 +8,9 @@ export type SendMailInput = {
 };
 
 /**
- * Send transactional email via Resend when RESEND_API_KEY is set.
- * Without a key: logs in development (so OTP flow is testable locally).
+ * Send transactional email.
+ * Prefer Twilio Verify (via otpDelivery) for OTP flows.
+ * Falls back to Resend when RESEND_API_KEY is set; otherwise logs in development.
  */
 export async function sendMail(
   input: SendMailInput,
@@ -50,7 +51,7 @@ export async function sendMail(
     return {
       ok: false,
       error:
-        "Email delivery is not configured. Ask the platform admin to set RESEND_API_KEY and EMAIL_FROM on the server.",
+        "Email delivery is not configured. Set TWILIO_VERIFY_SERVICE_SID + Twilio API credentials, or RESEND_API_KEY and EMAIL_FROM.",
     };
   }
 
