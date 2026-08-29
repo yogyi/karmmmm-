@@ -8,10 +8,11 @@ import {
   decodeSendmatorSession,
   encodeSendmatorSession,
   isSendmatorConfigured,
+  isSendmatorSandbox,
   isSendmatorSession,
   sendmatorOtpSend,
   sendmatorOtpVerify,
-  type SendmatorChannel,
+  sendmatorOtpVerifyPhone,
 } from "./sendmatorOtp";
 import { sendWhatsappOtp } from "./whatsappOtp";
 
@@ -28,7 +29,6 @@ export async function deliverEmailOtp(
       mode: OtpDeliveryMode;
       usesSendmator: boolean;
       sessionToken?: string;
-      previewCode?: string;
     }
   | { ok: false; error: string }
 > {
@@ -40,7 +40,6 @@ export async function deliverEmailOtp(
         mode: "sendmator",
         usesSendmator: true,
         sessionToken: sent.sessionToken,
-        ...(sent.previewCode ? { previewCode: sent.previewCode } : {}),
       };
     }
     return sent;
@@ -53,11 +52,15 @@ export async function deliverEmailOtp(
     html: `<p>Your Karm Baba verification code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p><p>It expires in 15 minutes.</p>`,
   });
   if (!sent.ok) return sent;
+  // Dev-log mode: code is written to server logs only — never returned to the browser.
+  if (sent.mode === "dev-log") {
+    const { logger } = await import("./logger");
+    logger.info({ email: email.replace(/(^.).*(@.*$)/, "$1***$2") }, "Dev OTP (email) logged — not returned to client");
+  }
   return {
     ok: true,
     mode: sent.mode,
     usesSendmator: false,
-    ...(sent.mode === "dev-log" ? { previewCode: code } : {}),
   };
 }
 
@@ -123,40 +126,138 @@ export async function confirmEmailOtp(
   return { ok: true };
 }
 
+/**
+ * Deliver OUR phone OTP code (hash-verified locally).
+ *
+ * Prefer SMS first (user-requested; WhatsApp templates often fail on Sendmator).
+ * Do NOT use Sendmator /otp/send for WhatsApp — it returns success without delivery.
+ *
+ * Order: SMS → Meta WA → Sendmator WA → email backup → Sendmator SMS OTP API → dev log.
+ */
 export async function deliverWhatsappOtp(
   to: string,
   code: string,
+  opts?: { backupEmail?: string | null },
 ): Promise<
   | {
       ok: true;
       mode: OtpDeliveryMode;
       usesSendmator: boolean;
       sessionToken?: string;
-      previewCode?: string;
+      deliveredVia: string[];
     }
   | { ok: false; error: string }
 > {
-  if (isSendmatorConfigured()) {
-    const sent = await sendmatorOtpSend("whatsapp", to);
-    if (sent.ok) {
-      return {
-        ok: true,
-        mode: "sendmator",
-        usesSendmator: true,
-        sessionToken: sent.sessionToken,
-        ...(sent.previewCode ? { previewCode: sent.previewCode } : {}),
-      };
+  const { logger } = await import("./logger");
+  const deliveredVia: string[] = [];
+  const masked = to.slice(0, 4) + "***";
+  const backupEmail = opts?.backupEmail?.trim() || null;
+
+  if (isSendmatorConfigured() && !isSendmatorSandbox()) {
+    const {
+      sendmatorSmsTemplateOtp,
+      sendmatorWhatsappTemplateOtp,
+      sendmatorDirectEmail,
+      sendmatorOtpSend,
+    } = await import("./sendmatorOtp");
+
+    // 1) SMS first — most reliable for India (+91) and overseas mobiles
+    const sms = await sendmatorSmsTemplateOtp(to, code);
+    if (sms.ok) deliveredVia.push("sms");
+    else {
+      logger.warn({ error: sms.error, to: masked }, "Sendmator SMS template OTP failed");
     }
-    return sent;
+
+    // 2) Meta WhatsApp (optional)
+    const meta = await sendWhatsappOtp({ to, code });
+    if (meta?.ok && meta.mode === "meta") {
+      deliveredVia.push("meta-whatsapp");
+    }
+
+    // 3) Sendmator WhatsApp template
+    const wa = await sendmatorWhatsappTemplateOtp(to, code);
+    if (wa.ok) deliveredVia.push("sendmator-whatsapp");
+    else {
+      logger.warn({ error: wa.error, to: masked }, "Sendmator WhatsApp template OTP failed");
+    }
+
+    // 4) Email backup with the SAME code
+    if (backupEmail) {
+      const emailed = await sendmatorDirectEmail({
+        to: backupEmail,
+        subject: "Your Karm Baba phone verification code",
+        text: `Your Karm Baba verification code for ${to} is ${code}.\n\nIt expires in 15 minutes.\n\nIf you did not request this, ignore this email.`,
+        html: `<p>Your Karm Baba verification code for <strong>${to}</strong> is:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p><p>It expires in 15 minutes. Check SMS / WhatsApp / this email.</p>`,
+      });
+      if (emailed.ok) deliveredVia.push("email");
+      else {
+        logger.warn({ error: emailed.error }, "Sendmator email backup for phone OTP failed");
+      }
+    }
+
+    // 5) Last resort: Sendmator OTP API over SMS only (their code — switch to session verify)
+    if (!deliveredVia.includes("sms")) {
+      const otpSms = await sendmatorOtpSend("sms", to);
+      if (otpSms.ok) {
+        logger.info({ to: masked }, "Sendmator SMS OTP API accepted — using session verify");
+        return {
+          ok: true,
+          mode: "sendmator",
+          usesSendmator: true,
+          sessionToken: otpSms.sessionToken,
+          deliveredVia: [...deliveredVia, "sendmator-sms-otp"],
+        };
+      }
+      logger.warn({ error: otpSms.error, to: masked }, "Sendmator SMS OTP API failed");
+    }
+  } else {
+    const meta = await sendWhatsappOtp({ to, code });
+    if (meta?.ok && meta.mode === "meta") deliveredVia.push("meta-whatsapp");
   }
 
-  const sent = await sendWhatsappOtp({ to, code });
-  if (!sent.ok) return sent;
+  if (backupEmail && !deliveredVia.includes("email")) {
+    const mailed = await sendMail({
+      to: backupEmail,
+      subject: "Your Karm Baba phone verification code",
+      text: `Your Karm Baba verification code for ${to} is ${code}.\n\nIt expires in 15 minutes.`,
+      html: `<p>Your Karm Baba verification code for <strong>${to}</strong> is:</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p><p>It expires in 15 minutes.</p>`,
+    });
+    if (mailed.ok) deliveredVia.push(mailed.mode === "dev-log" ? "email-dev-log" : "email");
+  }
+
+  const isProd = process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
+  if (!isProd) {
+    logger.info(
+      { to: masked, code, deliveredVia },
+      "Phone OTP code (dev) — enter this code on the verify form",
+    );
+    if (deliveredVia.length === 0) deliveredVia.push("dev-log");
+  }
+
+  if (deliveredVia.length === 0) {
+    return {
+      ok: false,
+      error: backupEmail
+        ? "Could not deliver the verification code by SMS, WhatsApp, or email. Try again shortly."
+        : "Could not deliver SMS/WhatsApp code. Enter your company email first, then try again.",
+    };
+  }
+
+  const mode: OtpDeliveryMode = deliveredVia.includes("sms") ||
+    deliveredVia.includes("sendmator-whatsapp") ||
+    deliveredVia.includes("email")
+    ? "sendmator"
+    : deliveredVia.includes("meta-whatsapp")
+      ? "meta"
+      : deliveredVia.includes("email-dev-log") || deliveredVia.includes("dev-log")
+        ? "dev-log"
+        : "sendmator";
+
   return {
     ok: true,
-    mode: sent.mode,
+    mode,
     usesSendmator: false,
-    ...(sent.mode === "dev-log" ? { previewCode: code } : {}),
+    deliveredVia,
   };
 }
 
@@ -171,7 +272,7 @@ export async function confirmWhatsappOtp(
 > {
   const session = decodeSendmatorSession(storedHash);
   if (session) {
-    const checked = await sendmatorOtpVerify(session, "whatsapp", code);
+    const checked = await sendmatorOtpVerifyPhone(session, code);
     if (!checked.ok) {
       if (checked.invalid && !checked.locked) {
         const attempt = recordFailedOtpConfirm(userId, "whatsapp");

@@ -56,3 +56,11 @@ export const COUNTRY_OPTIONS = [
   "Turkey",
   "Other",
 ] as const;
+
+export type CountryOption = (typeof COUNTRY_OPTIONS)[number];
+
+export function isAllowedBuyerCountry(country: string | null | undefined): boolean {
+  const c = (country ?? "").trim();
+  if (!c || isIndiaCountry(c)) return false;
+  return (COUNTRY_OPTIONS as readonly string[]).includes(c);
+}

@@ -22,7 +22,7 @@ import {
 import { getOverseasKycLabels, isValidOverseasTaxId } from "@/lib/overseasKyc";
 import { getCompanyProfileLabels } from "@/lib/companyProfileLabels";
 import { guessUserCountry } from "@/lib/guessCountry";
-import { validateBusinessEmail } from "@/lib/businessEmail";
+import { validateBusinessEmail, validateOptionalWebsite } from "@/lib/businessEmail";
 import {
   INDIAN_STATES,
   firstCompanyProfileError,
@@ -143,6 +143,10 @@ function validateStepForForm(
         ? "Enter a valid 10-digit Indian mobile number"
         : "Enter a valid international phone (8–15 digits, + allowed)";
     }
+    if (form.website.trim()) {
+      const site = validateOptionalWebsite(form.website);
+      if (!site.ok) return site.error;
+    }
     if (india) {
       if (!form.contactEmail.trim().includes("@")) return "Valid contact email is required";
     } else {
@@ -155,12 +159,12 @@ function validateStepForForm(
   }
   if (current === 3) {
     if (india) {
-      // GSTIN, certificate OCR, and Aadhaar are optional for account creation.
-      // If GSTIN is entered, format/checksum must be valid.
-      if (form.gstin.trim()) {
-        const gst = validateGstin(form.gstin);
-        if (!gst.ok) return gst.error;
+      if (!form.gstin.trim()) {
+        return "GSTIN is required for Indian seller verification";
       }
+      const gst = validateGstin(form.gstin);
+      if (!gst.ok) return gst.error;
+      // GST certificate OCR and Aadhaar stay optional — Verified badge only.
     } else {
       if (!opts?.emailVerified) {
         return "Verify your company-domain email on the Contact step first";
@@ -254,21 +258,35 @@ function fieldErrorsForStep(
         ? "Enter a valid 10-digit Indian mobile number"
         : "Enter a valid international phone (8–15 digits, + allowed)";
     }
+    if (form.website.trim()) {
+      const site = validateOptionalWebsite(form.website);
+      if (!site.ok) errors.website = site.error;
+    }
+    if (form.website.trim()) {
+      const site = validateOptionalWebsite(form.website);
+      if (!site.ok) errors.website = site.error;
+    }
     if (india) {
       if (!form.contactEmail.trim().includes("@")) {
         errors.contactEmail = "Valid contact email is required";
       }
     } else {
       const biz = validateBusinessEmail(form.contactEmail, form.website);
-      if (!biz.ok) errors.contactEmail = biz.error;
-      else if (!opts?.emailVerified) {
+      if (!biz.ok) {
+        if (biz.error.toLowerCase().includes("website")) {
+          errors.website = biz.error;
+        } else {
+          errors.contactEmail = biz.error;
+        }
+      } else if (!opts?.emailVerified) {
         errors.contactEmail = "Verify company email with OTP below";
       }
     }
   }
   if (current === 3 && india) {
-    // Only surface GSTIN format errors when a value was entered; empty is OK.
-    if (form.gstin.trim()) {
+    if (!form.gstin.trim()) {
+      errors.gstin = "GSTIN is required";
+    } else {
       const gst = validateGstin(form.gstin);
       if (!gst.ok) errors.gstin = gst.error;
     }
@@ -302,7 +320,7 @@ function fieldErrorsForStep(
 
 /**
  * Alibaba-style seller verification wizard.
- * Captures company → contact → GST (optional for account; required for badge) → bank → submit.
+ * Captures company → contact → GST (GSTIN required; cert OCR optional for badge) → bank → submit.
  * Verified badge unlocks only after live GSTN verify + GST certificate OCR (India).
  * Admin KYC approval does not grant the public badge by itself.
  */
@@ -830,10 +848,20 @@ export function SellerVerificationPage() {
   }, [submitReady]);
 
   async function sendEmailOtp() {
+    const site = validateOptionalWebsite(form.website);
+    if (!site.ok) {
+      setError(
+        `${site.error} Clear “www.com” or use https://karmbaba.com (must match your email).`,
+      );
+      setShowFieldErrors(true);
+      setOtpHint(null);
+      return;
+    }
     const biz = validateBusinessEmail(form.contactEmail, form.website);
     if (!biz.ok) {
       setError(biz.error);
       setShowFieldErrors(true);
+      setOtpHint(null);
       return;
     }
     setOtpSending(true);
@@ -854,6 +882,7 @@ export function SellerVerificationPage() {
           submit: false,
           data: stepPayload(2),
         }),
+        signal: AbortSignal.timeout(20_000),
       });
       const saveBody = (await saveRes.json().catch(() => ({}))) as { error?: string };
       if (!saveRes.ok) throw new Error(saveBody.error || "Could not save contact email");
@@ -865,24 +894,28 @@ export function SellerVerificationPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ email: biz.email }),
+        signal: AbortSignal.timeout(30_000),
       });
       const body = (await res.json().catch(() => ({}))) as {
         error?: string;
         message?: string;
-        previewCode?: string;
         email?: string;
       };
       if (!res.ok) throw new Error(body.error || "Could not send code");
       setEmailVerified(false);
+      // Never auto-fill OTP — user must type the code from their company email.
       setOtpValue("");
-      if (body.previewCode) {
-        setOtpHint(`Dev preview code: ${body.previewCode}`);
-        setOtpValue(body.previewCode);
-      } else {
-        setOtpHint(body.message || `Code sent to ${body.email ?? biz.email}`);
-      }
+      setOtpHint(
+        body.message ||
+          `Verification code sent to ${body.email ?? biz.email}. Enter the 6-digit code below.`,
+      );
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Could not send code";
+      const msg =
+        e instanceof Error && e.name === "TimeoutError"
+          ? "Sending timed out — check your connection and try again."
+          : e instanceof Error
+            ? e.message
+            : "Could not send code";
       setError(
         msg.includes("RESEND_API_KEY") ||
           msg.includes("Sendmator") ||
@@ -914,8 +947,12 @@ export function SellerVerificationPage() {
         body: JSON.stringify({ code: otpValue }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(body.error || "Incorrect code");
+      if (!res.ok) {
+        setOtpValue("");
+        throw new Error(body.error || "Incorrect code — try again");
+      }
       setEmailVerified(true);
+      setOtpValue("");
       setOtpHint("Company email verified");
       setHighestSavedStep((prev) => Math.max(prev, 2));
     } catch (e) {
@@ -946,12 +983,18 @@ export function SellerVerificationPage() {
       return;
     }
     if (opts.submit) {
+      if (!submitReady) {
+        setError(submitBlockReason || "Complete all required steps before submitting");
+        setShowFieldErrors(true);
+        if (firstMissingStep) setStep(firstMissingStep);
+        return;
+      }
       if (!declared) {
         setError("Please confirm the declaration before submitting");
         return;
       }
       for (const s of [1, 2, 3, 4] as Step[]) {
-        const e = validateLocal(s);
+        const e = validateStepForForm(form, s, verifyOpts);
         if (e) {
           setError(e);
           setShowFieldErrors(true);
@@ -1408,13 +1451,16 @@ export function SellerVerificationPage() {
                 onChange={(v) => {
                   update("website", v);
                   setEmailVerified(false);
+                  setOtpHint(null);
                 }}
                 placeholder="https://www.yourcompany.ae"
+                error={fieldErrors.website}
               />
               {!india && (
                 <TipBox>
                   <p>Not accepted: Gmail, Yahoo, Outlook, Hotmail, iCloud, and other free mail</p>
-                  <p>If you add a website, the email domain must match it</p>
+                  <p>If you add a website, the email domain must match it (e.g. karmbaba.com)</p>
+                  <p>Leave website blank if you are not sure — OTP still works</p>
                   <p>Verify your company email with OTP before continuing</p>
                 </TipBox>
               )}
@@ -1428,6 +1474,24 @@ export function SellerVerificationPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
+                      {form.website.trim() && !validateOptionalWebsite(form.website).ok ? (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 space-y-2">
+                          <p>
+                            Website “{form.website.trim()}” is invalid and blocks OTP. Clear it or
+                            use a real domain matching your email (e.g. https://karmbaba.com).
+                          </p>
+                          <button
+                            type="button"
+                            className="text-sm font-semibold text-primary underline underline-offset-2"
+                            onClick={() => {
+                              update("website", "");
+                              setError(null);
+                            }}
+                          >
+                            Clear website field
+                          </button>
+                        </div>
+                      ) : null}
                       <button
                         type="button"
                         disabled={otpSending || !form.contactEmail.trim()}
@@ -1437,7 +1501,12 @@ export function SellerVerificationPage() {
                         {otpSending ? <Loader2 size={16} className="animate-spin" /> : null}
                         Send OTP to company email
                       </button>
-                      {otpHint && <p className="text-sm text-muted-foreground">{otpHint}</p>}
+                      {error && step === 2 ? (
+                        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                          {error}
+                        </p>
+                      ) : null}
+                      {otpHint && <p className="text-sm text-emerald-800 font-medium">{otpHint}</p>}
                       <div>
                         <p className="text-sm font-medium mb-2">Enter 6-digit code</p>
                         <InputOTP
@@ -1484,7 +1553,7 @@ export function SellerVerificationPage() {
                   <StepHeader
                     icon={<FileCheck2 size={20} />}
                     title="GST registration"
-                    description="Optional for the Verified badge (GSTIN live verify + certificate OCR). After this step you must still Save & continue → Bank → Review, tick the declaration, and Submit."
+                    description="GSTIN is required. Live GSTN verify + certificate OCR are optional but unlock the Verified badge faster."
                   />
 
                   {needsGstCertOcr ? (
@@ -1497,10 +1566,7 @@ export function SellerVerificationPage() {
                   <FormPanel tone="amber">
                     <div>
                       <label className="block text-sm font-semibold text-[#1a3a4a] mb-2">
-                        GSTIN{" "}
-                        <span className="font-normal text-muted-foreground">
-                          (for Verified badge)
-                        </span>
+                        GSTIN <span className="text-red-600">*</span>
                         {fieldErrors.gstin ? (
                           <span className="text-red-600 font-normal ml-1">— {fieldErrors.gstin}</span>
                         ) : null}
@@ -1542,7 +1608,7 @@ export function SellerVerificationPage() {
                             <Check size={14} /> Live GSTN verified
                           </span>
                         ) : (
-                          "Optional — skip to continue, or enter GSTIN and verify for the badge"
+                          "Required — 15-character GSTIN with valid checksum. Live verify is optional."
                         )}
                       </p>
                       {error && !gstLiveVerified ? (
@@ -1660,10 +1726,10 @@ export function SellerVerificationPage() {
                   </FormPanel>
 
                   <TipBox>
-                    <p>You can skip GSTIN and certificate to create your seller account</p>
-                    <p>Verified badge needs GSTN live verify + GST certificate OCR</p>
+                    <p>GSTIN is required to submit seller verification</p>
+                    <p>Verified badge needs GSTN live verify + GST certificate OCR (optional now)</p>
                     <p>Multi-page GST certificates work best as PDF — we OCR each page if needed</p>
-                    <p>If you enter a GSTIN, it must be exactly 15 characters with a valid checksum</p>
+                    <p>GSTIN must be exactly 15 characters with a valid checksum</p>
                   </TipBox>
                 </>
               ) : (
@@ -1769,7 +1835,7 @@ export function SellerVerificationPage() {
                 title="Review & get verified"
                 description={
                   india
-                    ? "Check everything once more. Tick the declaration, then Submit. GST + certificate OCR unlock the Verified badge (can be done on the GST step before or after submit)."
+                    ? "Check everything once more. Required: company, contact, GSTIN, and bank details. Certificate OCR and Aadhaar are optional (Verified badge). Tick the declaration, then Submit."
                     : "Check your registration and tax details. Tick the declaration, then Submit. After submit, we review your profile and schedule a short video verification call."
                 }
               />
@@ -1822,20 +1888,16 @@ export function SellerVerificationPage() {
                     <>
                   <ReviewRow
                     label="GSTIN"
-                    value={
-                      form.gstin.trim()
-                        ? form.gstin
-                        : "Skipped — needed for Verified badge"
-                    }
+                    value={form.gstin.trim() ? form.gstin : ""}
+                    missing={!form.gstin.trim()}
                     highlight={gstLiveVerified}
-                    muted={!form.gstin.trim()}
                   />
-                  {gstLiveRecord ? (
+                  {form.gstin.trim() && gstLiveRecord ? (
                     <ReviewRow label="GSTN status" value={gstLiveRecord.status} highlight />
                   ) : form.gstin.trim() && !gstLiveVerified ? (
                     <ReviewRow
-                      label="GSTN"
-                      value="Not live-verified yet"
+                      label="GSTN live verify"
+                      value="Optional — unlocks faster badge review"
                       muted
                     />
                   ) : null}
@@ -1846,7 +1908,7 @@ export function SellerVerificationPage() {
                         ? "Verified ✓"
                         : form.gstCertificateDocumentUrl.trim()
                           ? "Uploaded — scan OCR for badge"
-                          : "Skipped — needed for Verified badge"
+                          : "Optional — Verified badge only"
                     }
                     highlight={gstCertificateOcrVerified}
                     muted={!gstCertificateOcrVerified}
@@ -1856,7 +1918,7 @@ export function SellerVerificationPage() {
                       value={
                         form.aadhaarDocumentUrl.trim()
                           ? "Document uploaded ✓"
-                          : "Skipped — needed for Verified badge"
+                          : "Optional — Verified badge only"
                       }
                       muted={!form.aadhaarDocumentUrl.trim()}
                     />
@@ -1888,10 +1950,16 @@ export function SellerVerificationPage() {
 
                 {india ? (
                 <ReviewCard title="Banking" icon={<Landmark size={16} />}>
-                  <ReviewRow label="Account name" value={form.bankAccountName || "—"} />
-                  {form.bankIfsc ? (
-                    <ReviewRow label="IFSC" value={form.bankIfsc} />
-                  ) : null}
+                  <ReviewRow
+                    label="Account name"
+                    value={form.bankAccountName}
+                    missing={!form.bankAccountName.trim()}
+                  />
+                  <ReviewRow
+                    label="IFSC"
+                    value={form.bankIfsc}
+                    missing={!form.bankIfsc.trim()}
+                  />
                   {form.certifications.trim() ? (
                     <ReviewRow label="Certifications" value={form.certifications} />
                   ) : null}

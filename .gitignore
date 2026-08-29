@@ -61,3 +61,6 @@ Thumbs.db
 .cache/
 .local/
 .git.broken-backup/
+.env
+.env.*
+!.env.example

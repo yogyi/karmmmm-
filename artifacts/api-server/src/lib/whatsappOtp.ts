@@ -1,48 +1,37 @@
 import { logger } from "./logger";
+import { buildWhatsappE164 } from "./phoneDialCodes";
 
 export type SendWhatsappOtpInput = {
   to: string;
   code: string;
+  /** Country name or dial digits — used when `to` is a national number. */
+  country?: string | null;
 };
 
 /**
- * Fallback WhatsApp OTP when Sendmator is not configured.
- * Uses Meta Cloud API if set; otherwise logs in development.
+ * Try Meta Cloud WhatsApp only. Returns null when Meta is not configured.
  */
 export async function sendWhatsappOtp(
   input: SendWhatsappOtpInput,
-): Promise<{ ok: true; mode: "meta" | "dev-log" } | { ok: false; error: string }> {
-  const to = normalizeWhatsappTo(input.to);
+): Promise<{ ok: true; mode: "meta" } | { ok: false; error: string } | null> {
+  const to = normalizeWhatsappTo(input.to, input.country);
   if (!to) {
     return { ok: false, error: "Enter a valid WhatsApp number with country code" };
   }
 
   const body = `Your Karm Baba buyer verification code is ${input.code}. It expires in 15 minutes.`;
-
-  const meta = await sendViaMeta(to, body, input.code);
-  if (meta) return meta;
-
-  if (process.env.NODE_ENV === "production" || process.env.VERCEL === "1") {
-    return {
-      ok: false,
-      error:
-        "WhatsApp delivery is not configured. Set SENDMATOR_API_KEY or Meta WhatsApp credentials.",
-    };
-  }
-
-  logger.info({ to, code: input.code }, "Dev WhatsApp OTP (no provider) — OTP logged");
-  return { ok: true, mode: "dev-log" };
+  return sendViaMeta(to, body, input.code);
 }
 
-/** E.164-ish digits with leading +. */
-export function normalizeWhatsappTo(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const digits = trimmed.replace(/[^\d+]/g, "");
-  const withPlus = digits.startsWith("+") ? digits : `+${digits.replace(/^\+/, "")}`;
-  const only = withPlus.replace(/\D/g, "");
-  if (only.length < 8 || only.length > 15) return null;
-  return `+${only}`;
+/**
+ * Normalize to E.164 (+…).
+ * Pass `country` (e.g. "India") so national numbers like 9876543210 become +919876543210.
+ */
+export function normalizeWhatsappTo(
+  raw: string,
+  country?: string | null,
+): string | null {
+  return buildWhatsappE164(raw, country);
 }
 
 async function sendViaMeta(

@@ -75,7 +75,8 @@ export function overseasPhaseFromUser(
     user.buyerWhatsappVerified;
 
   if (!startedOverseas) return null;
-  if (user.buyerCompanyEmailVerified && user.buyerWhatsappVerified) {
+  // WhatsApp verification paused — email alone unlocks company profile step.
+  if (user.buyerCompanyEmailVerified) {
     return "overseas-profile";
   }
   return "overseas-otp";
@@ -84,5 +85,5 @@ export function overseasPhaseFromUser(
 export function resumeStepLabel(phase: BuyerKycResumePhase): string {
   return phase === "overseas-profile"
     ? "Finish your company details (step 2 of 2)."
-    : "Continue email and WhatsApp verification (step 1 of 2).";
+    : "Continue company email verification (step 1 of 2).";
 }

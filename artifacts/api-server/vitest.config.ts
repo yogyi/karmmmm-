@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.integration.test.ts"],
     // @workspace/db requires DATABASE_URL at import time; unit tests do not hit the DB.
     env: {
       DATABASE_URL:

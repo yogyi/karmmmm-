@@ -38,7 +38,7 @@ import {
 import { ObjectStorageService } from "../lib/objectStorage";
 import { Readable } from "node:stream";
 import { isIndiaCountry, isValidContactPhone } from "../lib/country";
-import { validateBusinessEmail } from "../lib/businessEmail";
+import { validateBusinessEmail, validateOptionalWebsite } from "../lib/businessEmail";
 import {
   canonicalState,
   firstCompanyProfileError,
@@ -917,6 +917,13 @@ router.post(
       if (typeof data.website === "string") {
         patch.website = site;
       }
+      if (site) {
+        const siteCheck = validateOptionalWebsite(site);
+        if (!siteCheck.ok) {
+          res.status(400).json({ error: siteCheck.error });
+          return;
+        }
+      }
       if (!isIndiaCountry(countryForEmail)) {
         const biz = validateBusinessEmail(contactEmail, site);
         if (!biz.ok) {
@@ -1111,21 +1118,23 @@ router.post(
         existing.country ??
         "India";
       if (isIndiaCountry(country)) {
-        // GSTIN / certificate / Aadhaar optional to create seller account.
-        // Verified badge is granted only via GST certificate OCR (separate endpoint).
         const gstinRaw =
           (patch.gstin as string | undefined) ?? existing.gstin ?? "";
-        if (gstinRaw.trim()) {
-          const gst = validateGstin(gstinRaw);
-          if (!gst.ok) {
-            res.status(400).json({
-              error: "GSTIN looks invalid. Fix it on the GST step or clear it to submit without GST.",
-            });
-            return;
-          }
-          patch.gstin = gst.gstin;
-          patch.pan = gst.pan;
+        if (!gstinRaw.trim()) {
+          res.status(400).json({
+            error: "GSTIN is required before verification. Complete the GST step.",
+          });
+          return;
         }
+        const gst = validateGstin(gstinRaw);
+        if (!gst.ok) {
+          res.status(400).json({
+            error: gst.error ?? "GSTIN looks invalid. Fix it on the GST step.",
+          });
+          return;
+        }
+        patch.gstin = gst.gstin;
+        patch.pan = gst.pan;
         const bankAccountName =
           (patch.bankAccountName as string | undefined) ?? existing.bankAccountName ?? "";
         const bankIfsc =
@@ -1683,10 +1692,9 @@ router.post(
       sent: true,
       email: biz.email,
       expiresAt: expires.toISOString(),
-      ...(sent.previewCode ? { previewCode: sent.previewCode } : {}),
       message:
         sent.mode === "dev-log"
-          ? "Dev mode: OTP logged on server (and returned as previewCode)"
+          ? "Verification code generated (check server logs in development)"
           : sent.mode === "sendmator"
             ? `Verification code sent to ${biz.email}`
             : `Code sent to ${biz.email}`,

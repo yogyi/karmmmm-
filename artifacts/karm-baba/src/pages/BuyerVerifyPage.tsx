@@ -8,14 +8,13 @@ import {
   Globe2,
   Loader2,
   Mail,
-  MessageCircle,
   ShieldCheck,
 } from "lucide-react";
 import { useAuth as useClerkAuth } from "@clerk/react";
 import { useAuth } from "@/context/AuthContext";
 import { COUNTRY_OPTIONS, isIndiaCountry } from "@/lib/country";
 import { guessUserCountry } from "@/lib/guessCountry";
-import { validateBusinessEmail } from "@/lib/businessEmail";
+import { validateBusinessEmail, validateBuyerCompanyProfile } from "@/lib/businessEmail";
 import {
   InputOTP,
   InputOTPGroup,
@@ -99,17 +98,18 @@ export function BuyerVerifyPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [email, setEmail] = useState("");
-  const [whatsapp, setWhatsapp] = useState("");
   const [emailCode, setEmailCode] = useState("");
-  const [waCode, setWaCode] = useState("");
   const [emailHint, setEmailHint] = useState<string | null>(null);
-  const [waHint, setWaHint] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
-  const [waVerified, setWaVerified] = useState(false);
 
   const [country, setCountry] = useState("");
   const [registrationNumber, setRegistrationNumber] = useState("");
   const [website, setWebsite] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{
+    country?: string;
+    registrationNumber?: string;
+    website?: string;
+  }>({});
   const [resumeWelcome, setResumeWelcome] = useState(false);
   const [savedResume, setSavedResume] = useState(() => readBuyerKycResume());
 
@@ -133,9 +133,7 @@ export function BuyerVerifyPage() {
       return;
     }
     if (user?.buyerCompanyEmail) setEmail(user.buyerCompanyEmail);
-    if (user?.buyerWhatsapp) setWhatsapp(user.buyerWhatsapp);
     if (user?.buyerCompanyEmailVerified) setEmailVerified(true);
-    if (user?.buyerWhatsappVerified) setWaVerified(true);
 
     if (profileHydratedRef.current) return;
     profileHydratedRef.current = true;
@@ -156,7 +154,6 @@ export function BuyerVerifyPage() {
     setSavedResume(local);
     if (local) {
       if (local.email) setEmail(local.email);
-      if (local.whatsapp) setWhatsapp(local.whatsapp);
       if (local.country) setCountry(local.country);
       if (local.registrationNumber) setRegistrationNumber(local.registrationNumber);
       if (local.website) setWebsite(local.website);
@@ -168,18 +165,18 @@ export function BuyerVerifyPage() {
     writeBuyerKycResume({
       phase: phase as BuyerKycResumePhase,
       email: email || undefined,
-      whatsapp: whatsapp || undefined,
       country: country || undefined,
       registrationNumber: registrationNumber || undefined,
       website: website || undefined,
     });
     setSavedResume(readBuyerKycResume());
-  }, [phase, email, whatsapp, country, registrationNumber, website]);
+  }, [phase, email, country, registrationNumber, website]);
 
   useEffect(() => {
     let cancelled = false;
     void guessUserCountry().then((c) => {
-      if (!cancelled && c) setGuessedCountry(c);
+      if (cancelled || !c) return;
+      setGuessedCountry(c);
     });
     return () => {
       cancelled = true;
@@ -250,7 +247,6 @@ export function BuyerVerifyPage() {
     setError(null);
     const local = readBuyerKycResume();
     if (local?.email) setEmail(local.email);
-    if (local?.whatsapp) setWhatsapp(local.whatsapp);
     if (local?.country) setCountry(local.country);
     if (local?.registrationNumber) setRegistrationNumber(local.registrationNumber);
     if (local?.website) setWebsite(local.website);
@@ -283,11 +279,7 @@ export function BuyerVerifyPage() {
       } | null;
       if (!res.ok) throw new Error(body?.error ?? "Could not send email code");
       setEmailVerified(false);
-      setEmailHint(
-        body?.previewCode
-          ? `Development code: ${body.previewCode}`
-          : (body?.message ?? "Verification code sent to your company email"),
-      );
+      setEmailHint(body?.message ?? "Verification code sent to your company email");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -305,62 +297,12 @@ export function BuyerVerifyPage() {
         body: JSON.stringify({ code: emailCode }),
       });
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      if (!res.ok) throw new Error(body?.error ?? "Incorrect code");
+      if (!res.ok) {
+        setEmailCode("");
+        throw new Error(body?.error ?? "Incorrect code — try again");
+      }
       setEmailVerified(true);
       setEmailCode("");
-      await refreshProfile();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function sendWaOtp() {
-    setBusy(true);
-    setError(null);
-    setWaHint(null);
-    try {
-      const res = await fetch("/api/users/me/buyer-kyc/whatsapp-otp", {
-        method: "POST",
-        headers: await authHeaders(),
-        body: JSON.stringify({
-          whatsapp,
-          country: country || guessedCountry || "AE",
-        }),
-      });
-      const body = (await res.json().catch(() => null)) as {
-        error?: string;
-        message?: string;
-        previewCode?: string;
-      } | null;
-      if (!res.ok) throw new Error(body?.error ?? "Could not send WhatsApp code");
-      setWaVerified(false);
-      setWaHint(
-        body?.previewCode
-          ? `Development code: ${body.previewCode}`
-          : (body?.message ?? "Verification code sent on WhatsApp"),
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirmWaOtp() {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/users/me/buyer-kyc/whatsapp-otp/confirm", {
-        method: "POST",
-        headers: await authHeaders(),
-        body: JSON.stringify({ code: waCode }),
-      });
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      if (!res.ok) throw new Error(body?.error ?? "Incorrect code");
-      setWaVerified(true);
-      setWaCode("");
       await refreshProfile();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -372,14 +314,42 @@ export function BuyerVerifyPage() {
   async function submitProfile() {
     setBusy(true);
     setError(null);
+    const localErrors = validateBuyerCompanyProfile({
+      country,
+      registrationNumber,
+      website,
+      email,
+    });
+    if (Object.keys(localErrors).length > 0) {
+      setFieldErrors(localErrors);
+      setError(
+        localErrors.registrationNumber ||
+          localErrors.website ||
+          localErrors.country ||
+          "Fix the highlighted fields",
+      );
+      setBusy(false);
+      return;
+    }
+    setFieldErrors({});
     try {
       const res = await fetch("/api/users/me/buyer-kyc/profile", {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({ country, registrationNumber, website }),
       });
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      if (!res.ok) throw new Error(body?.error ?? "Could not save company profile");
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        fieldErrors?: {
+          country?: string;
+          registrationNumber?: string;
+          website?: string;
+        };
+      } | null;
+      if (!res.ok) {
+        if (body?.fieldErrors) setFieldErrors(body.fieldErrors);
+        throw new Error(body?.error ?? "Could not save company profile");
+      }
       clearBuyerKycResume();
       clearIndiaBuyerActivated();
       await refreshProfile();
@@ -503,7 +473,7 @@ export function BuyerVerifyPage() {
               ) : null}
             </p>
             <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-              Company email + WhatsApp OTP, then registration number, country, and website.
+              Company email OTP, then registration number, country, and website.
             </p>
             <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
               Start verification <ArrowRight size={14} />
@@ -513,20 +483,19 @@ export function BuyerVerifyPage() {
 
         <div className="mt-6 flex items-start gap-2 rounded-xl bg-muted/50 border border-border/80 px-4 py-3 text-xs text-muted-foreground leading-relaxed">
           <ShieldCheck size={16} className="shrink-0 text-primary mt-0.5" />
-          We verify company-domain email and WhatsApp so suppliers know they are dealing with
-          real importers — not free-mail sign-ups.
+          We verify company-domain email so suppliers know they are dealing with real importers —
+          not free-mail sign-ups.
         </div>
       </BuyerVerifyLayout>
     );
   }
 
   if (phase === "overseas-otp") {
-    const bothVerified = emailVerified && waVerified;
     return (
       <BuyerVerifyLayout
         {...layoutProps}
-        title="Verify your business contacts"
-        subtitle="Step 1 of 2 — confirm company email and WhatsApp. Use your own domain (not Gmail or Yahoo)."
+        title="Verify your business email"
+        subtitle="Step 1 of 2 — confirm your company email. Use your own domain (not Gmail or Yahoo)."
       >
         {error ? <ErrorBanner message={error} /> : null}
         {resumeWelcome ? (
@@ -586,56 +555,6 @@ export function BuyerVerifyPage() {
               </div>
             ) : null}
           </div>
-
-          <div className="rounded-xl border border-border p-4 sm:p-5 space-y-4">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <MessageCircle size={16} className="text-primary" />
-                WhatsApp
-              </div>
-              {waVerified ? <VerifiedBadge label="Verified" /> : null}
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                value={whatsapp}
-                onChange={(e) => {
-                  setWhatsapp(e.target.value);
-                  setWaVerified(false);
-                }}
-                placeholder="+971 50 … or +254 7 …"
-                disabled={waVerified || busy}
-                className="flex-1 min-h-11 rounded-xl border border-border px-3 text-sm bg-white disabled:opacity-70"
-              />
-              <button
-                type="button"
-                disabled={busy || waVerified || !whatsapp.trim()}
-                onClick={() => void sendWaOtp()}
-                className="shrink-0 min-h-11 px-4 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-60"
-              >
-                Send code
-              </button>
-            </div>
-            {waHint ? <p className="text-xs text-muted-foreground">{waHint}</p> : null}
-            {!waVerified ? (
-              <div className="space-y-3 pt-1">
-                <InputOTP maxLength={6} value={waCode} onChange={setWaCode} disabled={busy}>
-                  <InputOTPGroup>
-                    {[0, 1, 2, 3, 4, 5].map((i) => (
-                      <InputOTPSlot key={i} index={i} />
-                    ))}
-                  </InputOTPGroup>
-                </InputOTP>
-                <button
-                  type="button"
-                  disabled={busy || waCode.length !== 6}
-                  onClick={() => void confirmWaOtp()}
-                  className="text-sm font-semibold text-primary disabled:opacity-50"
-                >
-                  Confirm WhatsApp code
-                </button>
-              </div>
-            ) : null}
-          </div>
         </section>
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
@@ -652,7 +571,7 @@ export function BuyerVerifyPage() {
           </button>
           <button
             type="button"
-            disabled={!bothVerified}
+            disabled={!emailVerified}
             onClick={() => {
               setError(null);
               setResumeWelcome(false);
@@ -686,8 +605,14 @@ export function BuyerVerifyPage() {
           <span className="text-sm font-semibold text-foreground">Country</span>
           <select
             value={country}
-            onChange={(e) => setCountry(e.target.value)}
-            className="w-full min-h-11 rounded-xl border border-border px-3 text-sm bg-white"
+            onChange={(e) => {
+              setCountry(e.target.value);
+              setFieldErrors((f) => ({ ...f, country: undefined }));
+            }}
+            className={cn(
+              "w-full min-h-11 rounded-xl border px-3 text-sm bg-white",
+              fieldErrors.country ? "border-red-400" : "border-border",
+            )}
           >
             <option value="">Select country</option>
             {overseasCountries.map((c) => (
@@ -696,6 +621,9 @@ export function BuyerVerifyPage() {
               </option>
             ))}
           </select>
+          {fieldErrors.country ? (
+            <p className="text-xs text-red-700">{fieldErrors.country}</p>
+          ) : null}
         </label>
 
         <label className="block space-y-2">
@@ -704,23 +632,46 @@ export function BuyerVerifyPage() {
           </span>
           <input
             value={registrationNumber}
-            onChange={(e) => setRegistrationNumber(e.target.value)}
-            placeholder="Trade licence / CR / incorporation no."
-            className="w-full min-h-11 rounded-xl border border-border px-3 text-sm"
+            onChange={(e) => {
+              setRegistrationNumber(e.target.value);
+              setFieldErrors((f) => ({ ...f, registrationNumber: undefined }));
+            }}
+            placeholder="e.g. CR-1234567 or trade licence no."
+            className={cn(
+              "w-full min-h-11 rounded-xl border px-3 text-sm",
+              fieldErrors.registrationNumber ? "border-red-400" : "border-border",
+            )}
           />
+          {fieldErrors.registrationNumber ? (
+            <p className="text-xs text-red-700">{fieldErrors.registrationNumber}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Use your real trade licence / CR / incorporation number (must include digits).
+            </p>
+          )}
         </label>
 
         <label className="block space-y-2">
           <span className="text-sm font-semibold text-foreground">Company website</span>
           <input
             value={website}
-            onChange={(e) => setWebsite(e.target.value)}
+            onChange={(e) => {
+              setWebsite(e.target.value);
+              setFieldErrors((f) => ({ ...f, website: undefined }));
+            }}
             placeholder="https://www.yourcompany.com"
-            className="w-full min-h-11 rounded-xl border border-border px-3 text-sm"
+            className={cn(
+              "w-full min-h-11 rounded-xl border px-3 text-sm",
+              fieldErrors.website ? "border-red-400" : "border-border",
+            )}
           />
-          <p className="text-xs text-muted-foreground">
-            Must match the domain on your verified company email.
-          </p>
+          {fieldErrors.website ? (
+            <p className="text-xs text-red-700">{fieldErrors.website}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Must match the domain on your verified company email.
+            </p>
+          )}
         </label>
       </div>
 

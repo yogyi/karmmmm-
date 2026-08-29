@@ -20,6 +20,30 @@ export function isRfqClosed(status: string): boolean {
   return status === "accepted" || status === "rejected";
 }
 
+const LIST_SUMMARY_QUOTE_STATUSES = ["active", "awarded", "pending_confirm"] as const;
+
+type QuoteSummaryRow = {
+  unitPrice: Prisma.Decimal | number;
+  message?: string | null;
+  updatedAt?: Date;
+  status: string;
+};
+
+/** Lowest active quote for list teasers; awarded quote wins when present. */
+export function pickBestQuoteForListSummary(
+  quotes: QuoteSummaryRow[],
+): QuoteSummaryRow | null {
+  const eligible = quotes.filter((q) =>
+    LIST_SUMMARY_QUOTE_STATUSES.includes(
+      q.status as (typeof LIST_SUMMARY_QUOTE_STATUSES)[number],
+    ),
+  );
+  if (eligible.length === 0) return null;
+  const awarded = eligible.find((q) => q.status === "awarded");
+  if (awarded) return awarded;
+  return [...eligible].sort((a, b) => Number(a.unitPrice) - Number(b.unitPrice))[0] ?? null;
+}
+
 export function formatRfqQuote(q: {
   id: number;
   rfqId: number;
@@ -113,7 +137,7 @@ export async function refreshRfqQuoteSummary(rfqId: number): Promise<void> {
   const rfq = await prisma.rfq.findUnique({ where: { id: rfqId } });
   if (!rfq || isRfqClosed(rfq.status) || isRfqAwaitingSellerConfirm(rfq.status)) return;
 
-  const best = quotes.find((q) => q.status === "awarded") ?? quotes[0] ?? null;
+  const best = pickBestQuoteForListSummary(quotes);
   await prisma.rfq.update({
     where: { id: rfqId },
     data: {
@@ -226,13 +250,18 @@ export async function submitSellerQuote(opts: {
       },
     });
 
+    const activeQuotes = await tx.rfqQuote.findMany({
+      where: { rfqId, status: "active" },
+    });
+    const best = pickBestQuoteForListSummary(activeQuotes);
+
     await tx.rfq.update({
       where: { id: rfqId },
       data: {
-        status: "responded",
-        quotedPrice: unitPrice,
-        sellerMessage: message,
-        quotedAt: new Date(),
+        status: activeQuotes.length > 0 ? "responded" : "pending",
+        quotedPrice: best?.unitPrice ?? null,
+        sellerMessage: best?.message ?? null,
+        quotedAt: best?.updatedAt ?? new Date(),
       },
     });
 
@@ -425,9 +454,8 @@ export async function declinePendingRfqConfirm(opts: {
 
     const remainingQuotes = await tx.rfqQuote.findMany({
       where: { rfqId, status: { in: ["active", "pending_confirm"] } },
-      orderBy: { unitPrice: "asc" },
     });
-    const best = remainingQuotes[0] ?? null;
+    const best = pickBestQuoteForListSummary(remainingQuotes);
 
     await tx.rfq.update({
       where: { id: rfqId },

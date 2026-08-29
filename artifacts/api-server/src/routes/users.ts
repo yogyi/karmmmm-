@@ -12,8 +12,7 @@ import { getAuthenticatedDbUser, isAdmin } from "../lib/authorize";
 import { hashPassword, verifyPassword } from "../lib/password";
 import { rateLimit } from "../lib/rateLimit";
 import { resolveVerifiedClerkEmail } from "../lib/clerkEmail";
-import { validateBusinessEmail } from "../lib/businessEmail";
-import { isIndiaCountry, isValidContactPhone } from "../lib/country";
+import { validateBusinessEmail, validateBuyerCompanyProfile } from "../lib/businessEmail";
 import { buyerKycPublicFields } from "../lib/buyerKyc";
 import {
   generateEmailOtp,
@@ -651,10 +650,9 @@ router.post(
       sent: true,
       email: biz.email,
       expiresAt: expires.toISOString(),
-      ...(sent.previewCode ? { previewCode: sent.previewCode } : {}),
       message:
         sent.mode === "dev-log"
-          ? "Dev mode: OTP logged on server (and returned as previewCode)"
+          ? "Verification code generated (check server logs in development)"
           : sent.mode === "sendmator"
             ? `Verification code sent to ${biz.email}`
             : `Code sent to ${biz.email}`,
@@ -748,19 +746,15 @@ router.post(
       dbUser.buyerWhatsapp ||
       "";
     const countryHint =
+      (typeof body.dialCode === "string" && body.dialCode.trim()) ||
       (typeof body.country === "string" && body.country.trim()) ||
       dbUser.buyerCountry ||
-      "AE";
-    if (!isValidContactPhone(rawPhone, countryHint) && !normalizeWhatsappTo(rawPhone)) {
-      res.status(400).json({
-        error: "Enter a valid WhatsApp number with country code (e.g. +2547… or +9715…)",
-      });
-      return;
-    }
-    const to = normalizeWhatsappTo(rawPhone);
+      null;
+    const to = normalizeWhatsappTo(rawPhone, countryHint);
     if (!to) {
       res.status(400).json({
-        error: "Enter a valid WhatsApp number with country code (e.g. +2547… or +9715…)",
+        error:
+          "Enter a valid WhatsApp number. Select your country code (e.g. +91 for India) and mobile number.",
       });
       return;
     }
@@ -781,7 +775,12 @@ router.post(
       },
     });
 
-    const sent = await deliverWhatsappOtp(to, code);
+    const backupEmail =
+      (typeof body.email === "string" && body.email.trim()) ||
+      dbUser.buyerCompanyEmail ||
+      null;
+
+    const sent = await deliverWhatsappOtp(to, code, { backupEmail });
     if (!sent.ok) {
       res.status(502).json({ error: sent.error });
       return;
@@ -796,17 +795,27 @@ router.post(
       });
     }
 
+    const via = sent.deliveredVia;
+    const viaSms = via.some((v) => v === "sms" || v.includes("sms"));
+    const viaEmail = via.some((v) => v.startsWith("email"));
+    const viaWa = via.some((v) => v.includes("whatsapp") || v === "meta-whatsapp");
+
+    const parts: string[] = [];
+    if (viaSms) parts.push("SMS");
+    if (viaWa) parts.push("WhatsApp");
+    if (viaEmail) parts.push("email");
+
     res.json({
       sent: true,
       whatsapp: to,
       expiresAt: expires.toISOString(),
-      ...(sent.previewCode ? { previewCode: sent.previewCode } : {}),
+      deliveredVia: via,
       message:
         sent.mode === "dev-log"
-          ? "Dev mode: WhatsApp OTP logged on server (and returned as previewCode)"
-          : sent.mode === "sendmator"
-            ? `Verification code sent to WhatsApp ${to}`
-            : `Code sent to WhatsApp ${to}`,
+          ? "Verification code ready — check the API server logs (development)"
+          : parts.length > 0
+            ? `Code sent via ${parts.join(" + ")} to ${to}${viaEmail ? " / your company email" : ""}`
+            : `Verification code sent for ${to}`,
     });
   },
 );
@@ -824,7 +833,7 @@ router.post(
     const body = (req.body ?? {}) as Record<string, unknown>;
     const code = typeof body.code === "string" ? body.code.trim() : "";
     if (!/^\d{6}$/.test(code)) {
-      res.status(400).json({ error: "Enter the 6-digit code from WhatsApp" });
+      res.status(400).json({ error: "Enter the 6-digit code from SMS, WhatsApp, or email" });
       return;
     }
     const phone = dbUser.buyerWhatsapp ?? "";
@@ -877,7 +886,8 @@ router.post(
 
 /**
  * Overseas step 2: company registration number + country + website.
- * Completes buyer KYC when email + WhatsApp are already verified.
+ * Completes buyer KYC when company email is verified.
+ * (WhatsApp verification temporarily not required — re-enable later.)
  */
 router.post(
   "/users/me/buyer-kyc/profile",
@@ -889,9 +899,9 @@ router.post(
       res.status(401).json({ error: "Authentication required" });
       return;
     }
-    if (!dbUser.buyerCompanyEmailVerified || !dbUser.buyerWhatsappVerified) {
+    if (!dbUser.buyerCompanyEmailVerified) {
       res.status(400).json({
-        error: "Verify company email and WhatsApp first (step 1)",
+        error: "Verify your company email first (step 1)",
       });
       return;
     }
@@ -906,18 +916,22 @@ router.post(
     const websiteRaw = typeof body.website === "string" ? body.website : "";
     const website = normalizeWebsite(websiteRaw);
 
-    if (!country) {
-      res.status(400).json({ error: "Select your country" });
-      return;
-    }
-    if (isIndiaCountry(country)) {
+    const email = dbUser.buyerCompanyEmail ?? "";
+    const fieldErrors = validateBuyerCompanyProfile({
+      country,
+      registrationNumber: reg,
+      website: websiteRaw,
+      email,
+    });
+    if (Object.keys(fieldErrors).length > 0) {
       res.status(400).json({
-        error: "Indian buyers use the India path — no registration number needed",
+        error:
+          fieldErrors.registrationNumber ||
+          fieldErrors.website ||
+          fieldErrors.country ||
+          "Fix the highlighted fields",
+        fieldErrors,
       });
-      return;
-    }
-    if (!reg || reg.length < 3) {
-      res.status(400).json({ error: "Enter your company registration / trade licence number" });
       return;
     }
     if (!website) {
@@ -925,10 +939,9 @@ router.post(
       return;
     }
 
-    const email = dbUser.buyerCompanyEmail ?? "";
     const biz = validateBusinessEmail(email, website);
     if (!biz.ok) {
-      res.status(400).json({ error: biz.error });
+      res.status(400).json({ error: biz.error, fieldErrors: { website: biz.error } });
       return;
     }
 
