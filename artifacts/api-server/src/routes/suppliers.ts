@@ -49,7 +49,7 @@ import {
   otpExpiresAt,
   otpResendAllowed,
 } from "../lib/emailOtp";
-import { confirmEmailOtp, deliverEmailOtp } from "../lib/otpDelivery";
+import { confirmEmailOtp, deliverEmailOtp, encodeSendmatorSession, isSendmatorSession } from "../lib/otpDelivery";
 import { rateLimit } from "../lib/rateLimit";
 import {
   checkUsernameAvailability,
@@ -1670,10 +1670,12 @@ router.post(
       return;
     }
 
-    if (sent.usesTwilioVerify) {
+    if (sent.usesSendmator && sent.sessionToken) {
       await prisma.supplier.update({
         where: { id: supplierId },
-        data: { businessEmailOtpHash: null },
+        data: {
+          businessEmailOtpHash: encodeSendmatorSession(sent.sessionToken),
+        },
       });
     }
 
@@ -1685,8 +1687,8 @@ router.post(
       message:
         sent.mode === "dev-log"
           ? "Dev mode: OTP logged on server (and returned as previewCode)"
-          : sent.mode === "twilio-verify"
-            ? `Verification code sent to ${biz.email} via Twilio`
+          : sent.mode === "sendmator"
+            ? `Verification code sent to ${biz.email}`
             : `Code sent to ${biz.email}`,
     });
   },
@@ -1735,9 +1737,9 @@ router.post(
       return;
     }
     const email = existing.contactEmail ?? "";
-    const usesTwilioVerify = !existing.businessEmailOtpHash;
+    const usesSendmator = isSendmatorSession(existing.businessEmailOtpHash);
     if (
-      !usesTwilioVerify &&
+      !usesSendmator &&
       (!existing.businessEmailOtpExpiresAt ||
         existing.businessEmailOtpExpiresAt.getTime() < Date.now())
     ) {

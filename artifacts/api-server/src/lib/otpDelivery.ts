@@ -4,22 +4,44 @@ import {
   verifyEmailOtpHash,
 } from "./emailOtp";
 import { sendMail } from "./mail";
-import { isTwilioVerifyConfigured, twilioVerifyCheck, twilioVerifySend } from "./twilioVerify";
+import {
+  decodeSendmatorSession,
+  encodeSendmatorSession,
+  isSendmatorConfigured,
+  isSendmatorSession,
+  sendmatorOtpSend,
+  sendmatorOtpVerify,
+  type SendmatorChannel,
+} from "./sendmatorOtp";
 import { sendWhatsappOtp } from "./whatsappOtp";
 
-export type OtpDeliveryMode = "twilio-verify" | "twilio" | "meta" | "resend" | "dev-log";
+export type OtpDeliveryMode = "sendmator" | "meta" | "resend" | "dev-log";
+
+export { encodeSendmatorSession, isSendmatorSession };
 
 export async function deliverEmailOtp(
   email: string,
   code: string,
 ): Promise<
-  | { ok: true; mode: OtpDeliveryMode; usesTwilioVerify: boolean; previewCode?: string }
+  | {
+      ok: true;
+      mode: OtpDeliveryMode;
+      usesSendmator: boolean;
+      sessionToken?: string;
+      previewCode?: string;
+    }
   | { ok: false; error: string }
 > {
-  if (isTwilioVerifyConfigured()) {
-    const sent = await twilioVerifySend(email, "email");
+  if (isSendmatorConfigured()) {
+    const sent = await sendmatorOtpSend("email", email);
     if (sent.ok) {
-      return { ok: true, mode: "twilio-verify", usesTwilioVerify: true };
+      return {
+        ok: true,
+        mode: "sendmator",
+        usesSendmator: true,
+        sessionToken: sent.sessionToken,
+        ...(sent.previewCode ? { previewCode: sent.previewCode } : {}),
+      };
     }
     return sent;
   }
@@ -34,7 +56,7 @@ export async function deliverEmailOtp(
   return {
     ok: true,
     mode: sent.mode,
-    usesTwilioVerify: false,
+    usesSendmator: false,
     ...(sent.mode === "dev-log" ? { previewCode: code } : {}),
   };
 }
@@ -48,10 +70,11 @@ export async function confirmEmailOtp(
   | { ok: true }
   | { ok: false; error: string; status: number; locked?: boolean }
 > {
-  if (isTwilioVerifyConfigured() && !storedHash) {
-    const checked = await twilioVerifyCheck(email, code);
+  const session = decodeSendmatorSession(storedHash);
+  if (session) {
+    const checked = await sendmatorOtpVerify(session, "email", code);
     if (!checked.ok) {
-      if (checked.invalid) {
+      if (checked.invalid && !checked.locked) {
         const attempt = recordFailedOtpConfirm(userId, "email");
         if (attempt.locked) {
           return {
@@ -61,15 +84,18 @@ export async function confirmEmailOtp(
             error: "Too many incorrect attempts — request a new code",
           };
         }
+        const remaining =
+          checked.attemptsRemaining ?? attempt.remaining;
         return {
           ok: false,
           status: 400,
-          error: `Incorrect code — ${attempt.remaining} attempt(s) remaining`,
+          error: `Incorrect code — ${remaining} attempt(s) remaining`,
         };
       }
       return {
         ok: false,
-        status: checked.expired ? 400 : 400,
+        status: checked.locked ? 429 : 400,
+        locked: checked.locked,
         error: checked.error,
       };
     }
@@ -101,13 +127,25 @@ export async function deliverWhatsappOtp(
   to: string,
   code: string,
 ): Promise<
-  | { ok: true; mode: OtpDeliveryMode; usesTwilioVerify: boolean; previewCode?: string }
+  | {
+      ok: true;
+      mode: OtpDeliveryMode;
+      usesSendmator: boolean;
+      sessionToken?: string;
+      previewCode?: string;
+    }
   | { ok: false; error: string }
 > {
-  if (isTwilioVerifyConfigured()) {
-    const sent = await twilioVerifySend(to, "whatsapp");
+  if (isSendmatorConfigured()) {
+    const sent = await sendmatorOtpSend("whatsapp", to);
     if (sent.ok) {
-      return { ok: true, mode: "twilio-verify", usesTwilioVerify: true };
+      return {
+        ok: true,
+        mode: "sendmator",
+        usesSendmator: true,
+        sessionToken: sent.sessionToken,
+        ...(sent.previewCode ? { previewCode: sent.previewCode } : {}),
+      };
     }
     return sent;
   }
@@ -117,7 +155,7 @@ export async function deliverWhatsappOtp(
   return {
     ok: true,
     mode: sent.mode,
-    usesTwilioVerify: false,
+    usesSendmator: false,
     ...(sent.mode === "dev-log" ? { previewCode: code } : {}),
   };
 }
@@ -131,10 +169,11 @@ export async function confirmWhatsappOtp(
   | { ok: true }
   | { ok: false; error: string; status: number; locked?: boolean }
 > {
-  if (isTwilioVerifyConfigured() && !storedHash) {
-    const checked = await twilioVerifyCheck(phone, code);
+  const session = decodeSendmatorSession(storedHash);
+  if (session) {
+    const checked = await sendmatorOtpVerify(session, "whatsapp", code);
     if (!checked.ok) {
-      if (checked.invalid) {
+      if (checked.invalid && !checked.locked) {
         const attempt = recordFailedOtpConfirm(userId, "whatsapp");
         if (attempt.locked) {
           return {
@@ -144,13 +183,20 @@ export async function confirmWhatsappOtp(
             error: "Too many incorrect attempts — request a new code",
           };
         }
+        const remaining =
+          checked.attemptsRemaining ?? attempt.remaining;
         return {
           ok: false,
           status: 400,
-          error: `Incorrect code — ${attempt.remaining} attempt(s) remaining`,
+          error: `Incorrect code — ${remaining} attempt(s) remaining`,
         };
       }
-      return { ok: false, status: 400, error: checked.error };
+      return {
+        ok: false,
+        status: checked.locked ? 429 : 400,
+        locked: checked.locked,
+        error: checked.error,
+      };
     }
     resetOtpConfirmAttempts(userId, "whatsapp");
     return { ok: true };

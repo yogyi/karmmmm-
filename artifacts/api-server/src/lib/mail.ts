@@ -9,7 +9,7 @@ export type SendMailInput = {
 
 /**
  * Send transactional email.
- * Prefer Twilio Verify (via otpDelivery) for OTP flows.
+ * Prefer Sendmator OTP (via otpDelivery) for verification flows.
  * Falls back to Resend when RESEND_API_KEY is set; otherwise logs in development.
  */
 export async function sendMail(
@@ -51,7 +51,7 @@ export async function sendMail(
     return {
       ok: false,
       error:
-        "Email delivery is not configured. Set TWILIO_VERIFY_SERVICE_SID + Twilio API credentials, or RESEND_API_KEY and EMAIL_FROM.",
+        "Email delivery is not configured. Set SENDMATOR_API_KEY, or RESEND_API_KEY and EMAIL_FROM.",
     };
   }
 

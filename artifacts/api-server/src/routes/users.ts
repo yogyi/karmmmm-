@@ -26,6 +26,8 @@ import {
   confirmWhatsappOtp,
   deliverEmailOtp,
   deliverWhatsappOtp,
+  encodeSendmatorSession,
+  isSendmatorSession,
 } from "../lib/otpDelivery";
 import { normalizeWhatsappTo } from "../lib/whatsappOtp";
 
@@ -636,10 +638,12 @@ router.post(
       return;
     }
 
-    if (sent.usesTwilioVerify) {
+    if (sent.usesSendmator && sent.sessionToken) {
       await prisma.user.update({
         where: { id: dbUser.id },
-        data: { buyerCompanyEmailOtpHash: null },
+        data: {
+          buyerCompanyEmailOtpHash: encodeSendmatorSession(sent.sessionToken),
+        },
       });
     }
 
@@ -651,8 +655,8 @@ router.post(
       message:
         sent.mode === "dev-log"
           ? "Dev mode: OTP logged on server (and returned as previewCode)"
-          : sent.mode === "twilio-verify"
-            ? `Verification code sent to ${biz.email} via Twilio`
+          : sent.mode === "sendmator"
+            ? `Verification code sent to ${biz.email}`
             : `Code sent to ${biz.email}`,
     });
   },
@@ -675,9 +679,9 @@ router.post(
       return;
     }
     const email = dbUser.buyerCompanyEmail ?? "";
-    const usesTwilioVerify = !dbUser.buyerCompanyEmailOtpHash;
+    const usesSendmator = isSendmatorSession(dbUser.buyerCompanyEmailOtpHash);
     if (
-      !usesTwilioVerify &&
+      !usesSendmator &&
       (!dbUser.buyerCompanyEmailOtpExpiresAt ||
         dbUser.buyerCompanyEmailOtpExpiresAt.getTime() < Date.now())
     ) {
@@ -783,10 +787,12 @@ router.post(
       return;
     }
 
-    if (sent.usesTwilioVerify) {
+    if (sent.usesSendmator && sent.sessionToken) {
       await prisma.user.update({
         where: { id: dbUser.id },
-        data: { buyerWhatsappOtpHash: null },
+        data: {
+          buyerWhatsappOtpHash: encodeSendmatorSession(sent.sessionToken),
+        },
       });
     }
 
@@ -798,8 +804,8 @@ router.post(
       message:
         sent.mode === "dev-log"
           ? "Dev mode: WhatsApp OTP logged on server (and returned as previewCode)"
-          : sent.mode === "twilio-verify"
-            ? `Verification code sent to WhatsApp ${to} via Twilio`
+          : sent.mode === "sendmator"
+            ? `Verification code sent to WhatsApp ${to}`
             : `Code sent to WhatsApp ${to}`,
     });
   },
@@ -822,9 +828,9 @@ router.post(
       return;
     }
     const phone = dbUser.buyerWhatsapp ?? "";
-    const usesTwilioVerify = !dbUser.buyerWhatsappOtpHash;
+    const usesSendmator = isSendmatorSession(dbUser.buyerWhatsappOtpHash);
     if (
-      !usesTwilioVerify &&
+      !usesSendmator &&
       (!dbUser.buyerWhatsappOtpExpiresAt ||
         dbUser.buyerWhatsappOtpExpiresAt.getTime() < Date.now())
     ) {
