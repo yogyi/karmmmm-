@@ -67,6 +67,23 @@ export function HomePage() {
 
   return (
     <div>
+      {/* Trial offer promo */}
+      <div className="bg-primary text-white text-center px-4 py-2.5 text-sm font-medium">
+        <span className="inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+          <span className="bg-white/20 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+            New
+          </span>
+          Sellers: Start your 14-day trial for just ₹99
+          <button
+            type="button"
+            onClick={() => navigate("/trial")}
+            className="underline underline-offset-2 font-bold hover:text-white/90 transition-colors"
+          >
+            Learn more →
+          </button>
+        </span>
+      </div>
+
       {/* Hero */}
       <section className="relative overflow-hidden text-white hero-pattern">
         <div className="absolute top-0 right-0 w-96 h-96 bg-primary/25 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl pointer-events-none" />
