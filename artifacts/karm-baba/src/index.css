@@ -463,19 +463,6 @@
     50% { transform: translateY(-8px); }
   }
 
-  @keyframes kb-trial-pulse {
-    0%, 100% { box-shadow: 0 10px 24px -12px rgba(255, 122, 0, 0.9); }
-    50% { box-shadow: 0 10px 32px -8px rgba(255, 122, 0, 1), 0 0 0 4px rgba(255, 122, 0, 0.15); }
-  }
-
-  .kb-trial-pulse {
-    animation: kb-trial-pulse 2.5s ease-in-out infinite;
-  }
-
-  .kb-trial-sticky {
-    padding-bottom: env(safe-area-inset-bottom, 0);
-  }
-
   /* Hide native number spinners (quote / quantity fields) */
   .no-spinner {
     -moz-appearance: textfield;

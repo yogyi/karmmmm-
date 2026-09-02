@@ -162,7 +162,6 @@ export function Footer() {
             </h4>
             <ul className="flex flex-col gap-2 text-sm text-white/60">
               {[
-                { label: "₹99 Seller Trial", path: "/trial" },
                 { label: "Seller Central", path: "/seller" },
                 { label: "Verification", path: "/seller/verify" },
                 { label: "CRM Leads", path: "/seller/leads" },
@@ -195,7 +194,7 @@ export function Footer() {
                 "Best Wholesale Prices",
                 "24/7 Buyer Support",
                 "Pan-India Delivery",
-                "Free Registration",
+                "Secure Trade Platform",
               ].map((item) => (
                 <li key={item} className="flex gap-2">
                   <span className="text-primary flex-shrink-0" aria-hidden>

@@ -134,7 +134,7 @@ export function RegisterPage() {
           </button>
 
           <div className="mb-2 text-center">
-            <h1 className="font-heading text-2xl font-bold text-foreground">Join free</h1>
+            <h1 className="font-heading text-2xl font-bold text-foreground">Create account</h1>
             <p className="text-sm text-muted-foreground mt-1">
               {mode === "seller" ? "Create your seller account" : "Create your buyer account"}
             </p>

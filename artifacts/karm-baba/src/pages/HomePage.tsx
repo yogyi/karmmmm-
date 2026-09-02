@@ -67,23 +67,6 @@ export function HomePage() {
 
   return (
     <div>
-      {/* Trial offer promo */}
-      <div className="bg-primary text-white text-center px-4 py-2.5 text-sm font-medium">
-        <span className="inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
-          <span className="bg-white/20 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-            New
-          </span>
-          Sellers: Start your 14-day trial for just ₹99
-          <button
-            type="button"
-            onClick={() => navigate("/trial")}
-            className="underline underline-offset-2 font-bold hover:text-white/90 transition-colors"
-          >
-            Learn more →
-          </button>
-        </span>
-      </div>
-
       {/* Hero */}
       <section className="relative overflow-hidden text-white hero-pattern">
         <div className="absolute top-0 right-0 w-96 h-96 bg-primary/25 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl pointer-events-none" />
@@ -185,7 +168,7 @@ export function HomePage() {
             {[
               { icon: <BadgeCheck size={16} className="text-green-400" />, text: "KYC Verified Suppliers" },
               { icon: <Globe size={16} className="text-blue-400" />, text: "Pan-India Shipping" },
-              { icon: <Users size={16} className="text-amber-400" />, text: "Free Registration" },
+              { icon: <Users size={16} className="text-amber-400" />, text: "Trusted by Buyers" },
             ].map(item => (
               <div key={item.text} className="flex items-center gap-1.5">
                 {item.icon}
@@ -567,7 +550,7 @@ export function HomePage() {
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-400/15 rounded-full -translate-x-1/4 translate-y-1/4 blur-3xl pointer-events-none" />
           <div className="relative min-w-0">
             <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-3 sm:px-4 py-1.5 text-xs sm:text-sm text-white/90 mb-5">
-              <Sparkles size={14} className="text-primary shrink-0" /> Free to join — No listing fees
+              <Sparkles size={14} className="text-primary shrink-0" /> Verified B2B marketplace
             </div>
             <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-3 text-balance">Ready to Grow Your Business?</h2>
             <p className="text-white/75 mb-8 max-w-xl mx-auto text-base sm:text-lg">Join thousands of buyers and suppliers already trading on Karm Baba.</p>
@@ -577,7 +560,7 @@ export function HomePage() {
                 onClick={() => navigate("/register?mode=buyer")}
                 className="bg-primary hover:bg-primary/90 text-white px-6 sm:px-8 py-3.5 rounded-xl font-semibold transition-all hover:shadow-lg hover:shadow-primary/30 flex items-center justify-center gap-2 min-h-11 w-full sm:w-auto"
               >
-                Start Buying Free <ArrowRight size={16} />
+                Start Buying <ArrowRight size={16} />
               </button>
               <button
                 type="button"

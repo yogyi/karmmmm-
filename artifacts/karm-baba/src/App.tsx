@@ -28,7 +28,6 @@ import { BuyerVerifyPage } from "@/pages/BuyerVerifyPage";
 import { SellerVerificationPage } from "@/pages/SellerVerificationPage";
 import { SellerLeadsPage } from "@/pages/SellerLeadsPage";
 import { SellerShopPlansPage } from "@/pages/SellerShopPlansPage";
-import { TrialLandingPage } from "@/pages/TrialLandingPage";
 import { ShareProfilePage } from "@/pages/ShareProfilePage";
 import { PrivacyPage, TermsPage, RefundPage } from "@/pages/LegalPages";
 import { ProfilePage } from "@/pages/ProfilePage";
@@ -86,7 +85,6 @@ function Router() {
       <Route path="/seller/verify" component={() => <PageLayout><SellerVerificationPage /></PageLayout>} />
       <Route path="/seller/leads" component={() => <PageLayout><SellerLeadsPage /></PageLayout>} />
       <Route path="/seller/plans" component={() => <PageLayout><SellerShopPlansPage /></PageLayout>} />
-      <Route path="/trial" component={() => <PageLayout><TrialLandingPage /></PageLayout>} />
       <Route path="/account" component={() => <PageLayout><ProfilePage /></PageLayout>} />
       <Route path="/seller" component={() => <PageLayout><DashboardPage /></PageLayout>} />
       <Route path="/dashboard" component={() => <PageLayout><DashboardPage /></PageLayout>} />

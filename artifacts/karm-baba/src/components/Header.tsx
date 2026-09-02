@@ -259,7 +259,7 @@ export function Header() {
                   onClick={() => navigate("/register?mode=buyer")}
                   className="inline-flex items-center min-h-9 px-2.5 sm:px-3 rounded-lg kb-btn-primary text-white font-semibold text-[11px] sm:text-xs"
                 >
-                  Join Free
+                  Join
                 </button>
               </>
             ) : (
@@ -790,7 +790,7 @@ export function Header() {
                   }}
                   className="w-full bg-primary text-white py-2.5 rounded-xl text-sm font-semibold text-center"
                 >
-                  Join Free
+                  Join
                 </button>
               </div>
             )}

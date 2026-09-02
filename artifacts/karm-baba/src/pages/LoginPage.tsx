@@ -252,7 +252,7 @@ export function LoginPage() {
               }
               className="text-primary font-semibold hover:underline"
             >
-              Join free as {mode === "seller" ? "Seller" : "Buyer"}
+              Register as {mode === "seller" ? "Seller" : "Buyer"}
             </button>
           </p>
         </div>
