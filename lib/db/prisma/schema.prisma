@@ -24,35 +24,35 @@ model Category {
 }
 
 model User {
-  id                  Int      @id @default(autoincrement())
-  clerkId             String?  @unique @map("clerk_id")
-  name                String
-  email               String   @unique
-  password            String?
-  role                String   @default("buyer")
-  company             String?
-  avatarUrl           String?  @map("avatar_url")
-  supplierId          Int?     @map("supplier_id")
-  onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  id                            Int       @id @default(autoincrement())
+  clerkId                       String?   @unique @map("clerk_id")
+  name                          String
+  email                         String    @unique
+  password                      String?
+  role                          String    @default("buyer")
+  company                       String?
+  avatarUrl                     String?   @map("avatar_url")
+  supplierId                    Int?      @map("supplier_id")
+  onboardingCompleted           Boolean   @default(false) @map("onboarding_completed")
   /// True once this Clerk user has completed buyer-side setup (can free-switch to buyer).
-  buyerEnabled        Boolean  @default(false) @map("buyer_enabled")
+  buyerEnabled                  Boolean   @default(false) @map("buyer_enabled")
   /// True once this Clerk user has completed seller-side setup (can free-switch to seller).
-  sellerEnabled       Boolean  @default(false) @map("seller_enabled")
+  sellerEnabled                 Boolean   @default(false) @map("seller_enabled")
   /// Buyer KYC: India = one-tap; overseas = company email + WhatsApp OTP + reg/country/website.
-  buyerCountry                    String?   @map("buyer_country")
-  buyerCompanyEmail               String?   @map("buyer_company_email")
-  buyerCompanyEmailVerified       Boolean   @default(false) @map("buyer_company_email_verified")
-  buyerCompanyEmailOtpHash        String?   @map("buyer_company_email_otp_hash")
-  buyerCompanyEmailOtpExpiresAt   DateTime? @map("buyer_company_email_otp_expires_at")
-  buyerWhatsapp                   String?   @map("buyer_whatsapp")
-  buyerWhatsappVerified           Boolean   @default(false) @map("buyer_whatsapp_verified")
-  buyerWhatsappOtpHash            String?   @map("buyer_whatsapp_otp_hash")
-  buyerWhatsappOtpExpiresAt       DateTime? @map("buyer_whatsapp_otp_expires_at")
-  buyerRegistrationNumber         String?   @map("buyer_registration_number")
-  buyerWebsite                    String?   @map("buyer_website")
-  buyerKycCompleted               Boolean   @default(false) @map("buyer_kyc_completed")
-  buyerKycCompletedAt             DateTime? @map("buyer_kyc_completed_at")
-  createdAt           DateTime @default(now()) @map("created_at")
+  buyerCountry                  String?   @map("buyer_country")
+  buyerCompanyEmail             String?   @map("buyer_company_email")
+  buyerCompanyEmailVerified     Boolean   @default(false) @map("buyer_company_email_verified")
+  buyerCompanyEmailOtpHash      String?   @map("buyer_company_email_otp_hash")
+  buyerCompanyEmailOtpExpiresAt DateTime? @map("buyer_company_email_otp_expires_at")
+  buyerWhatsapp                 String?   @map("buyer_whatsapp")
+  buyerWhatsappVerified         Boolean   @default(false) @map("buyer_whatsapp_verified")
+  buyerWhatsappOtpHash          String?   @map("buyer_whatsapp_otp_hash")
+  buyerWhatsappOtpExpiresAt     DateTime? @map("buyer_whatsapp_otp_expires_at")
+  buyerRegistrationNumber       String?   @map("buyer_registration_number")
+  buyerWebsite                  String?   @map("buyer_website")
+  buyerKycCompleted             Boolean   @default(false) @map("buyer_kyc_completed")
+  buyerKycCompletedAt           DateTime? @map("buyer_kyc_completed_at")
+  createdAt                     DateTime  @default(now()) @map("created_at")
 
   supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   rfqs     Rfq[]     @relation("RfqBuyer")
@@ -63,64 +63,64 @@ model User {
 }
 
 model Supplier {
-  id                 Int       @id @default(autoincrement())
-  companyName        String    @map("company_name")
-  legalName          String?   @map("legal_name")
-  slug               String?   @unique
-  description        String?
-  location           String
-  country            String?
-  businessAddress    String?   @map("business_address")
-  city               String?
-  state              String?
-  pincode            String?
-  logoUrl            String?   @map("logo_url")
-  coverUrl           String?   @map("cover_url")
-  videoUrl           String?   @map("video_url")
-  shareImageUrl      String?   @map("share_image_url")
-  verified           Boolean   @default(false)
-  verificationStatus String    @default("draft") @map("verification_status")
-  verificationStep   Int       @default(1) @map("verification_step")
-  verifiedAt         DateTime? @map("verified_at")
-  gstin              String?   @unique
-  pan                String?
+  id                              Int       @id @default(autoincrement())
+  companyName                     String    @map("company_name")
+  legalName                       String?   @map("legal_name")
+  slug                            String?   @unique
+  description                     String?
+  location                        String
+  country                         String?
+  businessAddress                 String?   @map("business_address")
+  city                            String?
+  state                           String?
+  pincode                         String?
+  logoUrl                         String?   @map("logo_url")
+  coverUrl                        String?   @map("cover_url")
+  videoUrl                        String?   @map("video_url")
+  shareImageUrl                   String?   @map("share_image_url")
+  verified                        Boolean   @default(false)
+  verificationStatus              String    @default("draft") @map("verification_status")
+  verificationStep                Int       @default(1) @map("verification_step")
+  verifiedAt                      DateTime? @map("verified_at")
+  gstin                           String?   @unique
+  pan                             String?
   /// Last live GSTN status from verification API (e.g. Active, Cancelled).
-  gstLiveStatus      String?   @map("gst_live_status")
-  gstLiveVerifiedAt  DateTime? @map("gst_live_verified_at")
-  gstTradeName       String?   @map("gst_trade_name")
+  gstLiveStatus                   String?   @map("gst_live_status")
+  gstLiveVerifiedAt               DateTime? @map("gst_live_verified_at")
+  gstTradeName                    String?   @map("gst_trade_name")
   /// KYC: uploaded Aadhaar card (image/PDF) — owner/admin only, not public.
-  aadhaarDocumentUrl String?   @map("aadhaar_document_url")
+  aadhaarDocumentUrl              String?   @map("aadhaar_document_url")
   /// India KYC: uploaded GST registration certificate (private) — OCR-checked.
-  gstCertificateDocumentUrl   String?   @map("gst_certificate_document_url")
-  gstCertificateOcrVerifiedAt DateTime? @map("gst_certificate_ocr_verified_at")
-  gstCertificateOcrGstin      String?   @map("gst_certificate_ocr_gstin")
-  gstCertificateOcrLegalName  String?   @map("gst_certificate_ocr_legal_name")
+  gstCertificateDocumentUrl       String?   @map("gst_certificate_document_url")
+  gstCertificateOcrVerifiedAt     DateTime? @map("gst_certificate_ocr_verified_at")
+  gstCertificateOcrGstin          String?   @map("gst_certificate_ocr_gstin")
+  gstCertificateOcrLegalName      String?   @map("gst_certificate_ocr_legal_name")
   /// Truncated OCR JSON for admin audit (never public).
-  gstCertificateOcrRaw        String?   @map("gst_certificate_ocr_raw")
+  gstCertificateOcrRaw            String?   @map("gst_certificate_ocr_raw")
   /// Overseas KYC: trade licence / CR / incorporation certificate (private).
-  businessRegistrationDocumentUrl String? @map("business_registration_document_url")
-  businessRegistrationNumber      String? @map("business_registration_number")
-  gstVerified        Boolean   @default(false) @map("gst_verified")
-  contactPerson      String?   @map("contact_person")
-  contactPhone       String?   @map("contact_phone")
-  contactEmail       String?   @map("contact_email")
+  businessRegistrationDocumentUrl String?   @map("business_registration_document_url")
+  businessRegistrationNumber      String?   @map("business_registration_number")
+  gstVerified                     Boolean   @default(false) @map("gst_verified")
+  contactPerson                   String?   @map("contact_person")
+  contactPhone                    String?   @map("contact_phone")
+  contactEmail                    String?   @map("contact_email")
   /// Overseas KYC: company-domain mailbox confirmed via OTP (GST substitute).
-  businessEmailVerified     Boolean   @default(false) @map("business_email_verified")
-  businessEmailOtpHash      String?   @map("business_email_otp_hash")
-  businessEmailOtpExpiresAt DateTime? @map("business_email_otp_expires_at")
-  website            String?
-  bankAccountName    String?   @map("bank_account_name")
-  bankIfsc           String?   @map("bank_ifsc")
-  yearsInBusiness    Int?      @map("years_in_business")
-  employeeCount      String?   @map("employee_count")
-  mainProducts       String[]  @default([]) @map("main_products")
-  certifications     String[]  @default([])
-  rating             Decimal   @default(0) @db.Decimal(3, 2)
-  reviewCount        Int       @default(0) @map("review_count")
-  productCount       Int       @default(0) @map("product_count")
-  responseRate       Decimal?  @map("response_rate") @db.Decimal(5, 2)
-  responseTime       String?   @map("response_time")
-  createdAt          DateTime  @default(now()) @map("created_at")
+  businessEmailVerified           Boolean   @default(false) @map("business_email_verified")
+  businessEmailOtpHash            String?   @map("business_email_otp_hash")
+  businessEmailOtpExpiresAt       DateTime? @map("business_email_otp_expires_at")
+  website                         String?
+  bankAccountName                 String?   @map("bank_account_name")
+  bankIfsc                        String?   @map("bank_ifsc")
+  yearsInBusiness                 Int?      @map("years_in_business")
+  employeeCount                   String?   @map("employee_count")
+  mainProducts                    String[]  @default([]) @map("main_products")
+  certifications                  String[]  @default([])
+  rating                          Decimal   @default(0) @db.Decimal(3, 2)
+  reviewCount                     Int       @default(0) @map("review_count")
+  productCount                    Int       @default(0) @map("product_count")
+  responseRate                    Decimal?  @map("response_rate") @db.Decimal(5, 2)
+  responseTime                    String?   @map("response_time")
+  createdAt                       DateTime  @default(now()) @map("created_at")
 
   users        User[]
   products     Product[]
@@ -129,6 +129,7 @@ model Supplier {
   reviews      Review[]
   subscription ShopSubscription?
   leads        Lead[]
+  crmDeals     CrmDeal[]
 
   @@map("suppliers")
 }
@@ -188,39 +189,39 @@ model Rfq {
   openMarketplace Boolean   @default(false) @map("open_marketplace")
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  product       Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
-  category      Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  supplier      Supplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  buyer         User?      @relation("RfqBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
-  lead          Lead?
-  quotes        RfqQuote[]
-  awardedQuote  RfqQuote?  @relation("RfqAwardedQuote", fields: [awardedQuoteId], references: [id], onDelete: SetNull)
+  product      Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  category     Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  supplier     Supplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  buyer        User?      @relation("RfqBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  lead         Lead?
+  quotes       RfqQuote[]
+  awardedQuote RfqQuote?  @relation("RfqAwardedQuote", fields: [awardedQuoteId], references: [id], onDelete: SetNull)
 
   @@map("rfq")
 }
 
 /// One competitive quote per supplier per RFQ. Buyer awards exactly one to close the deal.
 model RfqQuote {
-  id            Int       @id @default(autoincrement())
-  rfqId         Int       @map("rfq_id")
-  supplierId    Int       @map("supplier_id")
-  supplierName  String    @map("supplier_name")
-  unitPrice     Decimal   @map("unit_price") @db.Decimal(12, 2)
-  currency      String    @default("INR")
-  quantity      Int
-  unit          String
-  leadTimeDays  Int?      @map("lead_time_days")
-  validDays     Int?      @map("valid_days")
-  paymentTerms  String?   @map("payment_terms")
-  message       String?
+  id           Int      @id @default(autoincrement())
+  rfqId        Int      @map("rfq_id")
+  supplierId   Int      @map("supplier_id")
+  supplierName String   @map("supplier_name")
+  unitPrice    Decimal  @map("unit_price") @db.Decimal(12, 2)
+  currency     String   @default("INR")
+  quantity     Int
+  unit         String
+  leadTimeDays Int?     @map("lead_time_days")
+  validDays    Int?     @map("valid_days")
+  paymentTerms String?  @map("payment_terms")
+  message      String?
   /// active | withdrawn | awarded | declined | pending_confirm
-  status        String    @default("active")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  status       String   @default("active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  rfq      Rfq      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
-  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  awardedOn Rfq[]   @relation("RfqAwardedQuote")
+  rfq       Rfq      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplier  Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  awardedOn Rfq[]    @relation("RfqAwardedQuote")
 
   @@unique([rfqId, supplierId])
   @@index([rfqId, status])
@@ -247,19 +248,19 @@ model Review {
 
 /// Subscription plan catalog (Free → Enterprise).
 model Plan {
-  id               Int     @id @default(autoincrement())
-  code             String  @unique
+  id               Int      @id @default(autoincrement())
+  code             String   @unique
   name             String
   description      String?
-  maxProducts      Int     @default(3) @map("max_products")
-  monthlyLeadQuota Int     @default(10) @map("monthly_lead_quota")
+  maxProducts      Int      @default(3) @map("max_products")
+  monthlyLeadQuota Int      @default(10) @map("monthly_lead_quota")
   features         String[] @default([])
-  priceInrMonthly  Int?    @map("price_inr_monthly")
-  priceInrYearly   Int?    @map("price_inr_yearly")
-  priceUsdMonthly  Int?    @map("price_usd_monthly")
-  priceUsdYearly   Int?    @map("price_usd_yearly")
-  sortOrder        Int     @default(0) @map("sort_order")
-  active           Boolean @default(true)
+  priceInrMonthly  Int?     @map("price_inr_monthly")
+  priceInrYearly   Int?     @map("price_inr_yearly")
+  priceUsdMonthly  Int?     @map("price_usd_monthly")
+  priceUsdYearly   Int?     @map("price_usd_yearly")
+  sortOrder        Int      @default(0) @map("sort_order")
+  active           Boolean  @default(true)
 
   subscriptions ShopSubscription[]
 
@@ -284,45 +285,72 @@ model ShopSubscription {
   @@map("shop_subscriptions")
 }
 
-/// CRM lead (KARM Leads Master).
+/// CRM lead — maps to Excel "KARM LEADS MASTER" + "CRM SYSTEM 1" core columns.
+/// Pipeline: new → requirements → quoted → negotiated → won|lost|on_hold
+/// Lead temperature (Type of Lead): hot | warm | cold
 model Lead {
-  id                 Int       @id @default(autoincrement())
-  karmId             String    @unique @map("karm_id")
-  supplierId         Int?      @map("supplier_id")
-  buyerId            Int?      @map("buyer_id")
-  rfqId              Int?      @unique @map("rfq_id")
-  name               String
-  company            String?
-  country            String?
-  phone              String?
-  email              String?
-  productInterest    String?   @map("product_interest")
-  avgMonthlyQty      String?   @map("avg_monthly_qty")
-  leadSource         String?   @map("lead_source")
-  requirementStatus  String    @default("new") @map("requirement_status")
-  quotationSent      Boolean   @default(false) @map("quotation_sent")
-  dealStatus         String    @default("open") @map("deal_status")
-  followUpAt         DateTime? @map("follow_up_at")
-  assignedTo         String?   @map("assigned_to")
-  comments           String?
-  lostReason         String?   @map("lost_reason")
-  industry           String?
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                   Int       @id @default(autoincrement())
+  /// Public org id e.g. KRM-001 (Excel: KARM ID).
+  karmId               String    @unique @map("karm_id")
+  supplierId           Int?      @map("supplier_id")
+  buyerId              Int?      @map("buyer_id")
+  rfqId                Int?      @unique @map("rfq_id")
+  /// Display / full name (Excel: First+Last or Person).
+  name                 String
+  firstName            String?   @map("first_name")
+  lastName             String?   @map("last_name")
+  company              String?
+  country              String?
+  phone                String?
+  email                String?
+  productInterest      String?   @map("product_interest")
+  avgMonthlyQty        String?   @map("avg_monthly_qty")
+  leadSource           String?   @map("lead_source")
+  /// new | requirements_gathered | quoted | negotiating | won | lost | on_hold
+  requirementStatus    String    @default("new") @map("requirement_status")
+  /// Excel: Get the Requirements.
+  requirementsGathered Boolean   @default(false) @map("requirements_gathered")
+  quotationSent        Boolean   @default(false) @map("quotation_sent")
+  /// open | won | lost | on_hold — Excel: Deal Status / Finalise.
+  dealStatus           String    @default("open") @map("deal_status")
+  /// hot | warm | cold — Excel: Type of Lead.
+  leadType             String    @default("warm") @map("lead_type")
+  followUpAt           DateTime? @map("follow_up_at")
+  assignedTo           String?   @map("assigned_to")
+  comments             String?
+  lostReason           String?   @map("lost_reason")
+  industry             String?
+  /// Excel: Karm Industry Insights (buyer-facing notes).
+  industryInsights     String?   @map("industry_insights")
+  /// Excel: KarmAI Action (customise deal / AI-send on behalf of supplier).
+  karmAiAction         String?   @map("karm_ai_action")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  supplier    Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  buyer       User?          @relation("LeadBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
-  rfq         Rfq?           @relation(fields: [rfqId], references: [id], onDelete: SetNull)
+  supplier    Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  buyer       User?           @relation("LeadBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  rfq         Rfq?            @relation(fields: [rfqId], references: [id], onDelete: SetNull)
   activities  LeadActivity[]
   quotations  Quotation[]
+  deals       CrmDeal[]
+  attachments CrmAttachment[]
 
   @@index([supplierId, requirementStatus])
+  @@index([supplierId, leadType])
+  @@index([supplierId, dealStatus])
+  @@index([followUpAt])
   @@map("leads")
 }
 
+/// Excel sheet: COMMUNICATION LOG.
 model LeadActivity {
   id         Int       @id @default(autoincrement())
+  /// Optional public id e.g. LOG-001 (Excel: Log ID).
+  logCode    String?   @unique @map("log_code")
   leadId     Int       @map("lead_id")
+  /// When the touch happened (Excel: Date). Defaults to createdAt semantics.
+  occurredAt DateTime  @default(now()) @map("occurred_at")
+  /// call | whatsapp | email | meeting | note | other (Excel: Mode).
   mode       String    @default("note")
   subject    String?
   summary    String
@@ -333,26 +361,129 @@ model LeadActivity {
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
-  @@index([leadId])
+  @@index([leadId, occurredAt])
   @@map("lead_activities")
 }
 
+/// Excel sheet: QUOTATIONS.
 model Quotation {
-  id          Int       @id @default(autoincrement())
-  leadId      Int       @map("lead_id")
-  productName String    @map("product_name")
-  quantity    Int?
-  unitPrice   Decimal?  @map("unit_price") @db.Decimal(12, 2)
-  currency    String    @default("INR")
-  incoterms   String?
-  validTill   DateTime? @map("valid_till")
-  status      String    @default("draft")
-  sentVia     String?   @map("sent_via")
-  notes       String?
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id            Int       @id @default(autoincrement())
+  /// Public id e.g. QT-001 (Excel: Quote ID).
+  quoteCode     String?   @unique @map("quote_code")
+  leadId        Int       @map("lead_id")
+  companyName   String?   @map("company_name")
+  productName   String    @map("product_name")
+  quantity      Int?
+  unitPrice     Decimal?  @map("unit_price") @db.Decimal(12, 2)
+  currency      String    @default("INR")
+  incoterms     String?
+  validTill     DateTime? @map("valid_till")
+  /// ai | manual — Excel: Customisation (AI/Manual).
+  customisation String?   @map("customisation")
+  /// draft | sent | accepted | rejected | expired
+  status        String    @default("draft")
+  /// email | whatsapp | both | other — Excel: Sent Via.
+  sentVia       String?   @map("sent_via")
+  sentAt        DateTime? @map("sent_at")
+  notes         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
 
-  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lead        Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  deals       CrmDeal[]
+  attachments CrmAttachment[]
 
   @@index([leadId])
+  @@index([status])
   @@map("quotations")
+}
+
+/// Excel sheet: DEALS — won / in-progress commercial order.
+model CrmDeal {
+  id             Int       @id @default(autoincrement())
+  /// Public id e.g. DEAL-001 (Excel: Deal ID).
+  dealCode       String    @unique @map("deal_code")
+  leadId         Int       @map("lead_id")
+  quotationId    Int?      @map("quotation_id")
+  supplierId     Int?      @map("supplier_id")
+  companyName    String?   @map("company_name")
+  productName    String    @map("product_name")
+  finalQuantity  Int?      @map("final_quantity")
+  finalPrice     Decimal?  @map("final_price") @db.Decimal(12, 2)
+  currency       String    @default("INR")
+  incoterms      String?
+  /// Excel: Deal Value (often qty × price).
+  dealValue      Decimal?  @map("deal_value") @db.Decimal(14, 2)
+  orderDate      DateTime? @map("order_date")
+  /// pending | processing | dispatched | delivered | cancelled
+  dispatchStatus String    @default("pending") @map("dispatch_status")
+  paymentTerms   String?   @map("payment_terms")
+  /// open | confirmed | completed | cancelled — Excel: Status.
+  status         String    @default("open")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  lead        Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  quotation   Quotation?      @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  supplier    Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  invoices    CrmInvoice[]
+  attachments CrmAttachment[]
+
+  @@index([leadId])
+  @@index([supplierId, status])
+  @@index([dispatchStatus])
+  @@map("crm_deals")
+}
+
+/// Excel sheet: INVOICING.
+model CrmInvoice {
+  id            Int       @id @default(autoincrement())
+  /// Public id e.g. INV-001 (Excel: Invoice ID).
+  invoiceCode   String    @unique @map("invoice_code")
+  dealId        Int       @map("deal_id")
+  companyName   String?   @map("company_name")
+  invoiceDate   DateTime  @default(now()) @map("invoice_date")
+  amount        Decimal   @db.Decimal(14, 2)
+  currency      String    @default("INR")
+  /// unpaid | partial | paid | overdue | cancelled — Excel: Payment Status.
+  paymentStatus String    @default("unpaid") @map("payment_status")
+  /// bank | upi | card | cash | other — Excel: Payment Mode.
+  paymentMode   String?   @map("payment_mode")
+  dueDate       DateTime? @map("due_date")
+  receivedDate  DateTime? @map("received_date")
+  remarks       String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  deal        CrmDeal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  attachments CrmAttachment[]
+
+  @@index([dealId])
+  @@index([paymentStatus])
+  @@index([dueDate])
+  @@map("crm_invoices")
+}
+
+/// CRM attachments — quotes, POs, invoices, misc (developer requirements: Attachment Handling).
+model CrmAttachment {
+  id          Int      @id @default(autoincrement())
+  leadId      Int?     @map("lead_id")
+  quotationId Int?     @map("quotation_id")
+  dealId      Int?     @map("deal_id")
+  invoiceId   Int?     @map("invoice_id")
+  /// quote | po | invoice | document | other
+  kind        String   @default("document")
+  fileName    String   @map("file_name")
+  fileUrl     String   @map("file_url")
+  mimeType    String?  @map("mime_type")
+  uploadedBy  String?  @map("uploaded_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  lead      Lead?       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  quotation Quotation?  @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  deal      CrmDeal?    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  invoice   CrmInvoice? @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([dealId])
+  @@map("crm_attachments")
 }
