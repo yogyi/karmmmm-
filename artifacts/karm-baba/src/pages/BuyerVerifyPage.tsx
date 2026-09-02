@@ -16,6 +16,11 @@ import { COUNTRY_OPTIONS, isIndiaCountry } from "@/lib/country";
 import { guessUserCountry } from "@/lib/guessCountry";
 import { validateBusinessEmail, validateBuyerCompanyProfile } from "@/lib/businessEmail";
 import {
+  emptyIndiaGstinHint,
+  validateIndiaBuyerProfile,
+} from "@/lib/indiaBuyerProfile";
+import { normalizeGstin } from "@/lib/gstin";
+import {
   InputOTP,
   InputOTPGroup,
   InputOTPSlot,
@@ -32,12 +37,17 @@ import {
 } from "@/lib/buyerKycResume";
 import { cn } from "@/lib/utils";
 
-type Phase = "region" | "overseas-otp" | "overseas-profile";
+type Phase = "region" | "india-profile" | "overseas-otp" | "overseas-profile";
 
 const OVERSEAS_STEPS = [
   { id: "region", label: "Location" },
   { id: "overseas-otp", label: "Verify" },
   { id: "overseas-profile", label: "Company" },
+] as const;
+
+const INDIA_STEPS = [
+  { id: "region", label: "Location" },
+  { id: "india-profile", label: "Details" },
 ] as const;
 
 function ErrorBanner({ message }: { message: string }) {
@@ -109,9 +119,18 @@ export function BuyerVerifyPage() {
     country?: string;
     registrationNumber?: string;
     website?: string;
+    name?: string;
+    company?: string;
+    phone?: string;
+    gstin?: string;
   }>({});
   const [resumeWelcome, setResumeWelcome] = useState(false);
   const [savedResume, setSavedResume] = useState(() => readBuyerKycResume());
+
+  const [indiaName, setIndiaName] = useState("");
+  const [indiaCompany, setIndiaCompany] = useState("");
+  const [indiaPhone, setIndiaPhone] = useState("");
+  const [indiaGstin, setIndiaGstin] = useState("");
 
   const overseasCountries = useMemo(
     () => COUNTRY_OPTIONS.filter((c) => !isIndiaCountry(c)),
@@ -134,6 +153,8 @@ export function BuyerVerifyPage() {
     }
     if (user?.buyerCompanyEmail) setEmail(user.buyerCompanyEmail);
     if (user?.buyerCompanyEmailVerified) setEmailVerified(true);
+    if (user?.name) setIndiaName((prev) => prev || user.name);
+    if (user?.company) setIndiaCompany((prev) => prev || String(user.company));
 
     if (profileHydratedRef.current) return;
     profileHydratedRef.current = true;
@@ -161,7 +182,7 @@ export function BuyerVerifyPage() {
   }, [isLoaded, profileReady, isLoggedIn, user, navigate]);
 
   useEffect(() => {
-    if (phase === "region") return;
+    if (phase !== "overseas-otp" && phase !== "overseas-profile") return;
     writeBuyerKycResume({
       phase: phase as BuyerKycResumePhase,
       email: email || undefined,
@@ -197,6 +218,24 @@ export function BuyerVerifyPage() {
       setError("Session expired. Please sign in again.");
       return;
     }
+    const parsed = validateIndiaBuyerProfile({
+      name: indiaName,
+      company: indiaCompany,
+      phone: indiaPhone,
+      gstin: indiaGstin,
+    });
+    if (!parsed.ok) {
+      setFieldErrors(parsed.errors);
+      setError(
+        parsed.errors.name ||
+          parsed.errors.company ||
+          parsed.errors.phone ||
+          parsed.errors.gstin ||
+          "Fix the highlighted fields",
+      );
+      return;
+    }
+    setFieldErrors({});
     setBusy(true);
     setError(null);
     setResumeWelcome(false);
@@ -206,12 +245,26 @@ export function BuyerVerifyPage() {
       const res = await fetch("/api/users/me/buyer-kyc/india", {
         method: "POST",
         headers: await authHeaders(),
-        body: "{}",
+        body: JSON.stringify({
+          name: parsed.value.name,
+          company: parsed.value.company,
+          phone: parsed.value.phone ?? "",
+          gstin: parsed.value.gstin ?? "",
+        }),
       });
       const body = (await res.json().catch(() => null)) as
-        | ({ error?: string } & Record<string, unknown>)
+        | ({
+            error?: string;
+            fieldErrors?: {
+              name?: string;
+              company?: string;
+              phone?: string;
+              gstin?: string;
+            };
+          } & Record<string, unknown>)
         | null;
       if (!res.ok) {
+        if (body?.fieldErrors) setFieldErrors(body.fieldErrors);
         if (import.meta.env.DEV && res.status === 404) {
           // Local dev only — when API routes are not deployed yet.
           markIndiaBuyerActivated(user.id);
@@ -232,6 +285,16 @@ export function BuyerVerifyPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function startIndiaProfile() {
+    setError(null);
+    setFieldErrors({});
+    setResumeWelcome(false);
+    clearIndiaBuyerActivated();
+    if (user?.name) setIndiaName((prev) => prev || user.name);
+    if (user?.company) setIndiaCompany((prev) => prev || String(user.company));
+    setPhase("india-profile");
   }
 
   function startOverseas() {
@@ -371,7 +434,12 @@ export function BuyerVerifyPage() {
 
   const layoutProps = {
     email: user.email,
-    steps: phase === "region" ? undefined : [...OVERSEAS_STEPS],
+    steps:
+      phase === "region"
+        ? undefined
+        : phase === "india-profile"
+          ? [...INDIA_STEPS]
+          : [...OVERSEAS_STEPS],
     activeStep: phase,
   };
 
@@ -426,7 +494,7 @@ export function BuyerVerifyPage() {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void activateIndia()}
+            onClick={() => startIndiaProfile()}
             className={cn(
               "group text-left rounded-2xl border-2 p-5 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-70",
               "border-border hover:border-primary/50 hover:shadow-md bg-white",
@@ -438,18 +506,10 @@ export function BuyerVerifyPage() {
             </div>
             <p className="font-semibold text-foreground mb-1">India</p>
             <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-              Instant access to Buyer Central. No extra verification steps.
+              Quick details for Buyer Central. GSTIN is optional.
             </p>
             <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
-              {busy ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" /> Activating…
-                </>
-              ) : (
-                <>
-                  Continue <ArrowRight size={14} />
-                </>
-              )}
+              Continue <ArrowRight size={14} />
             </span>
           </button>
 
@@ -485,6 +545,142 @@ export function BuyerVerifyPage() {
           <ShieldCheck size={16} className="shrink-0 text-primary mt-0.5" />
           We verify company-domain email so suppliers know they are dealing with real importers —
           not free-mail sign-ups.
+        </div>
+      </BuyerVerifyLayout>
+    );
+  }
+
+  if (phase === "india-profile") {
+    return (
+      <BuyerVerifyLayout
+        {...layoutProps}
+        title="Your buyer details"
+        subtitle="A few basics so suppliers know who you are. GSTIN is optional."
+      >
+        {error ? <ErrorBanner message={error} /> : null}
+
+        <div className="space-y-5">
+          <label className="block space-y-2">
+            <span className="text-sm font-semibold text-foreground">
+              Full name <span className="text-red-600">*</span>
+            </span>
+            <input
+              value={indiaName}
+              onChange={(e) => {
+                setIndiaName(e.target.value);
+                setFieldErrors((f) => ({ ...f, name: undefined }));
+              }}
+              placeholder="Your full name"
+              autoComplete="name"
+              disabled={busy}
+              className={cn(
+                "w-full min-h-11 rounded-xl border px-3 text-sm bg-white disabled:opacity-70",
+                fieldErrors.name ? "border-red-400" : "border-border",
+              )}
+            />
+            {fieldErrors.name ? (
+              <p className="text-xs text-red-700">{fieldErrors.name}</p>
+            ) : null}
+          </label>
+
+          <label className="block space-y-2">
+            <span className="text-sm font-semibold text-foreground">
+              Company / business name <span className="text-red-600">*</span>
+            </span>
+            <input
+              value={indiaCompany}
+              onChange={(e) => {
+                setIndiaCompany(e.target.value);
+                setFieldErrors((f) => ({ ...f, company: undefined }));
+              }}
+              placeholder="e.g. Mehta Trading Co."
+              autoComplete="organization"
+              disabled={busy}
+              className={cn(
+                "w-full min-h-11 rounded-xl border px-3 text-sm bg-white disabled:opacity-70",
+                fieldErrors.company ? "border-red-400" : "border-border",
+              )}
+            />
+            {fieldErrors.company ? (
+              <p className="text-xs text-red-700">{fieldErrors.company}</p>
+            ) : null}
+          </label>
+
+          <label className="block space-y-2">
+            <span className="text-sm font-semibold text-foreground">
+              Mobile number{" "}
+              <span className="font-normal text-muted-foreground">(optional)</span>
+            </span>
+            <input
+              value={indiaPhone}
+              onChange={(e) => {
+                setIndiaPhone(e.target.value);
+                setFieldErrors((f) => ({ ...f, phone: undefined }));
+              }}
+              placeholder="10-digit mobile"
+              inputMode="numeric"
+              autoComplete="tel"
+              disabled={busy}
+              className={cn(
+                "w-full min-h-11 rounded-xl border px-3 text-sm bg-white disabled:opacity-70",
+                fieldErrors.phone ? "border-red-400" : "border-border",
+              )}
+            />
+            {fieldErrors.phone ? (
+              <p className="text-xs text-red-700">{fieldErrors.phone}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">Indian mobile starting with 6–9</p>
+            )}
+          </label>
+
+          <label className="block space-y-2">
+            <span className="text-sm font-semibold text-foreground">
+              GSTIN <span className="font-normal text-muted-foreground">(optional)</span>
+            </span>
+            <input
+              value={indiaGstin}
+              onChange={(e) => {
+                setIndiaGstin(normalizeGstin(e.target.value).slice(0, 15));
+                setFieldErrors((f) => ({ ...f, gstin: undefined }));
+              }}
+              placeholder="22AAAAA0000A1Z5"
+              autoComplete="off"
+              spellCheck={false}
+              disabled={busy}
+              className={cn(
+                "w-full min-h-11 rounded-xl border px-3 text-sm bg-white uppercase tracking-wide disabled:opacity-70",
+                fieldErrors.gstin ? "border-red-400" : "border-border",
+              )}
+            />
+            {fieldErrors.gstin ? (
+              <p className="text-xs text-red-700">{fieldErrors.gstin}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">{emptyIndiaGstinHint()}</p>
+            )}
+          </label>
+        </div>
+
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setFieldErrors({});
+              setPhase("region");
+            }}
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft size={16} /> Back
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void activateIndia()}
+            className="inline-flex items-center gap-2 kb-btn-primary px-5 py-2.5 text-sm disabled:opacity-60"
+          >
+            {busy ? <Loader2 size={16} className="animate-spin" /> : null}
+            Continue to Buyer Central <ArrowRight size={16} />
+          </button>
         </div>
       </BuyerVerifyLayout>
     );

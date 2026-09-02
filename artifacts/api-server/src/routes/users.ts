@@ -29,6 +29,7 @@ import {
   isSendmatorSession,
 } from "../lib/otpDelivery";
 import { normalizeWhatsappTo } from "../lib/whatsappOtp";
+import { validateIndiaBuyerProfile } from "../lib/indiaBuyerProfile";
 
 const router: IRouter = Router();
 
@@ -547,8 +548,9 @@ const buyerKycLimiter = rateLimit({
 });
 
 /**
- * India buyers: one tap — no uploads, no OTP.
+ * India buyers: short profile form (name, company; phone + GSTIN optional) — no OTP/uploads.
  * Marks buyer KYC complete so they skip the overseas 2-step flow.
+ * Optional GSTIN is stored on buyerRegistrationNumber; optional phone on buyerWhatsapp (unverified).
  */
 router.post(
   "/users/me/buyer-kyc/india",
@@ -565,9 +567,37 @@ router.post(
       return;
     }
 
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const parsed = validateIndiaBuyerProfile({
+      name:
+        (typeof body.name === "string" && body.name) ||
+        dbUser.name ||
+        "",
+      company:
+        (typeof body.company === "string" && body.company) ||
+        dbUser.company ||
+        "",
+      phone: typeof body.phone === "string" ? body.phone : "",
+      gstin: typeof body.gstin === "string" ? body.gstin : "",
+    });
+    if (!parsed.ok) {
+      res.status(400).json({
+        error:
+          parsed.errors.name ||
+          parsed.errors.company ||
+          parsed.errors.phone ||
+          parsed.errors.gstin ||
+          "Fix the highlighted fields",
+        fieldErrors: parsed.errors,
+      });
+      return;
+    }
+
     const updated = await prisma.user.update({
       where: { id: dbUser.id },
       data: {
+        name: parsed.value.name,
+        company: parsed.value.company,
         buyerCountry: "India",
         buyerKycCompleted: true,
         buyerKycCompletedAt: new Date(),
@@ -576,11 +606,12 @@ router.post(
         buyerCompanyEmailVerified: false,
         buyerCompanyEmailOtpHash: null,
         buyerCompanyEmailOtpExpiresAt: null,
-        buyerWhatsapp: null,
+        buyerWhatsapp: parsed.value.phoneE164,
         buyerWhatsappVerified: false,
         buyerWhatsappOtpHash: null,
         buyerWhatsappOtpExpiresAt: null,
-        buyerRegistrationNumber: null,
+        // India optional GSTIN reuses this column (overseas uses it for trade licence).
+        buyerRegistrationNumber: parsed.value.gstin,
         buyerWebsite: null,
       },
     });

@@ -18,7 +18,7 @@ export function isIndiaBuyerActivated(userId: number | undefined): boolean {
   return sessionStorage.getItem(INDIA_BUYER_KEY) === String(userId);
 }
 
-/** Buyers must finish the ~2 min verify (India one-tap or overseas OTP) before sourcing. */
+/** Buyers must finish verify (India details form or overseas OTP) before sourcing. */
 export function needsBuyerKyc(
   user:
     | Pick<AuthUser, "id" | "role" | "buyerEnabled" | "buyerKycCompleted" | "buyerCountry">
